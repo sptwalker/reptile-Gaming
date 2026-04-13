@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蜥蜴 - 鼠标牵引游戏</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #101018;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow-y: auto;
+        }
+        #canvas {
+            border: 2px solid #222;
+            background: #0a0a10;
+            cursor: grab;
+        }
+        #canvas:active { cursor: grabbing; }
+
+        #controlPanel {
+            width: 1200px;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 16px;
+            align-items: flex-start;
+        }
+        #controlPanel h3 {
+            width: 100%;
+            color: #8ab4f8;
+            font: bold 13px sans-serif;
+            margin: 6px 0 2px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #2a2a44;
+        }
+        #controlPanel h3:first-child { margin-top: 0; }
+        .param-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #12121e;
+            border-radius: 5px;
+            padding: 4px 8px;
+        }
+        .param-item label {
+            color: #aab;
+            font: 12px sans-serif;
+            white-space: nowrap;
+            min-width: 80px;
+        }
+        .param-input-wrap {
+            display: flex;
+            align-items: center;
+            border: 1px solid #444;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #0e0e18;
+        }
+        .param-input-wrap input[type="number"] {
+            width: 68px;
+            background: transparent;
+            border: none;
+            color: #eee;
+            font: 13px monospace;
+            text-align: center;
+            padding: 3px 2px;
+            outline: none;
+            -moz-appearance: textfield;
+        }
+        .param-input-wrap input[type="number"]::-webkit-inner-spin-button,
+        .param-input-wrap input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+        }
+        .param-btn-col {
+            display: flex;
+            flex-direction: column;
+        }
+        .param-btn-col button {
+            width: 20px;
+            height: 14px;
+            background: #2a2a44;
+            border: none;
+            color: #8ab4f8;
+            font-size: 8px;
+            line-height: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .param-btn-col button:hover { background: #3a3a66; }
+        .param-btn-col button:active { background: #4a4a88; }
+        #saveBtn {
+            background: #2d6a4f;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 20px;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+            margin-left: auto;
+            align-self: center;
+        }
+        #saveBtn:hover { background: #3a8963; }
+        #saveBtn:active { background: #1b4332; }
+        #exportBtn, #importBtn {
+            background: #2a4a6b;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 16px;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+            align-self: center;
+        }
+        #exportBtn:hover, #importBtn:hover { background: #3a6a9b; }
+        #exportBtn:active, #importBtn:active { background: #1a3a5b; }
+        #saveMsg {
+            color: #6fcf97;
+            font: 12px sans-serif;
+            align-self: center;
+            margin-left: 8px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #actionBar {
+            width: 1200px;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 10px 20px;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        #actionBar label {
+            color: #aab;
+            font: 13px sans-serif;
+        }
+        .action-btn {
+            padding: 6px 22px;
+            border: none;
+            border-radius: 5px;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+            color: #fff;
+        }
+        #startBtn { background: #2d6a4f; }
+        #startBtn:hover { background: #3a8963; }
+        #startBtn.active { background: #b85c2f; }
+        #startBtn.active:hover { background: #d4713a; }
+        #activityInput {
+            width: 50px;
+            background: #0e0e18;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eee;
+            font: 13px monospace;
+            text-align: center;
+            padding: 4px;
+            outline: none;
+        }
+        .action-hint {
+            color: #666;
+            font: 12px sans-serif;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+<canvas id="canvas" width="1200" height="700"></canvas>
+
+<div id="actionBar">
+    <button class="action-btn" id="startBtn" onclick="toggleAI()">启动</button>
+    <label>活跃度</label>
+    <input type="number" id="activityInput" min="1" max="10" value="5">
+    <span class="action-hint">点击画布放置光点引诱蜥蜴</span>
+</div>
+
+<div id="controlPanel">
+    <h3>基础参数</h3>
+    <div class="param-item"><label>脊椎段长</label><div class="param-input-wrap"><input type="number" id="p_segLen" step="1"><div class="param-btn-col"><button onclick="stepParam('p_segLen',1)">&#9650;</button><button onclick="stepParam('p_segLen',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>最大速度</label><div class="param-input-wrap"><input type="number" id="p_maxSpd" step="1"><div class="param-btn-col"><button onclick="stepParam('p_maxSpd',1)">&#9650;</button><button onclick="stepParam('p_maxSpd',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>大腿长度</label><div class="param-input-wrap"><input type="number" id="p_leg1" step="1"><div class="param-btn-col"><button onclick="stepParam('p_leg1',1)">&#9650;</button><button onclick="stepParam('p_leg1',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>小腿长度</label><div class="param-input-wrap"><input type="number" id="p_leg2" step="1"><div class="param-btn-col"><button onclick="stepParam('p_leg2',1)">&#9650;</button><button onclick="stepParam('p_leg2',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>迈步距离</label><div class="param-input-wrap"><input type="number" id="p_stepDist" step="1"><div class="param-btn-col"><button onclick="stepParam('p_stepDist',1)">&#9650;</button><button onclick="stepParam('p_stepDist',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>迈步速度</label><div class="param-input-wrap"><input type="number" id="p_stepSpd" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_stepSpd',0.01)">&#9650;</button><button onclick="stepParam('p_stepSpd',-0.01)">&#9660;</button></div></div></div>
+
+    <h3>蛇形摆动</h3>
+    <div class="param-item"><label>摆动振幅</label><div class="param-input-wrap"><input type="number" id="p_serpAmp" step="0.5"><div class="param-btn-col"><button onclick="stepParam('p_serpAmp',0.5)">&#9650;</button><button onclick="stepParam('p_serpAmp',-0.5)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>摆动频率</label><div class="param-input-wrap"><input type="number" id="p_serpFreq" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_serpFreq',0.01)">&#9650;</button><button onclick="stepParam('p_serpFreq',-0.01)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>波传播速度</label><div class="param-input-wrap"><input type="number" id="p_serpSpd" step="0.1"><div class="param-btn-col"><button onclick="stepParam('p_serpSpd',0.1)">&#9650;</button><button onclick="stepParam('p_serpSpd',-0.1)">&#9660;</button></div></div></div>
+
+    <h3>碰撞避免</h3>
+    <div class="param-item"><label>碰撞边距</label><div class="param-input-wrap"><input type="number" id="p_colMargin" step="1"><div class="param-btn-col"><button onclick="stepParam('p_colMargin',1)">&#9650;</button><button onclick="stepParam('p_colMargin',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>跳过头节点</label><div class="param-input-wrap"><input type="number" id="p_headSkip" step="1"><div class="param-btn-col"><button onclick="stepParam('p_headSkip',1)">&#9650;</button><button onclick="stepParam('p_headSkip',-1)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>转向力度</label><div class="param-input-wrap"><input type="number" id="p_steer" step="0.05"><div class="param-btn-col"><button onclick="stepParam('p_steer',0.05)">&#9650;</button><button onclick="stepParam('p_steer',-0.05)">&#9660;</button></div></div></div>
+
+    <h3>关节约束 (弧度)</h3>
+    <div class="param-item"><label>颈部弯折</label><div class="param-input-wrap"><input type="number" id="p_bendNeck" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendNeck',0.01)">&#9650;</button><button onclick="stepParam('p_bendNeck',-0.01)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>前肩弯折</label><div class="param-input-wrap"><input type="number" id="p_bendShoulder" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendShoulder',0.01)">&#9650;</button><button onclick="stepParam('p_bendShoulder',-0.01)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>躯干弯折</label><div class="param-input-wrap"><input type="number" id="p_bendTorso" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendTorso',0.01)">&#9650;</button><button onclick="stepParam('p_bendTorso',-0.01)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>后臀弯折</label><div class="param-input-wrap"><input type="number" id="p_bendHip" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendHip',0.01)">&#9650;</button><button onclick="stepParam('p_bendHip',-0.01)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>尾巴弯折</label><div class="param-input-wrap"><input type="number" id="p_bendTail" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendTail',0.01)">&#9650;</button><button onclick="stepParam('p_bendTail',-0.01)">&#9660;</button></div></div></div>
+
+    <button id="saveBtn" onclick="saveParams()">保存设置</button>
+    <button id="exportBtn" onclick="exportParams()">导出</button>
+    <button id="importBtn" onclick="document.getElementById('importFile').click()">导入</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importParams(event)">
+    <span id="saveMsg">已保存!</span>
+</div>
+
+<script>
+// ====================== 【可调整参数】 ======================
+const SPINE_NODE_COUNT = 22;
+let SEGMENT_LENGTH   = 18;
+let MAX_SPEED        = 10;
+let LEG_LENGTH1      = 38;
+let LEG_LENGTH2      = 34;
+let STEP_DISTANCE    = 50;
+let STEP_SPEED       = 0.18;
+// ============== 蛇形摆动参数 ==============
+let SERPENTINE_AMP     = 12.0;
+let SERPENTINE_FREQ    = 0.18;
+let SERPENTINE_SPEED   = 3.0;
+// ==========================================================
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let mouseX   = canvas.width / 2;
+let mouseY   = canvas.height / 2;
+let mouseDown = false;
+let serpentinePhase = 0;
+let headSpeed = 0;
+let prevHeadX = 0, prevHeadY = 0;
+
+// ============== AI 游走系统 ==============
+let aiActive = false;
+let aiWanderAngle = 0;
+let aiTurnTimer = 0;
+let aiSpeedRamp = 1;        // 速度缓启动系数 0→1
+
+// AI 暂停张望状态
+let aiPauseTimer = 0;       // >0 时正在暂停张望
+let aiPauseCooldown = 0;    // >0 时暂停冷却中，不会再次暂停
+let aiPauseDone = 0;        // 暂停总时长（用于计算阶段）
+let aiWillLook = false;     // 本次暂停是否张望
+let aiLookDir = 1;          // 张望方向 1/-1
+let aiLookPhase = 0;        // 张望摆动相位
+let aiLookBaseAngle = 0;    // 张望时的基准朝向
+let aiLookOffset = 0;       // 当前张望角度偏移（供头部绘制使用）
+let aiLookTarget = 0;       // 张望目标角度
+let aiLookSpeed = 0;        // 当前张望插值速度
+let aiLookHoldTimer = 0;    // 在某个方向停留的帧数
+// 张望时头部节点的视觉偏移（不修改实际物理位置）
+const lookOffsets = [];
+
+// ============== 光点系统 ==============
+const lightDots = [];
+const LIGHT_DOT_RADIUS = 6;
+const LIGHT_DOT_SPEED  = 0.4;
+const CHASE_SPEED_MULT = 1.8;
+const DETECT_RANGE     = 350;
+
+// 蜥蜴身体宽度轮廓（按脊椎节点索引映射宽度）
+// 头 → 颈 → 前肩 → 胸 → 腰 → 后臀 → 尾巴渐细
+function bodyWidthAt(i) {
+    const n = SPINE_NODE_COUNT - 1;
+    const t = i / n;
+    if (t < 0.05) return lerp(10, 14, t / 0.05);   // 鼻尖→头
+    if (t < 0.12) return lerp(14, 18, (t-0.05)/0.07); // 头膨大
+    if (t < 0.18) return lerp(18, 10, (t-0.12)/0.06); // 头→颈收窄
+    if (t < 0.28) return lerp(10, 16, (t-0.18)/0.10); // 颈→前肩展开
+    if (t < 0.38) return lerp(16, 14, (t-0.28)/0.10); // 前肩→胸
+    if (t < 0.50) return lerp(14, 15, (t-0.38)/0.12); // 胸→后臀
+    if (t < 0.60) return lerp(15, 12, (t-0.50)/0.10); // 后臀→尾根
+    // 尾巴渐细
+    return lerp(12, 1, (t - 0.60) / 0.40);
+}
+
+const spine = [];
+
+// 四条腿：前腿绑定靠前节点，后腿绑定靠后节点，间距拉开
+const legs = [
+    { spineIndex: 5,  side:  1, pairId: 0, target:{x:0,y:0}, foot:{x:0,y:0}, stepping:false, stepT:0 },
+    { spineIndex: 5,  side: -1, pairId: 0, target:{x:0,y:0}, foot:{x:0,y:0}, stepping:false, stepT:0 },
+    { spineIndex: 11, side:  1, pairId: 1, target:{x:0,y:0}, foot:{x:0,y:0}, stepping:false, stepT:0 },
+    { spineIndex: 11, side: -1, pairId: 1, target:{x:0,y:0}, foot:{x:0,y:0}, stepping:false, stepT:0 },
+];
+
+function initSpine() {
+    for (let i = 0; i < SPINE_NODE_COUNT; i++) {
+        spine.push({ x: canvas.width/2 - i * SEGMENT_LENGTH, y: canvas.height/2 });
+    }
+}
+
+function initLegs() {
+    legs.forEach(leg => {
+        const hip = getHip(leg);
+        leg.target.x = hip.x;
+        leg.target.y = hip.y;
+        leg.foot.x   = hip.x;
+        leg.foot.y   = hip.y;
+    });
+}
+
+// 鼠标事件
+let mouseDragStart = null;
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+canvas.addEventListener('mousedown', e => {
+    if (e.button === 0) {
+        mouseDown = true;
+        const rect = canvas.getBoundingClientRect();
+        mouseDragStart = { x: e.clientX - rect.left, y: e.clientY - rect.top, time: Date.now() };
+    }
+});
+canvas.addEventListener('mouseup', e => {
+    if (e.button === 0) {
+        mouseDown = false;
+        if (mouseDragStart) {
+            const rect = canvas.getBoundingClientRect();
+            const upX = e.clientX - rect.left;
+            const upY = e.clientY - rect.top;
+            const dragDist = Math.hypot(upX - mouseDragStart.x, upY - mouseDragStart.y);
+            const dragTime = Date.now() - mouseDragStart.time;
+            // 短距离短时间 = 点击 → 放置光点
+            if (dragDist < 10 && dragTime < 300) {
+                lightDots.push({
+                    x: upX, y: upY,
+                    vx: (Math.random() - 0.5) * LIGHT_DOT_SPEED * 2,
+                    vy: (Math.random() - 0.5) * LIGHT_DOT_SPEED * 2,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+            mouseDragStart = null;
+        }
+    }
+});
+canvas.addEventListener('mouseleave', () => { mouseDown = false; mouseDragStart = null; });
+
+// 获取脊椎在某节点处的朝向角度
+function spineAngleAt(idx) {
+    const prev = spine[Math.max(0, idx - 1)];
+    const next = spine[Math.min(spine.length - 1, idx + 1)];
+    return Math.atan2(prev.y - next.y, prev.x - next.x);
+}
+
+// 获取髋关节位置（在身体侧面）
+function getHip(leg) {
+    const node = spine[leg.spineIndex];
+    const angle = spineAngleAt(leg.spineIndex);
+    const perp = angle + Math.PI / 2 * leg.side;
+    const w = bodyWidthAt(leg.spineIndex);
+    return {
+        x: node.x + Math.cos(perp) * w,
+        y: node.y + Math.sin(perp) * w
+    };
+}
+
+// ============== 自碰撞避免系统 ==============
+let COLLISION_MARGIN  = 6;
+let HEAD_SKIP_NODES   = 4;
+let STEER_STRENGTH    = 0.85;
+
+// 检测线段 (p1→p2) 是否与圆 (center, radius) 相交
+function segmentIntersectsCircle(p1x, p1y, p2x, p2y, cx, cy, r) {
+    const ex = p2x - p1x, ey = p2y - p1y;
+    const fx = p1x - cx,  fy = p1y - cy;
+    const a = ex * ex + ey * ey;
+    const b = 2 * (fx * ex + fy * ey);
+    const c = fx * fx + fy * fy - r * r;
+    let disc = b * b - 4 * a * c;
+    if (disc < 0) return false;
+    disc = Math.sqrt(disc);
+    const t1 = (-b - disc) / (2 * a);
+    const t2 = (-b + disc) / (2 * a);
+    return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1) || (t1 < 0 && t2 > 1);
+}
+
+// 计算头部移动方向，避免穿越自身身体
+function computeAvoidanceDir(head, targetX, targetY) {
+    const dx = targetX - head.x;
+    const dy = targetY - head.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) return { x: 0, y: 0, blocked: false };
+
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+    const lookAhead = Math.min(dist, MAX_SPEED * 4);
+
+    // 预测头部前方位置
+    const aheadX = head.x + dirX * lookAhead;
+    const aheadY = head.y + dirY * lookAhead;
+
+    // 检测前方路径是否穿过身体的任一节点
+    let blocked = false;
+    let bestSteerX = 0, bestSteerY = 0;
+    let closestBlockDist = Infinity;
+
+    for (let i = HEAD_SKIP_NODES; i < spine.length - 3; i++) {
+        const node = spine[i];
+        const r = bodyWidthAt(i) + COLLISION_MARGIN;
+
+        if (segmentIntersectsCircle(head.x, head.y, aheadX, aheadY, node.x, node.y, r)) {
+            // 该节点阻挡了前进路径
+            const dToNode = Math.hypot(node.x - head.x, node.y - head.y);
+            if (dToNode < closestBlockDist) {
+                closestBlockDist = dToNode;
+                blocked = true;
+
+                // 计算绕行方向：取头→障碍节点的垂直方向，选择更接近目标的一侧
+                const toNodeX = node.x - head.x;
+                const toNodeY = node.y - head.y;
+                const toNodeDist = Math.hypot(toNodeX, toNodeY) || 1;
+
+                // 两个垂直方向
+                const perpLX = -toNodeY / toNodeDist;
+                const perpLY =  toNodeX / toNodeDist;
+                const perpRX =  toNodeY / toNodeDist;
+                const perpRY = -toNodeX / toNodeDist;
+
+                // 选择更接近目标方向的垂直方向
+                const dotL = perpLX * dirX + perpLY * dirY;
+                const dotR = perpRX * dirX + perpRY * dirY;
+
+                if (dotL >= dotR) {
+                    bestSteerX = perpLX;
+                    bestSteerY = perpLY;
+                } else {
+                    bestSteerX = perpRX;
+                    bestSteerY = perpRY;
+                }
+            }
+        }
+    }
+
+    if (blocked) {
+        // 混合原方向和绕行方向
+        const blendX = dirX * (1 - STEER_STRENGTH) + bestSteerX * STEER_STRENGTH;
+        const blendY = dirY * (1 - STEER_STRENGTH) + bestSteerY * STEER_STRENGTH;
+        const blendDist = Math.hypot(blendX, blendY) || 1;
+        return { x: blendX / blendDist, y: blendY / blendDist, blocked: true };
+    }
+
+    return { x: dirX, y: dirY, blocked: false };
+}
+
+// 对脊椎节点施加自碰撞排斥力，防止身体重叠
+function resolveBodyCollisions() {
+    for (let i = 0; i < spine.length; i++) {
+        const ri = bodyWidthAt(i);
+        for (let j = i + 3; j < spine.length; j++) {
+            const rj = bodyWidthAt(j);
+            const minDist = (ri + rj) * 0.7;
+            const dx = spine[j].x - spine[i].x;
+            const dy = spine[j].y - spine[i].y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < minDist && dist > 0.1) {
+                const overlap = (minDist - dist) * 0.3;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                // 只推后面的节点（前面的已经定位好了）
+                spine[j].x += nx * overlap;
+                spine[j].y += ny * overlap;
+            }
+        }
+    }
+}
+
+// ============== 关节角度约束系统 ==============
+let BEND_NECK     = 0.455;
+let BEND_SHOULDER = 0.286;
+let BEND_TORSO    = 0.234;
+let BEND_HIP      = 0.286;
+let BEND_TAIL     = 0.52;
+
+function maxBendAngleAt(i) {
+    const n = SPINE_NODE_COUNT - 1;
+    const t = i / n;
+    if (t < 0.15) return BEND_NECK;
+    if (t < 0.30) return BEND_SHOULDER;
+    if (t < 0.55) return BEND_TORSO;
+    if (t < 0.65) return BEND_HIP;
+    return BEND_TAIL;
+}
+
+// 计算从角度a到角度b的最短有符号角度差
+function angleDiff(a, b) {
+    let d = b - a;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+}
+
+// 对脊椎施加角度约束，防止过度弯折
+// 从前向后传播：如果某个关节弯折过大，将后续节点旋转回来
+function enforceAngleConstraints() {
+    for (let i = 1; i < spine.length - 1; i++) {
+        const prev = spine[i - 1];
+        const curr = spine[i];
+        const next = spine[i + 1];
+
+        // 前一段方向
+        const anglePrev = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+        // 当前段方向
+        const angleCurr = Math.atan2(next.y - curr.y, next.x - curr.x);
+
+        // 弯折量 = 两段之间的角度差
+        const bend = angleDiff(anglePrev, angleCurr);
+        const maxBend = maxBendAngleAt(i);
+
+        if (Math.abs(bend) > maxBend) {
+            // 超出限制，将当前段角度钳制到最大允许弯折
+            const clampedBend = Math.sign(bend) * maxBend;
+            const newAngle = anglePrev + clampedBend;
+
+            // 重新定位 next 节点
+            next.x = curr.x + Math.cos(newAngle) * SEGMENT_LENGTH;
+            next.y = curr.y + Math.sin(newAngle) * SEGMENT_LENGTH;
+        }
+    }
+}
+
+// ============== AI 游走 + 光点追逐 ==============
+function getActivity() {
+    const v = parseInt(document.getElementById('activityInput').value) || 5;
+    return Math.max(1, Math.min(10, v));
+}
+
+function toggleAI() {
+    aiActive = !aiActive;
+    const btn = document.getElementById('startBtn');
+    if (aiActive) {
+        btn.textContent = '停止';
+        btn.classList.add('active');
+        aiWanderAngle = Math.atan2(
+            spine[0].y - spine[2].y,
+            spine[0].x - spine[2].x
+        );
+    } else {
+        btn.textContent = '启动';
+        btn.classList.remove('active');
+        // 停止时清除所有张望状态
+        aiPauseTimer = 0;
+        aiPauseDone = 0;
+        aiWillLook = false;
+        aiLookOffset = 0;
+        aiLookPhase = 0;
+        aiLookTarget = 0;
+        aiLookHoldTimer = 0;
+    }
+}
+
+function updateLightDots() {
+    for (let i = lightDots.length - 1; i >= 0; i--) {
+        const dot = lightDots[i];
+        dot.phase += 0.03;
+        // 缓慢随机漂移
+        dot.vx += (Math.random() - 0.5) * 0.08;
+        dot.vy += (Math.random() - 0.5) * 0.08;
+        const spd = Math.hypot(dot.vx, dot.vy);
+        if (spd > LIGHT_DOT_SPEED) {
+            dot.vx = (dot.vx / spd) * LIGHT_DOT_SPEED;
+            dot.vy = (dot.vy / spd) * LIGHT_DOT_SPEED;
+        }
+        dot.x += dot.vx;
+        dot.y += dot.vy;
+        // 边界反弹
+        if (dot.x < 20 || dot.x > canvas.width - 20) dot.vx *= -1;
+        if (dot.y < 20 || dot.y > canvas.height - 20) dot.vy *= -1;
+        dot.x = Math.max(10, Math.min(canvas.width - 10, dot.x));
+        dot.y = Math.max(10, Math.min(canvas.height - 10, dot.y));
+
+        // 检测是否被蜥蜴头部触碰
+        const hd = Math.hypot(dot.x - spine[0].x, dot.y - spine[0].y);
+        if (hd < bodyWidthAt(0) + LIGHT_DOT_RADIUS + 5) {
+            lightDots.splice(i, 1);
+        }
+    }
+}
+
+function drawLightDots() {
+    lightDots.forEach(dot => {
+        const pulse = 0.6 + 0.4 * Math.sin(dot.phase * 4);
+        const r = LIGHT_DOT_RADIUS * pulse;
+        // 外发光
+        const glow = ctx.createRadialGradient(dot.x, dot.y, 0, dot.x, dot.y, r * 4);
+        glow.addColorStop(0, 'rgba(255,220,100,0.5)');
+        glow.addColorStop(0.5, 'rgba(255,180,50,0.15)');
+        glow.addColorStop(1, 'rgba(255,150,0,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, r * 4, 0, Math.PI * 2);
+        ctx.fill();
+        // 核心
+        ctx.fillStyle = `rgba(255,240,180,${0.7 + 0.3 * pulse})`;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, r, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+function findNearestDot(head) {
+    let best = null, bestDist = Infinity;
+    for (const dot of lightDots) {
+        const d = Math.hypot(dot.x - head.x, dot.y - head.y);
+        if (d < DETECT_RANGE && d < bestDist) {
+            bestDist = d;
+            best = dot;
+        }
+    }
+    return best;
+}
+
+function computeAITarget(head) {
+    const activity = getActivity();
+    const wanderSpeed = MAX_SPEED * (0.15 + activity * 0.06);
+    const turnChance = 0.005 + activity * 0.004;
+
+    // 优先追逐光点（发现光点时中断暂停）
+    const dot = findNearestDot(head);
+    if (dot) {
+        aiPauseTimer = 0;
+        const dx = dot.x - head.x;
+        const dy = dot.y - head.y;
+        const dist = Math.hypot(dx, dy);
+        const chaseSpeed = Math.min(dist, MAX_SPEED * CHASE_SPEED_MULT);
+        return { tx: head.x + (dx / dist) * chaseSpeed, ty: head.y + (dy / dist) * chaseSpeed, speed: chaseSpeed };
+    }
+
+    // ---- 暂停张望逻辑 ----
+    if (aiPauseCooldown > 0) aiPauseCooldown--;
+
+    if (aiPauseTimer > 0) {
+        aiPauseTimer--;
+        const total = aiPauseDone;
+        const elapsed = total - aiPauseTimer;
+        const waitFrames = total * 0.15;
+
+        if (!aiWillLook || elapsed < waitFrames) {
+            // 纯静止 或 等待阶段
+            aiLookOffset *= 0.92;
+        } else {
+            // 张望阶段 — 关键帧驱动，完全随机
+            const fadeIn = Math.min(1, (elapsed - waitFrames) / 20);
+            const fadeOut = Math.min(1, aiPauseTimer / 20);
+            const envelope = fadeIn * fadeOut;
+
+            if (aiLookHoldTimer > 0) {
+                aiLookHoldTimer--;
+            } else {
+                // 完全随机目标：-0.7 ~ +0.7 弧度，不偏向反方向
+                // 允许同方向连续转动多次
+                aiLookTarget = (Math.random() - 0.5) * 1.4;
+                // 速度随机：极慢0.008 到 快速0.2（偏慢分布）
+                const r = Math.random();
+                aiLookSpeed = r < 0.6 ? (0.008 + r * 0.03)   // 60%概率慢速
+                            : r < 0.85 ? (0.03 + (r - 0.6) * 0.2)  // 25%中速
+                            : (0.1 + (r - 0.85) * 0.7);  // 15%快速突转
+                // 停留时间：10~80帧
+                aiLookHoldTimer = Math.floor(10 + Math.random() * 70);
+            }
+
+            // 平滑插值到目标
+            aiLookOffset += (aiLookTarget * envelope - aiLookOffset) * aiLookSpeed;
+        }
+
+        // 张望结束
+        if (aiPauseTimer <= 0) {
+            aiWanderAngle = aiLookBaseAngle + aiLookOffset * 2.0;
+            aiLookOffset = 0;
+            aiPauseDone = 0;
+            aiSpeedRamp = 0;
+        }
+
+        return { tx: head.x, ty: head.y, speed: 0 };
+    }
+
+    // 非张望状态，偏移缓慢归零
+    aiLookOffset *= 0.92;
+
+    // 随机触发暂停（活跃度越低频率越高）
+    if (aiPauseCooldown <= 0) {
+        const pauseChance = 0.002 + (10 - activity) * 0.003;
+        if (Math.random() < pauseChance) {
+            const duration = Math.floor(80 + Math.random() * (160 - activity * 12));
+            aiPauseTimer = duration;
+            aiPauseDone = duration;
+            aiPauseCooldown = 150 + activity * 30;
+            // 只有约40%的暂停会张望，其余纯静止
+            aiWillLook = Math.random() < 0.4;
+            aiLookTarget = 0;
+            aiLookHoldTimer = 0;
+            aiLookBaseAngle = Math.atan2(
+                spine[0].y - spine[2].y,
+                spine[0].x - spine[2].x
+            );
+            return {
+                tx: head.x,
+                ty: head.y,
+                speed: 0
+            };
+        }
+    }
+
+    // ---- 随机游走 ----
+    // 缓启动：暂停结束后速度从0渐增到1
+    aiSpeedRamp = Math.min(1, aiSpeedRamp + 0.02);
+
+    aiTurnTimer--;
+    if (aiTurnTimer <= 0 || Math.random() < turnChance) {
+        aiWanderAngle += (Math.random() - 0.5) * (0.5 + activity * 0.15);
+        aiTurnTimer = 30 + Math.random() * 60;
+    }
+
+    // 边界柔性折返（渐进式强力转向）
+    const softMargin = 100;
+    const hardMargin = 30;
+    let bx = 0, by = 0;
+    if (head.x < softMargin) {
+        const strength = Math.pow(1 - Math.max(0, head.x - hardMargin) / (softMargin - hardMargin), 2);
+        bx += strength;
+    }
+    if (head.x > canvas.width - softMargin) {
+        const strength = Math.pow(1 - Math.max(0, (canvas.width - head.x) - hardMargin) / (softMargin - hardMargin), 2);
+        bx -= strength;
+    }
+    if (head.y < softMargin) {
+        const strength = Math.pow(1 - Math.max(0, head.y - hardMargin) / (softMargin - hardMargin), 2);
+        by += strength;
+    }
+    if (head.y > canvas.height - softMargin) {
+        const strength = Math.pow(1 - Math.max(0, (canvas.height - head.y) - hardMargin) / (softMargin - hardMargin), 2);
+        by -= strength;
+    }
+    const bLen = Math.hypot(bx, by);
+    if (bLen > 0.01) {
+        const targetAngle = Math.atan2(by, bx);
+        // 边界越近，插值力度越大
+        const blendFactor = Math.min(1, bLen * 0.6);
+        let diff = targetAngle - aiWanderAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        aiWanderAngle += diff * blendFactor;
+    }
+
+    const rampedSpeed = wanderSpeed * aiSpeedRamp;
+    return {
+        tx: head.x + Math.cos(aiWanderAngle) * rampedSpeed,
+        ty: head.y + Math.sin(aiWanderAngle) * rampedSpeed,
+        speed: rampedSpeed
+    };
+}
+
+function updateSpine() {
+    const head = spine[0];
+
+    const hdx = head.x - prevHeadX;
+    const hdy = head.y - prevHeadY;
+    headSpeed = Math.hypot(hdx, hdy);
+    prevHeadX = head.x;
+    prevHeadY = head.y;
+
+    // 移动头部
+    let moved = false;
+    if (mouseDown && mouseDragStart && Math.hypot(mouseX - mouseDragStart.x, mouseY - mouseDragStart.y) > 8) {
+        // 鼠标拖拽模式
+        const avoidDir = computeAvoidanceDir(head, mouseX, mouseY);
+        const dx = mouseX - head.x;
+        const dy = mouseY - head.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 1) {
+            const move = Math.min(dist, MAX_SPEED);
+            head.x += avoidDir.x * move;
+            head.y += avoidDir.y * move;
+            moved = true;
+        }
+    } else if (aiActive) {
+        // AI 游走模式
+        const ai = computeAITarget(head);
+        const avoidDir = computeAvoidanceDir(head, ai.tx, ai.ty);
+        const dx = ai.tx - head.x;
+        const dy = ai.ty - head.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 1) {
+            const move = Math.min(dist, ai.speed);
+            head.x += avoidDir.x * move;
+            head.y += avoidDir.y * move;
+            moved = true;
+        }
+    }
+
+    // 头部围栏柔性反弹
+    const FENCE = 10;
+    const BOUNCE_ZONE = 40;
+    const BOUNCE_FORCE = 2.5;
+    let pushX = 0, pushY = 0;
+    if (head.x < FENCE + BOUNCE_ZONE) {
+        const depth = 1 - Math.max(0, head.x - FENCE) / BOUNCE_ZONE;
+        pushX += depth * depth * BOUNCE_FORCE;
+    }
+    if (head.x > canvas.width - FENCE - BOUNCE_ZONE) {
+        const depth = 1 - Math.max(0, (canvas.width - FENCE) - head.x) / BOUNCE_ZONE;
+        pushX -= depth * depth * BOUNCE_FORCE;
+    }
+    if (head.y < FENCE + BOUNCE_ZONE) {
+        const depth = 1 - Math.max(0, head.y - FENCE) / BOUNCE_ZONE;
+        pushY += depth * depth * BOUNCE_FORCE;
+    }
+    if (head.y > canvas.height - FENCE - BOUNCE_ZONE) {
+        const depth = 1 - Math.max(0, (canvas.height - FENCE) - head.y) / BOUNCE_ZONE;
+        pushY -= depth * depth * BOUNCE_FORCE;
+    }
+    head.x += pushX;
+    head.y += pushY;
+    // AI模式下碰到边界自动修正游走角度
+    if (aiActive && (Math.abs(pushX) > 0.1 || Math.abs(pushY) > 0.1)) {
+        aiWanderAngle = Math.atan2(pushY, pushX);
+    }
+    // 安全兜底钳制
+    head.x = Math.max(FENCE, Math.min(canvas.width - FENCE, head.x));
+    head.y = Math.max(FENCE, Math.min(canvas.height - FENCE, head.y));
+
+    serpentinePhase += headSpeed * 0.12;
+
+    // 基础跟随约束
+    for (let i = 1; i < spine.length; i++) {
+        const prev = spine[i-1];
+        const curr = spine[i];
+        const dx = prev.x - curr.x;
+        const dy = prev.y - curr.y;
+        const angle = Math.atan2(dy, dx);
+        curr.x = prev.x - Math.cos(angle) * SEGMENT_LENGTH;
+        curr.y = prev.y - Math.sin(angle) * SEGMENT_LENGTH;
+    }
+
+    // 蛇形摆动
+    const moveRatio = Math.min(1, headSpeed / (MAX_SPEED * 0.3));
+    if (moveRatio > 0.01) {
+        for (let i = 3; i < spine.length; i++) {
+            const prev = spine[i-1];
+            const curr = spine[i];
+            const segAngle = Math.atan2(prev.y - curr.y, prev.x - curr.x);
+            const perpX = -Math.sin(segAngle);
+            const perpY =  Math.cos(segAngle);
+            const t = i / (spine.length - 1);
+            const ampRamp = Math.min(1, (t - 0.12) / 0.15);
+            const tailBoost = 1 + t * 0.8;
+            const amp = SERPENTINE_AMP * ampRamp * tailBoost * moveRatio;
+            const wave = Math.sin(serpentinePhase * SERPENTINE_SPEED - i * SERPENTINE_FREQ);
+            curr.x += perpX * wave * amp;
+            curr.y += perpY * wave * amp;
+        }
+    }
+
+    const CONSTRAINT_ITERATIONS = 3;
+    for (let iter = 0; iter < CONSTRAINT_ITERATIONS; iter++) {
+        enforceAngleConstraints();
+        for (let i = 1; i < spine.length; i++) {
+            const prev = spine[i-1];
+            const curr = spine[i];
+            const dx = prev.x - curr.x;
+            const dy = prev.y - curr.y;
+            const angle = Math.atan2(dy, dx);
+            curr.x = prev.x - Math.cos(angle) * SEGMENT_LENGTH;
+            curr.y = prev.y - Math.sin(angle) * SEGMENT_LENGTH;
+        }
+    }
+
+    resolveBodyCollisions();
+
+    // 计算张望时头部节点的视觉偏移（不修改物理位置，避免累积卷曲）
+    lookOffsets.length = 0;
+    if (Math.abs(aiLookOffset) > 0.01) {
+        const lookNodes = 3; // 只影响头和颈（前3个节点）
+        const pivot = spine[lookNodes]; // 以第3节点为旋转支点
+        for (let i = 0; i < lookNodes; i++) {
+            const node = spine[i];
+            const dx = node.x - pivot.x;
+            const dy = node.y - pivot.y;
+            const dist = Math.hypot(dx, dy);
+            const baseAngle = Math.atan2(dy, dx);
+            const factor = (lookNodes - i) / lookNodes;
+            const rotAngle = aiLookOffset * factor;
+            lookOffsets[i] = {
+                x: pivot.x + Math.cos(baseAngle + rotAngle) * dist - node.x,
+                y: pivot.y + Math.sin(baseAngle + rotAngle) * dist - node.y
+            };
+        }
+    }
+
+    // 全部脊椎节点围栏钳制
+    for (let i = 0; i < spine.length; i++) {
+        spine[i].x = Math.max(FENCE, Math.min(canvas.width - FENCE, spine[i].x));
+        spine[i].y = Math.max(FENCE, Math.min(canvas.height - FENCE, spine[i].y));
+    }
+}
+
+// IK求解器，side控制膝盖弯曲方向
+function solveIK(hip, foot, len1, len2, bendDir) {
+    const dx = foot.x - hip.x;
+    const dy = foot.y - hip.y;
+    const dist = Math.hypot(dx, dy);
+    const clampedDist = Math.max(Math.abs(len1 - len2) + 1, Math.min(len1 + len2 - 1, dist));
+    const angleTarget = Math.atan2(dy, dx);
+    const cosAngle = (len1*len1 + clampedDist*clampedDist - len2*len2) / (2 * len1 * clampedDist);
+    const angleHip = Math.acos(Math.min(1, Math.max(-1, cosAngle)));
+    const kneeAngle = angleTarget + angleHip * bendDir;
+    return {
+        x: hip.x + Math.cos(kneeAngle) * len1,
+        y: hip.y + Math.sin(kneeAngle) * len1
+    };
+}
+
+function updateLegs() {
+    legs.forEach((leg, idx) => {
+        const hip = getHip(leg);
+        const dirAngle = spineAngleAt(leg.spineIndex);
+        const perpAngle = dirAngle + Math.PI / 2 * leg.side;
+
+        const distToFoot = Math.hypot(hip.x - leg.target.x, hip.y - leg.target.y);
+
+        // 对角步态：同pairId的对侧腿交替迈步
+        const partner = legs.find(l => l.pairId === leg.pairId && l.side !== leg.side);
+        const canStep = !partner || !partner.stepping;
+
+        if (!leg.stepping && distToFoot > STEP_DISTANCE && canStep) {
+            leg.stepping = true;
+            leg.stepT = 0;
+            leg.startX = leg.target.x;
+            leg.startY = leg.target.y;
+            // 落脚点：侧向偏移 + 前方偏移
+            const reach = LEG_LENGTH1 + LEG_LENGTH2 - 15;
+            leg.endX = hip.x + Math.cos(perpAngle) * reach * 0.6 + Math.cos(dirAngle) * reach * 0.3;
+            leg.endY = hip.y + Math.sin(perpAngle) * reach * 0.6 + Math.sin(dirAngle) * reach * 0.3;
+        }
+
+        if (leg.stepping) {
+            leg.stepT += STEP_SPEED;
+            const t = Math.min(1, leg.stepT);
+            const lift = Math.sin(t * Math.PI) * 14;
+            leg.foot.x = lerp(leg.startX, leg.endX, t);
+            leg.foot.y = lerp(leg.startY, leg.endY, t) - lift;
+            if (t >= 1) {
+                leg.stepping = false;
+                leg.target.x = leg.endX;
+                leg.target.y = leg.endY;
+            }
+        } else {
+            leg.foot.x = leg.target.x;
+            leg.foot.y = leg.target.y;
+        }
+    });
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// 绘制蜥蜴身体轮廓
+function drawBody() {
+    const leftPts  = [];
+    const rightPts = [];
+
+    for (let i = 0; i < spine.length; i++) {
+        const node = spine[i];
+        const next = spine[Math.min(i+1, spine.length-1)];
+        const prev = spine[Math.max(0, i-1)];
+        const angle = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
+        const w = bodyWidthAt(i);
+        leftPts.push({  x: node.x + Math.cos(angle) * w, y: node.y + Math.sin(angle) * w });
+        rightPts.push({ x: node.x - Math.cos(angle) * w, y: node.y - Math.sin(angle) * w });
+    }
+
+    // 蜥蜴皮肤渐变
+    const grad = ctx.createLinearGradient(spine[0].x, spine[0].y - 20, spine[0].x, spine[0].y + 20);
+    grad.addColorStop(0, '#5a8a3c');
+    grad.addColorStop(0.5, '#3d6b2e');
+    grad.addColorStop(1, '#2a4d1f');
+
+    ctx.fillStyle = grad;
+    ctx.strokeStyle = '#2a4d1f';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    // 用曲线平滑左侧
+    ctx.moveTo(leftPts[0].x, leftPts[0].y);
+    for (let i = 1; i < leftPts.length - 1; i++) {
+        const cx = (leftPts[i].x + leftPts[i+1].x) / 2;
+        const cy = (leftPts[i].y + leftPts[i+1].y) / 2;
+        ctx.quadraticCurveTo(leftPts[i].x, leftPts[i].y, cx, cy);
+    }
+    const lastL = leftPts[leftPts.length - 1];
+    ctx.lineTo(lastL.x, lastL.y);
+
+    // 尾尖
+    const tail = spine[spine.length - 1];
+    ctx.lineTo(tail.x, tail.y);
+
+    // 右侧反向
+    const lastR = rightPts[rightPts.length - 1];
+    ctx.lineTo(lastR.x, lastR.y);
+    for (let i = rightPts.length - 2; i > 0; i--) {
+        const cx = (rightPts[i].x + rightPts[i-1].x) / 2;
+        const cy = (rightPts[i].y + rightPts[i-1].y) / 2;
+        ctx.quadraticCurveTo(rightPts[i].x, rightPts[i].y, cx, cy);
+    }
+    ctx.lineTo(rightPts[0].x, rightPts[0].y);
+
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 腹部浅色条纹
+    ctx.fillStyle = 'rgba(120,180,80,0.25)';
+    ctx.beginPath();
+    for (let i = 0; i < spine.length; i++) {
+        const node = spine[i];
+        const next = spine[Math.min(i+1, spine.length-1)];
+        const prev = spine[Math.max(0, i-1)];
+        const angle = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
+        const w = bodyWidthAt(i) * 0.45;
+        const px = node.x + Math.cos(angle) * w;
+        const py = node.y + Math.sin(angle) * w;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    for (let i = spine.length - 1; i >= 0; i--) {
+        const node = spine[i];
+        const next = spine[Math.min(i+1, spine.length-1)];
+        const prev = spine[Math.max(0, i-1)];
+        const angle = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
+        const w = bodyWidthAt(i) * 0.45;
+        const px = node.x - Math.cos(angle) * w;
+        const py = node.y - Math.sin(angle) * w;
+        ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // 背部斑点
+    ctx.fillStyle = 'rgba(30,60,20,0.5)';
+    for (let i = 2; i < spine.length - 4; i += 2) {
+        const w = bodyWidthAt(i) * 0.3;
+        if (w > 2) {
+            ctx.beginPath();
+            ctx.arc(spine[i].x, spine[i].y, w, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+// 绘制蜥蜴头部
+function drawHead() {
+    const head = spine[0];
+    const neck = spine[2];
+    const baseAngle = Math.atan2(head.y - neck.y, head.x - neck.x);
+    // 张望时直接叠加 aiLookOffset 作为绝对旋转角
+    const angle = baseAngle + aiLookOffset;
+
+    // 头部椭圆
+    ctx.save();
+    ctx.translate(head.x, head.y);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = '#4a7a30';
+    ctx.beginPath();
+    ctx.ellipse(8, 0, 16, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2a4d1f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 眼睛
+    ctx.fillStyle = '#ff8800';
+    ctx.beginPath();
+    ctx.ellipse(12, -8, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(12, 8, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 瞳孔
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.ellipse(13, -8, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(13, 8, 2, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 鼻孔
+    ctx.fillStyle = '#1a3010';
+    ctx.beginPath();
+    ctx.arc(22, -3, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(22, 3, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// 绘制腿部
+function drawLegs() {
+    legs.forEach(leg => {
+        const hip = getHip(leg);
+        const bendDir = -leg.side;
+        const knee = solveIK(hip, leg.foot, LEG_LENGTH1, LEG_LENGTH2, bendDir);
+
+        // 大腿
+        ctx.strokeStyle = '#3d6b2e';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(hip.x, hip.y);
+        ctx.lineTo(knee.x, knee.y);
+        ctx.stroke();
+
+        // 小腿
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(knee.x, knee.y);
+        ctx.lineTo(leg.foot.x, leg.foot.y);
+        ctx.stroke();
+
+        // 关节
+        ctx.fillStyle = '#2a4d1f';
+        ctx.beginPath();
+        ctx.arc(knee.x, knee.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 脚掌（带脚趾）
+        drawFoot(leg.foot, hip, leg.side);
+    });
+}
+
+function drawFoot(foot, hip, side) {
+    const angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
+    ctx.save();
+    ctx.translate(foot.x, foot.y);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = '#3d6b2e';
+    // 五个脚趾
+    for (let t = -2; t <= 2; t++) {
+        const spread = t * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(spread) * 10, Math.sin(spread) * 10);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#3d6b2e';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(Math.cos(spread) * 10, Math.sin(spread) * 10, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function render() {
+    ctx.fillStyle = '#0a0a10';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 提示文字
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    if (aiActive) {
+        ctx.fillText('AI游走中 | 点击画布放置光点引诱蜥蜴 | 拖拽可手动控制', canvas.width / 2, 30);
+    } else {
+        ctx.fillText('按住鼠标左键拖拽蜥蜴移动 | 点击画布放置光点', canvas.width / 2, 30);
+    }
+
+    updateLightDots();
+    updateSpine();
+    updateLegs();
+
+    // 绘制前临时应用张望偏移
+    const savedPositions = [];
+    if (lookOffsets.length > 0) {
+        for (let i = 0; i < lookOffsets.length; i++) {
+            savedPositions[i] = { x: spine[i].x, y: spine[i].y };
+            spine[i].x += lookOffsets[i].x;
+            spine[i].y += lookOffsets[i].y;
+        }
+    }
+
+    drawLightDots();
+    drawLegs();
+    drawBody();
+    drawHead();
+
+    // 绘制后恢复物理位置
+    if (savedPositions.length > 0) {
+        for (let i = 0; i < savedPositions.length; i++) {
+            spine[i].x = savedPositions[i].x;
+            spine[i].y = savedPositions[i].y;
+        }
+    }
+
+    requestAnimationFrame(render);
+}
+
+initSpine();
+prevHeadX = spine[0].x;
+prevHeadY = spine[0].y;
+initLegs();
+
+// ============== 参数调节面板 ==============
+const paramMap = [
+    { id: 'p_segLen',       get: () => SEGMENT_LENGTH,  set: v => SEGMENT_LENGTH = v,  dec: 0 },
+    { id: 'p_maxSpd',       get: () => MAX_SPEED,       set: v => MAX_SPEED = v,       dec: 0 },
+    { id: 'p_leg1',         get: () => LEG_LENGTH1,     set: v => LEG_LENGTH1 = v,     dec: 0 },
+    { id: 'p_leg2',         get: () => LEG_LENGTH2,     set: v => LEG_LENGTH2 = v,     dec: 0 },
+    { id: 'p_stepDist',     get: () => STEP_DISTANCE,   set: v => STEP_DISTANCE = v,   dec: 0 },
+    { id: 'p_stepSpd',      get: () => STEP_SPEED,      set: v => STEP_SPEED = v,      dec: 2 },
+    { id: 'p_serpAmp',      get: () => SERPENTINE_AMP,   set: v => SERPENTINE_AMP = v,  dec: 1 },
+    { id: 'p_serpFreq',     get: () => SERPENTINE_FREQ,  set: v => SERPENTINE_FREQ = v, dec: 2 },
+    { id: 'p_serpSpd',      get: () => SERPENTINE_SPEED, set: v => SERPENTINE_SPEED = v,dec: 1 },
+    { id: 'p_colMargin',    get: () => COLLISION_MARGIN, set: v => COLLISION_MARGIN = v,dec: 0 },
+    { id: 'p_headSkip',     get: () => HEAD_SKIP_NODES,  set: v => HEAD_SKIP_NODES = v, dec: 0 },
+    { id: 'p_steer',        get: () => STEER_STRENGTH,   set: v => STEER_STRENGTH = v,  dec: 2 },
+    { id: 'p_bendNeck',     get: () => BEND_NECK,        set: v => BEND_NECK = v,       dec: 3 },
+    { id: 'p_bendShoulder', get: () => BEND_SHOULDER,    set: v => BEND_SHOULDER = v,   dec: 3 },
+    { id: 'p_bendTorso',    get: () => BEND_TORSO,       set: v => BEND_TORSO = v,      dec: 3 },
+    { id: 'p_bendHip',      get: () => BEND_HIP,         set: v => BEND_HIP = v,        dec: 3 },
+    { id: 'p_bendTail',     get: () => BEND_TAIL,        set: v => BEND_TAIL = v,       dec: 3 },
+];
+
+function loadParams() {
+    const saved = localStorage.getItem('lizard_params');
+    if (saved) {
+        try {
+            const obj = JSON.parse(saved);
+            paramMap.forEach(p => {
+                if (obj[p.id] !== undefined) p.set(Number(obj[p.id]));
+            });
+        } catch(e) {}
+    }
+}
+
+function syncUI() {
+    paramMap.forEach(p => {
+        const el = document.getElementById(p.id);
+        if (el) el.value = p.get().toFixed(p.dec);
+    });
+}
+
+function readUI() {
+    paramMap.forEach(p => {
+        const el = document.getElementById(p.id);
+        if (el) {
+            const v = parseFloat(el.value);
+            if (!isNaN(v)) p.set(v);
+        }
+    });
+}
+
+function stepParam(id, delta) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const step = parseFloat(el.step) || 1;
+    el.value = (parseFloat(el.value) + delta).toFixed(
+        step < 1 ? String(step).split('.')[1]?.length || 2 : 0
+    );
+    readUI();
+}
+
+function saveParams() {
+    readUI();
+    const obj = {};
+    paramMap.forEach(p => { obj[p.id] = p.get(); });
+    localStorage.setItem('lizard_params', JSON.stringify(obj));
+    showMsg('已保存!');
+}
+
+function showMsg(text) {
+    const msg = document.getElementById('saveMsg');
+    msg.textContent = text;
+    msg.style.opacity = '1';
+    setTimeout(() => { msg.style.opacity = '0'; }, 1500);
+}
+
+function exportParams() {
+    readUI();
+    const obj = {};
+    paramMap.forEach(p => { obj[p.id] = p.get(); });
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'lizard_params.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showMsg('已导出!');
+}
+
+function importParams(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+        try {
+            const obj = JSON.parse(ev.target.result);
+            paramMap.forEach(p => {
+                if (obj[p.id] !== undefined) p.set(Number(obj[p.id]));
+            });
+            syncUI();
+            showMsg('已导入!');
+        } catch(err) {
+            showMsg('导入失败: JSON格式错误');
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+}
+
+// 输入框实时同步
+paramMap.forEach(p => {
+    const el = document.getElementById(p.id);
+    if (el) el.addEventListener('input', readUI);
+});
+
+loadParams();
+syncUI();
+render();
+</script>
+</body>
+</html>
