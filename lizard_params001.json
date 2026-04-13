@@ -5,15 +5,15 @@
   "p_leg2": 34,
   "p_stepDist": 50,
   "p_stepSpd": 0.18,
-  "p_serpAmp": 2,
-  "p_serpFreq": -35,
+  "p_serpAmp": 1.5,
+  "p_serpFreq": 0.3,
   "p_serpSpd": 0.2,
   "p_colMargin": 6,
   "p_headSkip": 4,
   "p_steer": 0.85,
   "p_bendNeck": 0.66,
-  "p_bendShoulder": 0.5,
-  "p_bendTorso": 0.44,
-  "p_bendHip": 0.5,
-  "p_bendTail": 0.85
+  "p_bendShoulder": 0.486,
+  "p_bendTorso": 0.434,
+  "p_bendHip": 0.486,
+  "p_bendTail": 0.82
 }

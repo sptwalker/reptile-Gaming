@@ -232,9 +232,9 @@ let LEG_LENGTH2      = 34;
 let STEP_DISTANCE    = 50;
 let STEP_SPEED       = 0.18;
 // ============== 蛇形摆动参数 ==============
-let SERPENTINE_AMP     = 12.0;
-let SERPENTINE_FREQ    = 0.18;
-let SERPENTINE_SPEED   = 3.0;
+let SERPENTINE_AMP     = 1.5;
+let SERPENTINE_FREQ    = 0.3;
+let SERPENTINE_SPEED   = 0.2;
 // ==========================================================
 
 const canvas = document.getElementById('canvas');
@@ -257,8 +257,6 @@ let aiPauseTimer = 0;       // >0 时正在暂停张望
 let aiPauseCooldown = 0;    // >0 时暂停冷却中，不会再次暂停
 let aiPauseDone = 0;        // 暂停总时长（用于计算阶段）
 let aiWillLook = false;     // 本次暂停是否张望
-let aiLookDir = 1;          // 张望方向 1/-1
-let aiLookPhase = 0;        // 张望摆动相位
 let aiLookBaseAngle = 0;    // 张望时的基准朝向
 let aiLookOffset = 0;       // 当前张望角度偏移（供头部绘制使用）
 let aiLookTarget = 0;       // 张望目标角度
@@ -484,11 +482,11 @@ function resolveBodyCollisions() {
 }
 
 // ============== 关节角度约束系统 ==============
-let BEND_NECK     = 0.455;
-let BEND_SHOULDER = 0.286;
-let BEND_TORSO    = 0.234;
-let BEND_HIP      = 0.286;
-let BEND_TAIL     = 0.52;
+let BEND_NECK     = 0.66;
+let BEND_SHOULDER = 0.5;
+let BEND_TORSO    = 0.44;
+let BEND_HIP      = 0.5;
+let BEND_TAIL     = 0.85;
 
 function maxBendAngleAt(i) {
     const n = SPINE_NODE_COUNT - 1;
@@ -561,7 +559,6 @@ function toggleAI() {
         aiPauseDone = 0;
         aiWillLook = false;
         aiLookOffset = 0;
-        aiLookPhase = 0;
         aiLookTarget = 0;
         aiLookHoldTimer = 0;
     }
@@ -778,7 +775,6 @@ function updateSpine() {
     prevHeadY = head.y;
 
     // 移动头部
-    let moved = false;
     if (mouseDown && mouseDragStart && Math.hypot(mouseX - mouseDragStart.x, mouseY - mouseDragStart.y) > 8) {
         // 鼠标拖拽模式
         const avoidDir = computeAvoidanceDir(head, mouseX, mouseY);
@@ -789,7 +785,6 @@ function updateSpine() {
             const move = Math.min(dist, MAX_SPEED);
             head.x += avoidDir.x * move;
             head.y += avoidDir.y * move;
-            moved = true;
         }
     } else if (aiActive) {
         // AI 游走模式
@@ -802,7 +797,6 @@ function updateSpine() {
             const move = Math.min(dist, ai.speed);
             head.x += avoidDir.x * move;
             head.y += avoidDir.y * move;
-            moved = true;
         }
     }
 
