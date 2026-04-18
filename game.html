@@ -10,30 +10,101 @@
             background: #101018;
             display: flex;
             flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #canvasWrap {
+            flex: 1;
+            width: 100%;
+            display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            overflow-y: auto;
+            min-height: 0;
         }
         #canvas {
             border: 2px solid #222;
             background: #0a0a10;
             cursor: grab;
+            display: block;
         }
         #canvas:active { cursor: grabbing; }
 
-        #controlPanel {
-            width: 1200px;
+        #bottomBar {
+            width: 100%;
+            flex-shrink: 0;
+        }
+        #actionBar {
+            width: 100%;
             background: #1a1a2e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 16px 20px;
-            margin-top: 10px;
-            margin-bottom: 20px;
+            border-top: 1px solid #333;
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        #actionBar label {
+            color: #aab;
+            font: 13px sans-serif;
+        }
+        .action-btn {
+            padding: 6px 22px;
+            border: none;
+            border-radius: 5px;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+            color: #fff;
+        }
+        #startBtn { background: #2d6a4f; }
+        #startBtn:hover { background: #3a8963; }
+        #startBtn.active { background: #b85c2f; }
+        #startBtn.active:hover { background: #d4713a; }
+        #activityInput {
+            width: 50px;
+            background: #0e0e18;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eee;
+            font: 13px monospace;
+            text-align: center;
+            padding: 4px;
+            outline: none;
+        }
+        .action-hint {
+            color: #666;
+            font: 12px sans-serif;
+            margin-left: auto;
+        }
+        #togglePanelBtn {
+            background: #2a2a44;
+            color: #8ab4f8;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 16px;
+            font: bold 13px sans-serif;
+            cursor: pointer;
+        }
+        #togglePanelBtn:hover { background: #3a3a66; }
+
+        #controlPanel {
+            width: 100%;
+            background: #1a1a2e;
+            border-top: 1px solid #333;
+            padding: 12px 20px;
             display: flex;
             flex-wrap: wrap;
             gap: 6px 16px;
             align-items: flex-start;
+            max-height: 300px;
+            overflow-y: auto;
+            transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+        }
+        #controlPanel.collapsed {
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            opacity: 0;
+            overflow: hidden;
         }
         #controlPanel h3 {
             width: 100%;
@@ -134,62 +205,23 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
-        #actionBar {
-            width: 1200px;
-            background: #1a1a2e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 10px 20px;
-            margin-top: 10px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        #actionBar label {
-            color: #aab;
-            font: 13px sans-serif;
-        }
-        .action-btn {
-            padding: 6px 22px;
-            border: none;
-            border-radius: 5px;
-            font: bold 13px sans-serif;
-            cursor: pointer;
-            color: #fff;
-        }
-        #startBtn { background: #2d6a4f; }
-        #startBtn:hover { background: #3a8963; }
-        #startBtn.active { background: #b85c2f; }
-        #startBtn.active:hover { background: #d4713a; }
-        #activityInput {
-            width: 50px;
-            background: #0e0e18;
-            border: 1px solid #444;
-            border-radius: 4px;
-            color: #eee;
-            font: 13px monospace;
-            text-align: center;
-            padding: 4px;
-            outline: none;
-        }
-        .action-hint {
-            color: #666;
-            font: 12px sans-serif;
-            margin-left: auto;
-        }
     </style>
 </head>
 <body>
-<canvas id="canvas" width="1200" height="700"></canvas>
+<div id="canvasWrap">
+<canvas id="canvas"></canvas>
+</div>
 
+<div id="bottomBar">
 <div id="actionBar">
     <button class="action-btn" id="startBtn" onclick="toggleAI()">启动</button>
     <label>活跃度</label>
     <input type="number" id="activityInput" min="1" max="10" value="5">
     <span class="action-hint">点击画布放置光点引诱蜥蜴</span>
+    <button id="togglePanelBtn" onclick="togglePanel()">参数面板 ▲</button>
 </div>
 
-<div id="controlPanel">
+<div id="controlPanel" class="collapsed">
     <h3>基础参数</h3>
     <div class="param-item"><label>脊椎段长</label><div class="param-input-wrap"><input type="number" id="p_segLen" step="1"><div class="param-btn-col"><button onclick="stepParam('p_segLen',1)">&#9650;</button><button onclick="stepParam('p_segLen',-1)">&#9660;</button></div></div></div>
     <div class="param-item"><label>最大速度</label><div class="param-input-wrap"><input type="number" id="p_maxSpd" step="1"><div class="param-btn-col"><button onclick="stepParam('p_maxSpd',1)">&#9650;</button><button onclick="stepParam('p_maxSpd',-1)">&#9660;</button></div></div></div>
@@ -199,7 +231,7 @@
     <div class="param-item"><label>迈步速度</label><div class="param-input-wrap"><input type="number" id="p_stepSpd" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_stepSpd',0.01)">&#9650;</button><button onclick="stepParam('p_stepSpd',-0.01)">&#9660;</button></div></div></div>
 
     <h3>蛇形摆动</h3>
-    <div class="param-item"><label>摆动振幅</label><div class="param-input-wrap"><input type="number" id="p_serpAmp" step="0.5"><div class="param-btn-col"><button onclick="stepParam('p_serpAmp',0.5)">&#9650;</button><button onclick="stepParam('p_serpAmp',-0.5)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>摆动振幅</label><div class="param-input-wrap"><input type="number" id="p_serpAmp" step="0.1"><div class="param-btn-col"><button onclick="stepParam('p_serpAmp',0.1)">&#9650;</button><button onclick="stepParam('p_serpAmp',-0.1)">&#9660;</button></div></div></div>
     <div class="param-item"><label>摆动频率</label><div class="param-input-wrap"><input type="number" id="p_serpFreq" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_serpFreq',0.01)">&#9650;</button><button onclick="stepParam('p_serpFreq',-0.01)">&#9660;</button></div></div></div>
     <div class="param-item"><label>波传播速度</label><div class="param-input-wrap"><input type="number" id="p_serpSpd" step="0.1"><div class="param-btn-col"><button onclick="stepParam('p_serpSpd',0.1)">&#9650;</button><button onclick="stepParam('p_serpSpd',-0.1)">&#9660;</button></div></div></div>
 
@@ -215,11 +247,18 @@
     <div class="param-item"><label>后臀弯折</label><div class="param-input-wrap"><input type="number" id="p_bendHip" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendHip',0.01)">&#9650;</button><button onclick="stepParam('p_bendHip',-0.01)">&#9660;</button></div></div></div>
     <div class="param-item"><label>尾巴弯折</label><div class="param-input-wrap"><input type="number" id="p_bendTail" step="0.01"><div class="param-btn-col"><button onclick="stepParam('p_bendTail',0.01)">&#9650;</button><button onclick="stepParam('p_bendTail',-0.01)">&#9660;</button></div></div></div>
 
+    <h3>视野参数</h3>
+    <div class="param-item"><label>视野角度(°)</label><div class="param-input-wrap"><input type="number" id="p_fovAngle" step="5"><div class="param-btn-col"><button onclick="stepParam('p_fovAngle',5)">&#9650;</button><button onclick="stepParam('p_fovAngle',-5)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>清晰视距</label><div class="param-input-wrap"><input type="number" id="p_fovClear" step="10"><div class="param-btn-col"><button onclick="stepParam('p_fovClear',10)">&#9650;</button><button onclick="stepParam('p_fovClear',-10)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>最大视距</label><div class="param-input-wrap"><input type="number" id="p_fovMax" step="10"><div class="param-btn-col"><button onclick="stepParam('p_fovMax',10)">&#9650;</button><button onclick="stepParam('p_fovMax',-10)">&#9660;</button></div></div></div>
+    <div class="param-item"><label>警惕速度</label><div class="param-input-wrap"><input type="number" id="p_alertSpd" step="0.1"><div class="param-btn-col"><button onclick="stepParam('p_alertSpd',0.1)">&#9650;</button><button onclick="stepParam('p_alertSpd',-0.1)">&#9660;</button></div></div></div>
+
     <button id="saveBtn" onclick="saveParams()">保存设置</button>
     <button id="exportBtn" onclick="exportParams()">导出</button>
     <button id="importBtn" onclick="document.getElementById('importFile').click()">导入</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importParams(event)">
     <span id="saveMsg">已保存!</span>
+</div>
 </div>
 
 <script>
@@ -235,10 +274,34 @@ let STEP_SPEED       = 0.18;
 let SERPENTINE_AMP     = 1.5;
 let SERPENTINE_FREQ    = 0.3;
 let SERPENTINE_SPEED   = 0.2;
+// ============== 视野参数 ==============
+let FOV_ANGLE      = 60;    // 视野角度（度）
+let FOV_CLEAR_DIST = 300;   // 清晰视野距离
+let FOV_MAX_DIST   = 500;   // 最大视野距离
+let ALERT_SPEED    = 2.5;   // 警惕状态靠近速度
 // ==========================================================
 
 const canvas = document.getElementById('canvas');
 const ctx    = canvas.getContext('2d');
+
+function resizeCanvas() {
+    const wrap = document.getElementById('canvasWrap');
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    canvas.width = w;
+    canvas.height = h;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function togglePanel() {
+    const panel = document.getElementById('controlPanel');
+    const btn = document.getElementById('togglePanelBtn');
+    panel.classList.toggle('collapsed');
+    btn.textContent = panel.classList.contains('collapsed') ? '参数面板 ▲' : '参数面板 ▼';
+    setTimeout(resizeCanvas, 350);
+}
+
 let mouseX   = canvas.width / 2;
 let mouseY   = canvas.height / 2;
 let mouseDown = false;
@@ -265,12 +328,15 @@ let aiLookHoldTimer = 0;    // 在某个方向停留的帧数
 // 张望时头部节点的视觉偏移（不修改实际物理位置）
 const lookOffsets = [];
 
+// ============== 警惕状态 ==============
+let aiAlertTarget = null;   // 警惕目标光点引用
+let aiAlertTimer  = 0;      // 警惕观察计时
+
 // ============== 光点系统 ==============
 const lightDots = [];
 const LIGHT_DOT_RADIUS = 6;
 const LIGHT_DOT_SPEED  = 0.4;
 const CHASE_SPEED_MULT = 1.8;
-const DETECT_RANGE     = 350;
 
 // 蜥蜴身体宽度轮廓（按脊椎节点索引映射宽度）
 // 头 → 颈 → 前肩 → 胸 → 腰 → 后臀 → 尾巴渐细
@@ -561,6 +627,8 @@ function toggleAI() {
         aiLookOffset = 0;
         aiLookTarget = 0;
         aiLookHoldTimer = 0;
+        aiAlertTarget = null;
+        aiAlertTimer = 0;
     }
 }
 
@@ -613,16 +681,54 @@ function drawLightDots() {
     });
 }
 
-function findNearestDot(head) {
-    let best = null, bestDist = Infinity;
+// 获取蜥蜴头部朝向角度（用于视野计算）
+function getHeadAngle() {
+    const head = spine[0];
+    const neck = spine[2];
+    return Math.atan2(head.y - neck.y, head.x - neck.x);
+}
+
+// 检测光点是否在视野扇形内，返回 'clear' / 'alert' / null
+function dotInFOV(dot, head) {
+    const dx = dot.x - head.x;
+    const dy = dot.y - head.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > FOV_MAX_DIST) return null;
+
+    const headAngle = getHeadAngle();
+    const dotAngle = Math.atan2(dy, dx);
+    let diff = dotAngle - headAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+
+    const halfFOV = (FOV_ANGLE / 2) * Math.PI / 180;
+    if (Math.abs(diff) > halfFOV) return null;
+
+    if (dist <= FOV_CLEAR_DIST) return 'clear';
+    return 'alert';
+}
+
+// 在视野内查找最近的光点，返回 { dot, zone } 或 null
+function findNearestDotInFOV(head) {
+    let bestClear = null, bestClearDist = Infinity;
+    let bestAlert = null, bestAlertDist = Infinity;
+
     for (const dot of lightDots) {
+        const zone = dotInFOV(dot, head);
+        if (!zone) continue;
         const d = Math.hypot(dot.x - head.x, dot.y - head.y);
-        if (d < DETECT_RANGE && d < bestDist) {
-            bestDist = d;
-            best = dot;
+        if (zone === 'clear' && d < bestClearDist) {
+            bestClearDist = d;
+            bestClear = dot;
+        } else if (zone === 'alert' && d < bestAlertDist) {
+            bestAlertDist = d;
+            bestAlert = dot;
         }
     }
-    return best;
+
+    if (bestClear) return { dot: bestClear, zone: 'clear' };
+    if (bestAlert) return { dot: bestAlert, zone: 'alert' };
+    return null;
 }
 
 function computeAITarget(head) {
@@ -630,15 +736,53 @@ function computeAITarget(head) {
     const wanderSpeed = MAX_SPEED * (0.15 + activity * 0.06);
     const turnChance = 0.005 + activity * 0.004;
 
-    // 优先追逐光点（发现光点时中断暂停）
-    const dot = findNearestDot(head);
-    if (dot) {
+    // 优先检测视野内光点
+    const found = findNearestDotInFOV(head);
+
+    if (found && found.zone === 'clear') {
+        // 清晰视野内 → 直接猎食追逐
         aiPauseTimer = 0;
+        aiAlertTarget = null;
+        aiAlertTimer = 0;
+        const dot = found.dot;
         const dx = dot.x - head.x;
         const dy = dot.y - head.y;
         const dist = Math.hypot(dx, dy);
         const chaseSpeed = Math.min(dist, MAX_SPEED * CHASE_SPEED_MULT);
         return { tx: head.x + (dx / dist) * chaseSpeed, ty: head.y + (dy / dist) * chaseSpeed, speed: chaseSpeed };
+    }
+
+    if (found && found.zone === 'alert') {
+        // 最大视野区域内 → 警惕状态：停下观察然后缓慢靠近
+        aiAlertTarget = found.dot;
+        aiPauseTimer = 0;
+
+        const dot = found.dot;
+        const dx = dot.x - head.x;
+        const dy = dot.y - head.y;
+        const dist = Math.hypot(dx, dy);
+
+        aiAlertTimer++;
+
+        // 前30帧：停下观察，头部转向目标
+        if (aiAlertTimer < 30) {
+            const targetAngle = Math.atan2(dy, dx);
+            let diff = targetAngle - aiWanderAngle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            aiWanderAngle += diff * 0.08;
+            return { tx: head.x, ty: head.y, speed: 0 };
+        }
+
+        // 之后：缓慢靠近
+        const approachSpeed = Math.min(dist, ALERT_SPEED);
+        return { tx: head.x + (dx / dist) * approachSpeed, ty: head.y + (dy / dist) * approachSpeed, speed: approachSpeed };
+    }
+
+    // 没有发现光点，清除警惕状态
+    if (aiAlertTarget) {
+        aiAlertTarget = null;
+        aiAlertTimer = 0;
     }
 
     // ---- 暂停张望逻辑 ----
@@ -1062,8 +1206,9 @@ function drawHead() {
     const head = spine[0];
     const neck = spine[2];
     const baseAngle = Math.atan2(head.y - neck.y, head.x - neck.x);
-    // 张望时直接叠加 aiLookOffset 作为绝对旋转角
-    const angle = baseAngle + aiLookOffset;
+    // lookOffsets 已在 render() 中将 spine[0..2] 做了位置旋转偏移，
+    // baseAngle 已包含张望效果，无需再叠加 aiLookOffset
+    const angle = baseAngle;
 
     // 头部椭圆
     ctx.save();
@@ -1165,6 +1310,41 @@ function drawFoot(foot, hip, side) {
     ctx.restore();
 }
 
+// 绘制视野范围（仅在蜥蜴静止或警惕时显示）
+function drawVisionCone() {
+    const isIdle = aiActive && (headSpeed < 0.5 || aiAlertTarget);
+    if (!isIdle) return;
+
+    const head = spine[0];
+    const headAngle = getHeadAngle();
+    const halfFOV = (FOV_ANGLE / 2) * Math.PI / 180;
+
+    // 最大视野（暗绿色，外圈）
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(head.x, head.y);
+    ctx.arc(head.x, head.y, FOV_MAX_DIST, headAngle - halfFOV, headAngle + halfFOV);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(30,80,30,0.12)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30,80,30,0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 清晰视野（亮绿色，内圈）
+    ctx.beginPath();
+    ctx.moveTo(head.x, head.y);
+    ctx.arc(head.x, head.y, FOV_CLEAR_DIST, headAngle - halfFOV, headAngle + halfFOV);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(100,220,100,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(100,220,100,0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+}
+
 function render() {
     ctx.fillStyle = '#0a0a10';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1194,6 +1374,7 @@ function render() {
     }
 
     drawLightDots();
+    drawVisionCone();
     drawLegs();
     drawBody();
     drawHead();
@@ -1233,6 +1414,10 @@ const paramMap = [
     { id: 'p_bendTorso',    get: () => BEND_TORSO,       set: v => BEND_TORSO = v,      dec: 3 },
     { id: 'p_bendHip',      get: () => BEND_HIP,         set: v => BEND_HIP = v,        dec: 3 },
     { id: 'p_bendTail',     get: () => BEND_TAIL,        set: v => BEND_TAIL = v,       dec: 3 },
+    { id: 'p_fovAngle',     get: () => FOV_ANGLE,        set: v => FOV_ANGLE = v,       dec: 0 },
+    { id: 'p_fovClear',     get: () => FOV_CLEAR_DIST,   set: v => FOV_CLEAR_DIST = v,  dec: 0 },
+    { id: 'p_fovMax',       get: () => FOV_MAX_DIST,     set: v => FOV_MAX_DIST = v,    dec: 0 },
+    { id: 'p_alertSpd',     get: () => ALERT_SPEED,      set: v => ALERT_SPEED = v,     dec: 1 },
 ];
 
 function loadParams() {
@@ -1298,7 +1483,7 @@ function exportParams() {
     a.href = URL.createObjectURL(blob);
     a.download = 'lizard_params.json';
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showMsg('已导出!');
 }
 
