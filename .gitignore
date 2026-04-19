@@ -1,2 +1,6 @@
 .codebuddy/
+.claude/
 *.tmp
+node_modules/
+data/
+package-lock.json

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爬虫宠物养成</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <!-- ═══ 登录/注册面板 ═══ -->
+    <div id="authPanel" class="panel">
+        <h1 class="title">🦎 爬虫宠物养成</h1>
+
+        <!-- 登录表单 -->
+        <form id="loginForm" class="auth-form">
+            <h2>登录</h2>
+            <input type="text" id="loginUser" placeholder="用户名" autocomplete="username" required>
+            <input type="password" id="loginPass" placeholder="密码" autocomplete="current-password" required>
+            <button type="submit" class="btn btn-primary">登 录</button>
+            <p class="switch-text">没有账号？<a href="#" id="toRegister">去注册</a></p>
+        </form>
+
+        <!-- 注册表单 -->
+        <form id="registerForm" class="auth-form" style="display:none">
+            <h2>注册</h2>
+            <input type="text" id="regUser" placeholder="用户名（3~16字符）" autocomplete="username" required>
+            <input type="password" id="regPass" placeholder="密码（6~32字符）" autocomplete="new-password" required>
+            <input type="text" id="regNick" placeholder="昵称（可选）" autocomplete="nickname">
+            <button type="submit" class="btn btn-primary">注 册</button>
+            <p class="switch-text">已有账号？<a href="#" id="toLogin">去登录</a></p>
+        </form>
+
+        <!-- 消息提示 -->
+        <div id="authMsg" class="msg"></div>
+    </div>
+
+    <!-- ═══ 主界面（登录后显示） ═══ -->
+    <div id="mainPanel" class="panel" style="display:none">
+        <div class="user-bar">
+            <span id="userNickname"></span>
+            <span id="userGold" class="gold-badge"></span>
+            <button id="btnLogout" class="btn btn-sm">退出</button>
+        </div>
+
+        <!-- ═══ 宠物蛋区域 ═══ -->
+        <div id="eggSection">
+            <!-- 无蛋状态：领取按钮 -->
+            <div id="eggClaim" style="display:none">
+                <div class="egg-empty-icon">🥚</div>
+                <p class="egg-hint">你还没有宠物蛋，领取你的第一枚蛋吧！</p>
+                <button id="btnClaimEgg" class="btn btn-primary">领取宠物蛋</button>
+            </div>
+
+            <!-- 有蛋状态：蛋卡片 -->
+            <div id="eggCard" class="egg-card" style="display:none">
+                <div class="egg-visual">
+                    <div id="eggIcon" class="egg-icon">🥚</div>
+                    <div id="eggQuality" class="egg-quality"></div>
+                </div>
+                <div class="egg-info">
+                    <div id="eggStatus" class="egg-status"></div>
+                    <div id="eggTimer" class="egg-timer" style="display:none"></div>
+                    <div id="eggProgress" class="egg-progress-bar" style="display:none">
+                        <div id="eggProgressFill" class="egg-progress-fill"></div>
+                    </div>
+                </div>
+                <div class="egg-actions">
+                    <button id="btnStartHatch" class="btn btn-primary" style="display:none">开始孵化</button>
+                    <button id="btnFinishHatch" class="btn btn-primary" style="display:none">孵化完成！分配天赋</button>
+                </div>
+            </div>
+
+            <!-- 天赋分配面板 -->
+            <div id="talentPanel" class="talent-panel" style="display:none">
+                <h3>分配天赋点</h3>
+                <p id="talentRemaining" class="talent-remaining"></p>
+                <div class="talent-grid">
+                    <div class="talent-row"><label>力量(STR)</label><input type="number" id="talStr" min="0" value="0"><span class="talent-desc">攻击·体型</span></div>
+                    <div class="talent-row"><label>敏捷(AGI)</label><input type="number" id="talAgi" min="0" value="0"><span class="talent-desc">速度·闪避</span></div>
+                    <div class="talent-row"><label>体质(VIT)</label><input type="number" id="talVit" min="0" value="0"><span class="talent-desc">生命·防御</span></div>
+                    <div class="talent-row"><label>智力(INT)</label><input type="number" id="talInt" min="0" value="0"><span class="talent-desc">视野·技能</span></div>
+                    <div class="talent-row"><label>感知(PER)</label><input type="number" id="talPer" min="0" value="0"><span class="talent-desc">暴击·感知</span></div>
+                    <div class="talent-row"><label>魅力(CHA)</label><input type="number" id="talCha" min="0" value="0"><span class="talent-desc">花纹·社交</span></div>
+                </div>
+                <input type="text" id="petNameInput" placeholder="给宠物起个名字（1~12字符）" maxlength="12">
+                <button id="btnConfirmTalent" class="btn btn-primary" disabled>确认分配</button>
+                <div id="talentMsg" class="msg"></div>
+            </div>
+
+            <!-- 宠物创建成功 -->
+            <div id="petCreated" class="pet-created" style="display:none">
+                <h3 id="petCreatedTitle"></h3>
+                <div id="petCreatedAttrs" class="pet-attrs"></div>
+                <div id="petCreatedDerived" class="pet-derived"></div>
+                <button id="btnViewPet" class="btn btn-primary" style="margin-top:14px">查看宠物详情</button>
+            </div>
+        </div>
+
+        <!-- ═══ 宠物信息面板 ═══ -->
+        <div id="petPanel" class="pet-panel" style="display:none">
+            <div class="pet-panel-header">
+                <h3 id="petPanelTitle"></h3>
+                <button id="btnBackToEgg" class="btn btn-sm">返回</button>
+            </div>
+            <div id="petPanelStatus" class="pet-panel-status"></div>
+            <div id="petPanelBars" class="pet-panel-bars"></div>
+
+            <!-- ═══ 养成操作区 (P5) ═══ -->
+            <div id="nurtureSection" class="nurture-section">
+                <h4>🍽 饲养</h4>
+                <div class="nurture-food-grid" id="foodGrid"></div>
+                <div id="feedMsg" class="nurture-msg"></div>
+                <div class="nurture-rest-row">
+                    <button id="btnRest" class="btn btn-rest">💤 休息 (+20体力)</button>
+                    <span id="restCooldown" class="nurture-cooldown"></span>
+                </div>
+            </div>
+
+            <!-- ═══ 蜕变区 (P6) ═══ -->
+            <div id="evolveSection" class="evolve-section" style="display:none">
+                <h4>🔮 蜕变</h4>
+                <div id="evolveInfo" class="evolve-info"></div>
+                <button id="btnEvolve" class="btn btn-evolve" disabled>✨ 触发蜕变</button>
+                <div id="evolveMsg" class="nurture-msg"></div>
+            </div>
+
+            <div id="petPanelAttrs" class="pet-panel-attrs"></div>
+            <div id="petPanelDerived" class="pet-panel-derived"></div>
+            <div id="petPanelSkills" class="pet-panel-skills"></div>
+        </div>
+
+        <div id="canvasWrap">
+            <canvas id="gameCanvas"></canvas>
+        </div>
+    </div>
+
+    <!-- ═══ 蜕变动画覆盖层 (P6) ═══ -->
+    <div id="evolveOverlay" class="evolve-overlay" style="display:none">
+        <div class="evolve-anim-content">
+            <div class="evolve-anim-icon">🦎</div>
+            <div class="evolve-anim-flash"></div>
+            <div id="evolveAnimText" class="evolve-anim-text"></div>
+            <div id="evolveAnimSkill" class="evolve-anim-skill"></div>
+            <button id="btnEvolveClose" class="btn btn-primary evolve-anim-close">确认</button>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/egg.js"></script>
+</body>
+</html>

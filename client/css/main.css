@@ -1,0 +1,751 @@
+/* ═══ 全局样式 ═══ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+/* ═══ 面板 ═══ */
+.panel {
+    width: 100%;
+    max-width: 420px;
+    padding: 40px 32px;
+    text-align: center;
+}
+
+.title {
+    font-size: 28px;
+    margin-bottom: 32px;
+    color: #58a6ff;
+}
+
+/* ═══ 表单 ═══ */
+.auth-form h2 {
+    font-size: 18px;
+    margin-bottom: 20px;
+    color: #8b949e;
+}
+
+.auth-form input {
+    width: 100%;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #161b22;
+    color: #e6edf3;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.auth-form input:focus {
+    border-color: #58a6ff;
+}
+
+/* ═══ 按钮 ═══ */
+.btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+}
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: #238636;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+    background: #2ea043;
+}
+.btn-sm {
+    padding: 6px 14px;
+    background: #30363d;
+    color: #8b949e;
+    font-size: 12px;
+}
+.btn-sm:hover {
+    background: #484f58;
+    color: #e6edf3;
+}
+
+/* ═══ 切换链接 ═══ */
+.switch-text {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #8b949e;
+}
+.switch-text a {
+    color: #58a6ff;
+    text-decoration: none;
+}
+.switch-text a:hover {
+    text-decoration: underline;
+}
+
+/* ═══ 消息提示 ═══ */
+.msg {
+    margin-top: 16px;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    display: none;
+}
+.msg.error {
+    display: block;
+    background: rgba(248, 81, 73, 0.15);
+    color: #f85149;
+    border: 1px solid rgba(248, 81, 73, 0.3);
+}
+.msg.success {
+    display: block;
+    background: rgba(63, 185, 80, 0.15);
+    color: #3fb950;
+    border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+/* ═══ 主界面 ═══ */
+#mainPanel {
+    max-width: 900px;
+}
+
+.user-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #21262d;
+    margin-bottom: 20px;
+}
+.user-bar span {
+    font-size: 14px;
+}
+.gold-badge {
+    background: rgba(255, 170, 0, 0.15);
+    color: #ffaa00;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#canvasWrap {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #0a0a10;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+#gameCanvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+}
+
+.hint {
+    margin-top: 16px;
+    color: #484f58;
+    font-size: 13px;
+}
+
+/* ═══ 宠物蛋区域 ═══ */
+#eggSection {
+    margin-bottom: 24px;
+}
+
+/* ── 无蛋状态 ── */
+#eggClaim {
+    text-align: center;
+    padding: 40px 0;
+}
+.egg-empty-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    animation: eggBounce 2s ease-in-out infinite;
+}
+@keyframes eggBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+.egg-hint {
+    color: #8b949e;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+/* ── 蛋卡片 ── */
+.egg-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+}
+.egg-visual {
+    margin-bottom: 16px;
+}
+.egg-icon {
+    font-size: 72px;
+    transition: filter 0.3s;
+}
+.egg-quality {
+    font-size: 16px;
+    font-weight: 700;
+    margin-top: 8px;
+    letter-spacing: 2px;
+}
+.egg-info {
+    margin-bottom: 16px;
+}
+.egg-status {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 8px;
+}
+.egg-timer {
+    font-size: 28px;
+    font-weight: 700;
+    color: #58a6ff;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 8px;
+}
+
+/* ── 进度条 ── */
+.egg-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #21262d;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+.egg-progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #238636, #3fb950);
+    border-radius: 3px;
+    transition: width 1s linear;
+}
+
+/* ── 蛋操作按钮 ── */
+.egg-actions {
+    margin-top: 12px;
+}
+.egg-actions .btn {
+    min-width: 160px;
+}
+
+/* ═══ 天赋分配面板 ═══ */
+.talent-panel {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+}
+.talent-panel h3 {
+    font-size: 18px;
+    color: #e6edf3;
+    margin-bottom: 12px;
+}
+.talent-remaining {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+.talent-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.talent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.talent-row label {
+    width: 90px;
+    text-align: right;
+    font-size: 14px;
+    color: #e6edf3;
+    font-weight: 600;
+}
+.talent-row input[type="number"] {
+    width: 64px;
+    padding: 6px 8px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 14px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+    -moz-appearance: textfield;
+}
+.talent-row input[type="number"]::-webkit-inner-spin-button,
+.talent-row input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
+}
+.talent-row input[type="number"]:focus {
+    border-color: #58a6ff;
+}
+.talent-desc {
+    font-size: 12px;
+    color: #484f58;
+}
+.talent-panel #petNameInput {
+    width: 100%;
+    max-width: 280px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.talent-panel #petNameInput:focus {
+    border-color: #58a6ff;
+}
+.talent-panel .btn-primary {
+    max-width: 280px;
+}
+
+/* ═══ 宠物创建成功 ═══ */
+.pet-created {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+}
+.pet-created h3 {
+    font-size: 20px;
+    margin-bottom: 16px;
+}
+
+/* ── 六维属性网格 ── */
+.attr-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.attr-item {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.attr-label {
+    font-size: 12px;
+    color: #8b949e;
+}
+.attr-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: #e6edf3;
+}
+.attr-item small {
+    font-size: 11px;
+    color: #484f58;
+}
+
+/* ── 衍生属性 ── */
+.derived-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+.derived-grid span {
+    background: #21262d;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 600;
+}
+
+/* ═══ 宠物信息面板 ═══ */
+.pet-panel {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.pet-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+.pet-panel-header h3 {
+    font-size: 20px;
+    margin: 0;
+}
+
+/* ── 状态行 ── */
+.pp-status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+.pp-stage {
+    background: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 12px;
+}
+.pp-level {
+    color: #e6edf3;
+    font-weight: 700;
+}
+.pp-exp {
+    color: #8b949e;
+    font-size: 12px;
+}
+
+/* ── 状态条 ── */
+.pet-panel-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.pp-bar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.pp-bar-label {
+    width: 64px;
+    font-size: 13px;
+    color: #8b949e;
+    flex-shrink: 0;
+}
+.pp-bar-track {
+    flex: 1;
+    height: 8px;
+    background: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.pp-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.pp-bar-stamina { background: linear-gradient(90deg, #f0883e, #f9d423); }
+.pp-bar-satiety { background: linear-gradient(90deg, #238636, #3fb950); }
+.pp-bar-mood    { background: linear-gradient(90deg, #da3633, #f85149); }
+.pp-bar-val {
+    width: 72px;
+    text-align: right;
+    font-size: 12px;
+    color: #8b949e;
+    flex-shrink: 0;
+}
+
+/* ── 面板内属性/衍生区 ── */
+.pet-panel-attrs,
+.pet-panel-derived {
+    margin-bottom: 16px;
+}
+
+/* ── 技能区 ── */
+.pet-panel-skills h4 {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 10px;
+}
+.pp-skill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.pp-skill-badge {
+    background: #21262d;
+    border: 1px solid #30363d;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 600;
+}
+.pp-skill-badge.pp-skill-equipped {
+    background: rgba(88, 166, 255, 0.15);
+    border-color: #58a6ff;
+    color: #58a6ff;
+}
+.pp-no-skill {
+    font-size: 13px;
+    color: #484f58;
+}
+
+/* ═══ 养成面板 (P5) ═══ */
+.nurture-section {
+    border-top: 1px solid #21262d;
+    padding-top: 16px;
+    margin-bottom: 18px;
+}
+.nurture-section h4 {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 12px;
+}
+
+/* ── 食物按钮网格 ── */
+.nurture-food-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.food-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 10px 8px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #e6edf3;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+.food-btn:hover:not(:disabled) {
+    border-color: #58a6ff;
+    background: #161b22;
+}
+.food-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.food-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+.food-cost {
+    font-size: 12px;
+    color: #ffaa00;
+    font-weight: 600;
+}
+.food-desc {
+    font-size: 11px;
+    color: #484f58;
+}
+
+/* ── 喂食消息 ── */
+.nurture-msg {
+    font-size: 13px;
+    min-height: 20px;
+    margin-bottom: 10px;
+    transition: color 0.2s;
+}
+.nurture-msg.success { color: #3fb950; }
+.nurture-msg.error   { color: #f85149; }
+
+/* ── 休息行 ── */
+.nurture-rest-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.btn-rest {
+    padding: 8px 18px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #161b22;
+    color: #e6edf3;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+.btn-rest:hover:not(:disabled) {
+    border-color: #f0883e;
+    background: rgba(240, 136, 62, 0.1);
+}
+.btn-rest:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.nurture-cooldown {
+    font-size: 13px;
+    color: #8b949e;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ═══ 蜕变系统 (P6) ═══ */
+.evolve-section {
+    border-top: 1px solid #21262d;
+    padding-top: 16px;
+    margin-bottom: 18px;
+}
+.evolve-section h4 {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 12px;
+}
+.evolve-info {
+    margin-bottom: 12px;
+}
+.evolve-target {
+    font-size: 15px;
+    color: #e6edf3;
+    margin-bottom: 8px;
+}
+.evolve-target strong {
+    color: #d2a8ff;
+}
+.evolve-reqs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: #8b949e;
+}
+.evolve-max {
+    font-size: 14px;
+    color: #f9d423;
+    font-weight: 600;
+}
+
+/* ── 蜕变按钮 ── */
+.btn-evolve {
+    padding: 10px 24px;
+    border: 1px solid #d2a8ff;
+    border-radius: 8px;
+    background: rgba(210, 168, 255, 0.1);
+    color: #d2a8ff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+}
+.btn-evolve:hover:not(:disabled) {
+    background: rgba(210, 168, 255, 0.2);
+    box-shadow: 0 0 12px rgba(210, 168, 255, 0.3);
+}
+.btn-evolve:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══ 蜕变动画覆盖层 (P6) ═══ */
+.evolve-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    animation: evolveOverlayIn 0.3s ease;
+}
+@keyframes evolveOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+.evolve-anim-content {
+    text-align: center;
+    max-width: 360px;
+    padding: 40px 32px;
+    position: relative;
+}
+.evolve-anim-icon {
+    font-size: 80px;
+    animation: evolveGlow 2s ease-in-out infinite;
+    margin-bottom: 20px;
+}
+@keyframes evolveGlow {
+    0%, 100% { filter: drop-shadow(0 0 8px rgba(210, 168, 255, 0.4)); transform: scale(1); }
+    50%      { filter: drop-shadow(0 0 24px rgba(210, 168, 255, 0.9)); transform: scale(1.15); }
+}
+.evolve-anim-flash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(210,168,255,0.3) 0%, transparent 70%);
+    animation: evolveFlash 1.5s ease-out;
+    pointer-events: none;
+}
+@keyframes evolveFlash {
+    from { opacity: 1; transform: scale(0.5); }
+    to   { opacity: 0; transform: scale(2.5); }
+}
+.evolve-anim-text {
+    color: #e6edf3;
+    margin-bottom: 16px;
+}
+.evolve-result-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #d2a8ff;
+    margin-bottom: 12px;
+}
+.evolve-result-stage {
+    font-size: 16px;
+    color: #e6edf3;
+    margin-bottom: 12px;
+}
+.evolve-result-stage strong {
+    color: #d2a8ff;
+}
+.evolve-result-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: #8b949e;
+}
+.evolve-anim-skill {
+    margin-bottom: 16px;
+}
+.evolve-skill-unlock {
+    font-size: 16px;
+    color: #f9d423;
+    font-weight: 600;
+    animation: skillUnlockPulse 1s ease-in-out infinite;
+}
+@keyframes skillUnlockPulse {
+    0%, 100% { text-shadow: 0 0 4px rgba(249, 212, 35, 0.3); }
+    50%      { text-shadow: 0 0 16px rgba(249, 212, 35, 0.8); }
+}
+.evolve-anim-close {
+    max-width: 200px;
+    margin: 0 auto;
+}
