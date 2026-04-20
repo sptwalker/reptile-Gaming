@@ -22,8 +22,8 @@ module.exports = {
     /** 运行环境 */
     NODE_ENV: process.env.NODE_ENV || 'development',
 
-    /** CORS 允许的前端源 */
-    ALLOWED_ORIGIN: process.env.ALLOWED_ORIGIN || '*',
+    /** CORS 允许的前端源 — 生产环境必须通过 ALLOWED_ORIGIN 环境变量指定域名 */
+    ALLOWED_ORIGIN: process.env.ALLOWED_ORIGIN || (process.env.NODE_ENV === 'production' ? undefined : '*'),
 
     /** bcrypt 哈希轮数 (S-B03: cost factor ≥ 10) */
     BCRYPT_ROUNDS: 10,

@@ -82,6 +82,7 @@ const Egg = (() => {
     /* 同步定时器 */
     let _syncInterval = null;
     let _feedCooldownTimer = null;
+    let _lizardRenderer = null;
 
     const talentInputs = {
         str: document.getElementById('talStr'),
@@ -117,6 +118,10 @@ const Egg = (() => {
         eggProgress.style.display = 'none';
         stopTimer();
         stopSync();
+        /* PF-03: 清理休息冷却定时器 */
+        if (_restCdTimer) { clearInterval(_restCdTimer); _restCdTimer = null; }
+        if (_feedCooldownTimer) { clearInterval(_feedCooldownTimer); _feedCooldownTimer = null; }
+        if (_lizardRenderer) { _lizardRenderer.stop(); }
     }
 
     /* ── 初始化：登录后调用 ── */
@@ -494,6 +499,16 @@ const Egg = (() => {
 
         /* 启动自动同步（每30秒） */
         startSync(pet.id);
+
+        /* 启动蜥蜴渲染器 */
+        var gameCanvas = document.getElementById('gameCanvas');
+        if (gameCanvas && typeof LizardRenderer !== 'undefined') {
+            if (!_lizardRenderer) {
+                _lizardRenderer = new LizardRenderer(gameCanvas, { activity: 5 });
+            }
+            _lizardRenderer.toggleAI(true);
+            _lizardRenderer.start();
+        }
     }
 
     /* ── 渲染状态条（可独立更新） ── */
@@ -562,7 +577,7 @@ const Egg = (() => {
         }
 
         const d = res.data;
-        let msg = `喂食成功！饱食 ${d.satiety.before}→${d.satiety.after}，经验 +${d.exp.after - d.exp.before + (d.level_up ? '(升级!)' : '')}`;
+        let msg = `喂食成功！饱食 ${d.satiety.before}→${d.satiety.after}，经验 +${d.exp_gained}${d.level_up ? ' (升级!)' : ''}`;
         if (d.mood_delta > 0) msg += `，心情 +${d.mood_delta}`;
         feedMsg.textContent = msg;
         feedMsg.className = 'nurture-msg success';
@@ -784,6 +799,24 @@ const Egg = (() => {
         const goldEl = document.getElementById('userGold');
         if (goldEl) goldEl.textContent = `💰 ${d.gold}`;
     }
+
+    /* ── RB-02: Canvas 分辨率初始化 ── */
+    function initCanvas() {
+        const canvas = document.getElementById('gameCanvas');
+        if (!canvas) return;
+        const wrap = document.getElementById('canvasWrap');
+        function resize() {
+            const rect = wrap.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.round(rect.width * dpr);
+            canvas.height = Math.round(rect.height * dpr);
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        resize();
+        window.addEventListener('resize', resize);
+    }
+    initCanvas();
 
     /* ── 公共接口 ── */
     return { init };

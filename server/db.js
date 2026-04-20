@@ -233,6 +233,176 @@ function _migrate() {
         _db.exec('ALTER TABLE pet ADD COLUMN last_rest_at INTEGER NOT NULL DEFAULT 0');
         console.log('[DB] 迁移: pet 表新增 last_rest_at 字段');
     }
+
+    /* P8: pet 表增加遗传繁殖相关字段 */
+    const hasGeneSet = cols.some(c => c.name === 'gene_set');
+    if (!hasGeneSet) {
+        _db.exec("ALTER TABLE pet ADD COLUMN gene_set TEXT NOT NULL DEFAULT ''");
+        console.log('[DB] 迁移: pet 表新增 gene_set 字段');
+    }
+    const hasAppearanceGene = cols.some(c => c.name === 'appearance_gene');
+    if (!hasAppearanceGene) {
+        _db.exec("ALTER TABLE pet ADD COLUMN appearance_gene TEXT NOT NULL DEFAULT ''");
+        console.log('[DB] 迁移: pet 表新增 appearance_gene 字段');
+    }
+    const hasParent1 = cols.some(c => c.name === 'parent1_id');
+    if (!hasParent1) {
+        _db.exec('ALTER TABLE pet ADD COLUMN parent1_id INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: pet 表新增 parent1_id 字段');
+    }
+    const hasParent2 = cols.some(c => c.name === 'parent2_id');
+    if (!hasParent2) {
+        _db.exec('ALTER TABLE pet ADD COLUMN parent2_id INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: pet 表新增 parent2_id 字段');
+    }
+    const hasGeneration = cols.some(c => c.name === 'generation');
+    if (!hasGeneration) {
+        _db.exec('ALTER TABLE pet ADD COLUMN generation INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: pet 表新增 generation 字段');
+    }
+    const hasBreedCount = cols.some(c => c.name === 'breed_count');
+    if (!hasBreedCount) {
+        _db.exec('ALTER TABLE pet ADD COLUMN breed_count INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: pet 表新增 breed_count 字段');
+    }
+    const hasLastBreedAt = cols.some(c => c.name === 'last_breed_at');
+    if (!hasLastBreedAt) {
+        _db.exec('ALTER TABLE pet ADD COLUMN last_breed_at INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: pet 表新增 last_breed_at 字段');
+    }
+
+    /* P9: pet 表增加竞技场状态字段 */
+    const hasArenaStatus = cols.some(c => c.name === 'arena_status');
+    if (!hasArenaStatus) {
+        _db.exec("ALTER TABLE pet ADD COLUMN arena_status TEXT NOT NULL DEFAULT 'none'");
+        console.log('[DB] 迁移: pet 表新增 arena_status 字段');
+    }
+
+    /* P8: 繁殖记录表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS breeding_record (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent1_id      INTEGER NOT NULL,
+            parent2_id      INTEGER NOT NULL,
+            child_id        INTEGER NOT NULL,
+            user1_id        INTEGER NOT NULL,
+            user2_id        INTEGER NOT NULL,
+            inherit_detail  TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (parent1_id) REFERENCES pet(id),
+            FOREIGN KEY (parent2_id) REFERENCES pet(id),
+            FOREIGN KEY (child_id)   REFERENCES pet(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_breed_parent1 ON breeding_record(parent1_id);
+        CREATE INDEX IF NOT EXISTS idx_breed_parent2 ON breeding_record(parent2_id);
+        CREATE INDEX IF NOT EXISTS idx_breed_child   ON breeding_record(child_id);
+    `);
+
+    /* P8: 繁殖邀请表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS breeding_invite (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_uid        INTEGER NOT NULL,
+            to_uid          INTEGER NOT NULL,
+            pet1_id         INTEGER NOT NULL,
+            pet2_id         INTEGER NOT NULL,
+            status          TEXT    NOT NULL DEFAULT 'pending',
+            expire_at       INTEGER NOT NULL DEFAULT 0,
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            updated_at      INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (from_uid) REFERENCES user(id),
+            FOREIGN KEY (to_uid)   REFERENCES user(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_invite_to ON breeding_invite(to_uid, status);
+    `);
+
+    /* P8: 技能池表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS skill_pool (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_code      TEXT    NOT NULL UNIQUE,
+            skill_name      TEXT    NOT NULL DEFAULT '',
+            quality_min     INTEGER NOT NULL DEFAULT 1,
+            description     TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0
+        );
+    `);
+
+    /* P9: 竞技场宠物表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS arena_pet (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            pet_id          INTEGER NOT NULL,
+            user_id         INTEGER NOT NULL,
+            fight_power     INTEGER NOT NULL DEFAULT 0,
+            entered_at      INTEGER NOT NULL DEFAULT 0,
+            status          TEXT    NOT NULL DEFAULT 'active',
+            recovery_until  INTEGER NOT NULL DEFAULT 0,
+            consecutive_losses INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (pet_id)  REFERENCES pet(id),
+            FOREIGN KEY (user_id) REFERENCES user(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_arena_pet ON arena_pet(pet_id);
+        CREATE INDEX IF NOT EXISTS idx_arena_user ON arena_pet(user_id);
+    `);
+
+    /* P9: 战斗挑战表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS battle_challenge (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            attacker_pet_id INTEGER NOT NULL,
+            defender_pet_id INTEGER NOT NULL,
+            attacker_uid    INTEGER NOT NULL,
+            defender_uid    INTEGER NOT NULL,
+            map_id          TEXT    NOT NULL DEFAULT '',
+            status          TEXT    NOT NULL DEFAULT 'pending',
+            result          TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            finished_at     INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (attacker_pet_id) REFERENCES pet(id),
+            FOREIGN KEY (defender_pet_id) REFERENCES pet(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_challenge_attacker ON battle_challenge(attacker_uid, created_at);
+        CREATE INDEX IF NOT EXISTS idx_challenge_status   ON battle_challenge(status);
+    `);
+
+    /* P9: 战斗记录表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS battle_record (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id    INTEGER NOT NULL,
+            frames          TEXT    NOT NULL DEFAULT '',
+            summary         TEXT    NOT NULL DEFAULT '',
+            expire_at       INTEGER NOT NULL DEFAULT 0,
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (challenge_id) REFERENCES battle_challenge(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_record_challenge ON battle_record(challenge_id);
+        CREATE INDEX IF NOT EXISTS idx_record_expire    ON battle_record(expire_at);
+    `);
+
+    /* P9: 管理员测试战斗表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS battle_test (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_uid       INTEGER NOT NULL,
+            pet1_id         INTEGER NOT NULL,
+            pet2_id         INTEGER NOT NULL,
+            result          TEXT    NOT NULL DEFAULT '',
+            frames          TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0
+        );
+    `);
+
+    /* SEC-04: user 表增加 token_version 字段（Token吊销支持） */
+    const userCols = _db.pragma('table_info(user)');
+    const hasTokenVersion = userCols.some(c => c.name === 'token_version');
+    if (!hasTokenVersion) {
+        _db.exec('ALTER TABLE user ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1');
+        console.log('[DB] 迁移: user 表新增 token_version 字段');
+    }
+
+    console.log('[DB] P8/P9 数据表迁移完成');
 }
 
 /**

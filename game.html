@@ -334,6 +334,7 @@ let aiAlertTimer  = 0;      // 警惕观察计时
 
 // ============== 光点系统 ==============
 const lightDots = [];
+const MAX_LIGHT_DOTS = 20;
 const LIGHT_DOT_RADIUS = 6;
 const LIGHT_DOT_SPEED  = 0.4;
 const CHASE_SPEED_MULT = 1.8;
@@ -404,7 +405,7 @@ canvas.addEventListener('mouseup', e => {
             const dragDist = Math.hypot(upX - mouseDragStart.x, upY - mouseDragStart.y);
             const dragTime = Date.now() - mouseDragStart.time;
             // 短距离短时间 = 点击 → 放置光点
-            if (dragDist < 10 && dragTime < 300) {
+            if (dragDist < 10 && dragTime < 300 && lightDots.length < MAX_LIGHT_DOTS) {
                 lightDots.push({
                     x: upX, y: upY,
                     vx: (Math.random() - 0.5) * LIGHT_DOT_SPEED * 2,
@@ -1387,8 +1388,23 @@ function render() {
         }
     }
 
-    requestAnimationFrame(render);
+    if (!document.hidden) requestAnimationFrame(render);
 }
+
+/* PF-02: 标签页不可见时暂停渲染循环 */
+let _rafId = null;
+function startRender() {
+    if (!_rafId) _rafId = requestAnimationFrame(function loop() {
+        render();
+        _rafId = requestAnimationFrame(loop);
+    });
+}
+function stopRender() {
+    if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopRender(); else startRender();
+});
 
 initSpine();
 prevHeadX = spine[0].x;
@@ -1515,7 +1531,7 @@ paramMap.forEach(p => {
 
 loadParams();
 syncUI();
-render();
+startRender();
 </script>
 </body>
 </html>

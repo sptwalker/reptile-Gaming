@@ -5,10 +5,11 @@
 
 'use strict';
 
-const { Router }     = require('express');
-const { getDB }      = require('../db');
-const { ok, fail }   = require('../utils/response');
-const { isValidInt } = require('../utils/validator');
+const { Router }            = require('express');
+const { createRateLimiter } = require('../middleware/rate-limit');
+const { getDB }             = require('../db');
+const { ok, fail }          = require('../utils/response');
+const { isValidInt }        = require('../utils/validator');
 
 const router = Router();
 
@@ -16,7 +17,9 @@ const router = Router();
  * POST /api/log/list
  * 参数：action(可选), page(默认1), page_size(默认20, 最大50)
  */
-router.post('/list', (req, res) => {
+router.post('/list',
+    createRateLimiter({ window: 60, max: 10, key: 'uid' }),
+    (req, res) => {
     const db = getDB();
     const uid = req.uid;
 

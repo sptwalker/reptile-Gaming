@@ -94,10 +94,30 @@ function validateLogin(body) {
     return errors;
 }
 
+/**
+ * 要求参数为合法整数，否则抛出错误（供 P8/P9 路由使用）
+ * @param {*} val 待校验值
+ * @param {string} name 参数名（用于错误提示）
+ * @param {number} [min=1] 最小值
+ * @param {number} [max=Number.MAX_SAFE_INTEGER] 最大值
+ * @returns {number} 校验通过后的整数值
+ * @throws {{ code: number, msg: string }} 校验失败时抛出
+ */
+function requireInt(val, name, min = 1, max = Number.MAX_SAFE_INTEGER) {
+    const n = Number(val);
+    if (!Number.isInteger(n) || n < min || n > max) {
+        const err = new Error(`${name} 参数错误`);
+        err.code = 1001;
+        throw err;
+    }
+    return n;
+}
+
 module.exports = {
     sanitize,
     isValidInt,
     isValidString,
+    requireInt,
     validateRegister,
     validateLogin
 };

@@ -18,7 +18,7 @@ const router = Router();
  * 限流：同用户 30次/分钟（默认）
  */
 router.post('/claim',
-    createRateLimiter({ window: 60, max: 30, key: 'uid' }),
+    createRateLimiter({ window: 60, max: 5, key: 'uid' }),
     (req, res) => {
         const result = eggService.claimEgg(req.uid, req.ip);
         if (result.code !== 0) {

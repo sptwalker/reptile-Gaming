@@ -104,6 +104,10 @@ module.exports = {
     SATIETY_DECAY_AMOUNT:   5,
     FEED_COOLDOWN:          30,
 
+    /* ── 灵虫限制 ── */
+    SPIRIT_BUG_DAILY_LIMIT: 3,
+    SPIRIT_BUG_TOTAL_LIMIT: 50,
+
     /* ── 食物表 ── */
     FOOD_TABLE: {
         insect:     { satiety: 20, exp: 10, cost: 5,  mood: 0,  special: null },
@@ -151,7 +155,7 @@ module.exports = {
         spineNodes:        20,
         segmentWidth:      1.0,
         fovAngle:          1.0,
-        fovDistance:        1.0,
+        fovDistance:       1.0,
         colorSaturation:   1.0,
         patternComplexity: 1
     }

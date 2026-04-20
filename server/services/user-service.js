@@ -77,8 +77,8 @@ function login({ username, password }, ip) {
         return { code: 2002, data: null, msg: '用户名或密码错误' };
     }
 
-    /* 签发 Token (S-B04) */
-    const token = signToken(user.id);
+    /* 签发 Token (S-B04 + SEC-04: 含 token_version) */
+    const token = signToken(user.id, user.token_version || 1);
 
     /* 每日首次登录发放金币 (game-rules: DAILY_LOGIN_GOLD) */
     let goldDelta = 0;

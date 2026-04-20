@@ -21,6 +21,10 @@ if (config.NODE_ENV === 'production' && config.JWT_SECRET === 'dev_secret_DO_NOT
     console.error('[FATAL] 生产环境必须设置 JWT_SECRET 环境变量');
     process.exit(1);
 }
+if (config.NODE_ENV === 'production' && !config.ALLOWED_ORIGIN) {
+    console.error('[FATAL] 生产环境必须设置 ALLOWED_ORIGIN 环境变量');
+    process.exit(1);
+}
 
 /* ── 初始化数据库 ── */
 initDB();
@@ -28,12 +32,15 @@ initDB();
 /* ── 创建 Express 实例 ── */
 const app = express();
 
+/* 信任第一层反向代理，确保 req.ip 获取真实客户端IP (SEC-03) */
+app.set('trust proxy', 1);
+
 /* ── 中间件 ── */
 
-/* CORS (S-F02) */
+/* CORS (S-F02) — 支持 GET+POST 以兼容 P9 竞技场 GET 路由 */
 app.use(cors({
     origin:         config.ALLOWED_ORIGIN,
-    methods:        ['POST'],
+    methods:        ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Seq']
 }));
 

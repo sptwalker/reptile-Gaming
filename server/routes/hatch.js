@@ -45,7 +45,7 @@ router.post('/status',
             return fail(res, 1001, 'egg_id 参数错误');
         }
 
-        const result = hatchService.getHatchStatus(req.uid, egg_id, req.ip);
+        const result = hatchService.getHatchStatus(req.uid, egg_id);
         if (result.code !== 0) {
             return fail(res, result.code, result.msg);
         }

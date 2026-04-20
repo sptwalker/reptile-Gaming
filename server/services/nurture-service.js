@@ -175,6 +175,24 @@ function feedPet(uid, petId, foodCode, ip) {
         return { code: 5001, data: null, msg: '体力不足，灵虫需要体力≥10' };
     }
 
+    /* 灵虫每日/总次数限制 (V02) */
+    if (foodCode === 'spirit_bug') {
+        const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+        const todayTs = Math.floor(todayStart.getTime() / 1000);
+        const dailyCount = db.prepare(
+            `SELECT COUNT(*) as cnt FROM log WHERE user_id = ? AND action = 'feed' AND json_extract(detail, '$.food') = 'spirit_bug' AND created_at >= ?`
+        ).get(uid, todayTs).cnt;
+        if (dailyCount >= rules.SPIRIT_BUG_DAILY_LIMIT) {
+            return { code: 5003, data: null, msg: `灵虫每日最多喂食${rules.SPIRIT_BUG_DAILY_LIMIT}次` };
+        }
+        const totalCount = db.prepare(
+            `SELECT COUNT(*) as cnt FROM log WHERE user_id = ? AND action = 'feed' AND json_extract(detail, '$.food') = 'spirit_bug'`
+        ).get(uid).cnt;
+        if (totalCount >= rules.SPIRIT_BUG_TOTAL_LIMIT) {
+            return { code: 5004, data: null, msg: `灵虫累计喂食已达上限${rules.SPIRIT_BUG_TOTAL_LIMIT}次` };
+        }
+    }
+
     /* 查询用户金币 */
     const user = db.prepare('SELECT gold FROM user WHERE id = ?').get(uid);
     if (!user || user.gold < food.cost) {
@@ -284,9 +302,12 @@ function feedPet(uid, petId, foodCode, ip) {
             gold_remain: goldRemain,
             satiety:     { before: satietyBefore, after: satietyAfter },
             exp:         { before: expBefore, after: expAfter },
+            exp_gained:  food.exp,
             mood_delta:  moodDelta,
             level_up:    levelUp,
             level:       level,
+            levels_gained: levelsGained,
+            attr_growth: attrGrowth,
             next_feed_at: ts + rules.FEED_COOLDOWN
         },
         msg: 'success'

@@ -33,10 +33,11 @@ function verifyPassword(plain, hash) {
 /**
  * 签发 JWT Token
  * @param {number} uid 用户ID
+ * @param {number} [tv=1] token版本号（用于吊销支持）
  * @returns {string} JWT字符串
  */
-function signToken(uid) {
-    return jwt.sign({ uid }, config.JWT_SECRET, {
+function signToken(uid, tv = 1) {
+    return jwt.sign({ uid, tv }, config.JWT_SECRET, {
         expiresIn: config.JWT_EXPIRES_IN
     });
 }
@@ -44,12 +45,12 @@ function signToken(uid) {
 /**
  * 验证 JWT Token
  * @param {string} token JWT字符串
- * @returns {{ uid: number } | null} 解码后的payload，失败返回null
+ * @returns {{ uid: number, tv: number } | null} 解码后的payload，失败返回null
  */
 function verifyToken(token) {
     try {
         const decoded = jwt.verify(token, config.JWT_SECRET);
-        return { uid: decoded.uid };
+        return { uid: decoded.uid, tv: decoded.tv || 1 };
     } catch (_err) {
         return null;
     }
