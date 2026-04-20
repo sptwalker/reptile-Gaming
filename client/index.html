@@ -124,6 +124,38 @@
                 <div id="evolveMsg" class="nurture-msg"></div>
             </div>
 
+            <!-- ═══ 跑道区 (P7) ═══ -->
+            <div id="treadmillSection" class="treadmill-section" style="display:none">
+                <h4>🏃 跑道</h4>
+                <div id="treadmillInfo" class="treadmill-info"></div>
+                <div id="treadmillActions" class="treadmill-actions"></div>
+                <div id="treadmillMsg" class="nurture-msg"></div>
+            </div>
+
+            <!-- ═══ 售卖区 (P7) ═══ -->
+            <div id="sellSection" class="sell-section" style="display:none">
+                <h4>💰 售卖宠物</h4>
+                <div id="sellInfo" class="sell-info"></div>
+                <button id="btnSellPet" class="btn btn-sell" disabled>确认售卖</button>
+                <div id="sellMsg" class="nurture-msg"></div>
+            </div>
+
+            <!-- ═══ 繁殖区 (P8) ═══ -->
+            <div id="breedSection" class="breed-section" style="display:none">
+                <h4>💕 繁殖</h4>
+                <div id="breedInfo" class="breed-info"></div>
+                <div id="breedActions" class="breed-actions"></div>
+                <div id="breedMsg" class="nurture-msg"></div>
+            </div>
+
+            <!-- ═══ 竞技场区 (P9) ═══ -->
+            <div id="arenaSection" class="arena-section" style="display:none">
+                <h4>⚔️ 竞技场</h4>
+                <div id="arenaInfo" class="arena-info"></div>
+                <div id="arenaActions" class="arena-actions"></div>
+                <div id="arenaMsg" class="nurture-msg"></div>
+            </div>
+
             <div id="petPanelAttrs" class="pet-panel-attrs"></div>
             <div id="petPanelDerived" class="pet-panel-derived"></div>
             <div id="petPanelSkills" class="pet-panel-skills"></div>
@@ -131,6 +163,94 @@
 
         <div id="canvasWrap">
             <canvas id="gameCanvas"></canvas>
+        </div>
+
+        <!-- ═══ 交友市场面板 (P8) ═══ -->
+        <div id="marketPanel" class="market-panel" style="display:none">
+            <div class="market-header">
+                <h3>💕 交友市场</h3>
+                <button id="btnMarketClose" class="btn btn-sm">返回</button>
+            </div>
+            <div class="market-filters">
+                <button class="btn btn-sm market-filter active" data-gender="0">全部</button>
+                <button class="btn btn-sm market-filter" data-gender="1">♂ 雄性</button>
+                <button class="btn btn-sm market-filter" data-gender="2">♀ 雌性</button>
+            </div>
+            <div id="marketList" class="market-list"></div>
+            <div id="marketMsg" class="nurture-msg"></div>
+        </div>
+
+        <!-- ═══ 邀请列表面板 (P8) ═══ -->
+        <div id="invitePanel" class="invite-panel" style="display:none">
+            <div class="invite-header">
+                <h3>📬 配对邀请</h3>
+                <button id="btnInviteClose" class="btn btn-sm">返回</button>
+            </div>
+            <div id="inviteList" class="invite-list"></div>
+            <div id="inviteMsg" class="nurture-msg"></div>
+        </div>
+
+        <!-- ═══ 交配笼面板 (P8) ═══ -->
+        <div id="cagePanel" class="cage-panel" style="display:none">
+            <div class="cage-header">
+                <h3>🏠 交配笼</h3>
+                <button id="btnCageClose" class="btn btn-sm">返回</button>
+            </div>
+            <div id="cageInfo" class="cage-info"></div>
+            <div id="cageActions" class="cage-actions"></div>
+            <div id="cageMsg" class="nurture-msg"></div>
+        </div>
+
+        <!-- ═══ 竞技场面板 (P9) ═══ -->
+        <div id="arenaPanel" class="arena-panel" style="display:none">
+            <div class="arena-header">
+                <h3>⚔️ 斗兽竞技场</h3>
+                <button id="btnArenaClose" class="btn btn-sm">返回</button>
+            </div>
+            <div id="arenaMyPets" class="arena-my-pets"></div>
+            <div id="arenaOpponents" class="arena-opponents"></div>
+            <div id="arenaPanelMsg" class="nurture-msg"></div>
+        </div>
+
+        <!-- ═══ 战斗回放面板 (P9) ═══ -->
+        <div id="battlePanel" class="battle-panel" style="display:none">
+            <div class="battle-header">
+                <h3>⚔️ 战斗</h3>
+                <button id="btnBattleClose" class="btn btn-sm">关闭</button>
+            </div>
+            <canvas id="battleCanvas" width="800" height="400"></canvas>
+            <div class="battle-hud">
+                <div class="battle-hud-left">
+                    <span id="battleNameA" class="battle-name"></span>
+                    <div class="battle-hp-bar"><div id="battleHpA" class="battle-hp-fill"></div></div>
+                    <span id="battleFearA" class="battle-fear"></span>
+                </div>
+                <div class="battle-hud-center">
+                    <span id="battleTimer" class="battle-timer">0s</span>
+                    <span id="battleRage" class="battle-rage"></span>
+                </div>
+                <div class="battle-hud-right">
+                    <span id="battleNameB" class="battle-name"></span>
+                    <div class="battle-hp-bar"><div id="battleHpB" class="battle-hp-fill"></div></div>
+                    <span id="battleFearB" class="battle-fear"></span>
+                </div>
+            </div>
+            <div class="battle-controls">
+                <button id="btnBattlePlay" class="btn btn-sm">▶ 播放</button>
+                <button id="btnBattleSpeed" class="btn btn-sm">2x</button>
+                <input id="battleSeek" type="range" min="0" max="100" value="0" class="battle-seek">
+            </div>
+            <div id="battleResult" class="battle-result" style="display:none"></div>
+            <div id="battleLog" class="battle-log"></div>
+        </div>
+
+        <!-- ═══ 战斗历史面板 (P9) ═══ -->
+        <div id="historyPanel" class="history-panel" style="display:none">
+            <div class="history-header">
+                <h3>📜 战斗记录</h3>
+                <button id="btnHistoryClose" class="btn btn-sm">返回</button>
+            </div>
+            <div id="historyList" class="history-list"></div>
         </div>
     </div>
 
@@ -149,5 +269,6 @@
     <script src="js/auth.js"></script>
     <script src="js/lizard-renderer.js"></script>
     <script src="js/egg.js"></script>
+    <script src="js/arena.js"></script>
 </body>
 </html>

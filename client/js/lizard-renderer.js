@@ -1,6 +1,7 @@
 /**
  * LizardRenderer - Lizard renderer module
  * Extracted from game.html for reuse in main game UI
+ * Supports render_params from server for per-pet appearance customization
  */
 "use strict";
 
@@ -26,6 +27,12 @@ class LizardRenderer {
     this.COLLISION_MARGIN = 6;
     this.HEAD_SKIP_NODES = 4;
     this.STEER_STRENGTH = 0.85;
+    /* render_params from server (RB-1/RB-2/RB-5) */
+    this._bodyScale = 1.0;
+    this._headScale = 1.0;
+    this._colorSaturation = 1.0;
+    this._patternComplexity = 1;
+    this._bodySeed = null;
     this.BEND_NECK = 0.66;
     this.BEND_SHOULDER = 0.5;
     this.BEND_TORSO = 0.44;
@@ -77,6 +84,7 @@ class LizardRenderer {
   stop() {
     if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     document.removeEventListener("visibilitychange", this._boundVisibility);
+    this._removeCanvasEvents();
   }
 
   setActivity(v) { this.activity = Math.max(1, Math.min(10, v)); }
@@ -92,8 +100,50 @@ class LizardRenderer {
     }
   }
 
+  /**
+   * 应用服务端渲染参数 (RB-1/RB-2/RB-5)
+   * @param {object} renderParams  来自 /api/pet/detail 的 render_params
+   * @param {object} [bodySeed]    来自 /api/pet/detail 的 body_seed
+   */
+  applyRenderParams(renderParams, bodySeed) {
+    if (!renderParams) return;
+    if (renderParams.bodyWidth)         this._bodyScale = renderParams.bodyWidth;
+    if (renderParams.headScale)         this._headScale = renderParams.headScale;
+    if (renderParams.moveSpeed)         this.MAX_SPEED = renderParams.moveSpeed;
+    if (renderParams.legFrequency)      this.STEP_SPEED = renderParams.legFrequency;
+    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = renderParams.segmentWidth;
+    if (renderParams.fovAngle)          this.FOV_ANGLE = renderParams.fovAngle;
+    if (renderParams.fovDistance)        this.FOV_MAX_DIST = renderParams.fovDistance;
+    if (renderParams.colorSaturation)   this._colorSaturation = renderParams.colorSaturation;
+    if (renderParams.patternComplexity) this._patternComplexity = renderParams.patternComplexity;
+    if (bodySeed) this._bodySeed = bodySeed;
+    this._skinColors = this._generateSkinColors();
+  }
+
+  /** 基于 colorSaturation + bodySeed 生成皮肤色系 (RB-5) */
+  _generateSkinColors() {
+    var seed = this._bodySeed || {};
+    var hueBase = seed.hue != null ? seed.hue : 110;
+    var sat = Math.min(100, Math.round(35 * this._colorSaturation));
+    var light = seed.lightness != null ? seed.lightness : 32;
+    return {
+      bodyTop:    "hsl(" + hueBase + "," + sat + "%," + (light + 8) + "%)",
+      bodyMid:    "hsl(" + hueBase + "," + sat + "%," + light + "%)",
+      bodyBottom: "hsl(" + hueBase + "," + sat + "%," + (light - 8) + "%)",
+      head:       "hsl(" + hueBase + "," + Math.round(sat * 0.9) + "%," + (light + 4) + "%)",
+      leg:        "hsl(" + hueBase + "," + sat + "%," + (light - 2) + "%)",
+      outline:    "hsl(" + hueBase + "," + sat + "%," + (light - 12) + "%)",
+      stripe:     "hsla(" + hueBase + "," + Math.round(sat * 0.6) + "%," + (light + 18) + "%,0.25)",
+      dot:        "hsla(" + hueBase + "," + sat + "%," + (light - 14) + "%,0.5)"
+    };
+  }
+
   destroy() {
     this.stop();
+    this._removeCanvasEvents();
+  }
+
+  _removeCanvasEvents() {
     var c = this.canvas, h = this._evH;
     if (h.m) c.removeEventListener("mousemove", h.m);
     if (h.d) c.removeEventListener("mousedown", h.d);
@@ -195,15 +245,16 @@ class LizardRenderer {
   }
 
   _bodyWidthAt(i) {
-    var n = this.SPINE_NODE_COUNT - 1, t = i / n;
-    if (t < 0.05) return this._lerp(10, 14, t / 0.05);
-    if (t < 0.12) return this._lerp(14, 18, (t - 0.05) / 0.07);
-    if (t < 0.18) return this._lerp(18, 10, (t - 0.12) / 0.06);
-    if (t < 0.28) return this._lerp(10, 16, (t - 0.18) / 0.10);
-    if (t < 0.38) return this._lerp(16, 14, (t - 0.28) / 0.10);
-    if (t < 0.50) return this._lerp(14, 15, (t - 0.38) / 0.12);
-    if (t < 0.60) return this._lerp(15, 12, (t - 0.50) / 0.10);
-    return this._lerp(12, 1, (t - 0.60) / 0.40);
+    var n = this.SPINE_NODE_COUNT - 1, t = i / n, s = this._bodyScale, w;
+    if (t < 0.05) w = this._lerp(10, 14, t / 0.05);
+    else if (t < 0.12) w = this._lerp(14, 18, (t - 0.05) / 0.07);
+    else if (t < 0.18) w = this._lerp(18, 10, (t - 0.12) / 0.06);
+    else if (t < 0.28) w = this._lerp(10, 16, (t - 0.18) / 0.10);
+    else if (t < 0.38) w = this._lerp(16, 14, (t - 0.28) / 0.10);
+    else if (t < 0.50) w = this._lerp(14, 15, (t - 0.38) / 0.12);
+    else if (t < 0.60) w = this._lerp(15, 12, (t - 0.50) / 0.10);
+    else w = this._lerp(12, 1, (t - 0.60) / 0.40);
+    return w * s;
   }
 
   _spineAngleAt(idx) {
@@ -605,9 +656,10 @@ class LizardRenderer {
       leftPts.push({x: node.x + Math.cos(angle) * w, y: node.y + Math.sin(angle) * w});
       rightPts.push({x: node.x - Math.cos(angle) * w, y: node.y - Math.sin(angle) * w});
     }
+    var sc = this._skinColors || {bodyTop:"#5a8a3c",bodyMid:"#3d6b2e",bodyBottom:"#2a4d1f",outline:"#2a4d1f",stripe:"rgba(120,180,80,0.25)",dot:"rgba(30,60,20,0.5)"};
     var grad = ctx.createLinearGradient(this.spine[0].x, this.spine[0].y - 20, this.spine[0].x, this.spine[0].y + 20);
-    grad.addColorStop(0, "#5a8a3c"); grad.addColorStop(0.5, "#3d6b2e"); grad.addColorStop(1, "#2a4d1f");
-    ctx.fillStyle = grad; ctx.strokeStyle = "#2a4d1f"; ctx.lineWidth = 2;
+    grad.addColorStop(0, sc.bodyTop); grad.addColorStop(0.5, sc.bodyMid); grad.addColorStop(1, sc.bodyBottom);
+    ctx.fillStyle = grad; ctx.strokeStyle = sc.outline; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(leftPts[0].x, leftPts[0].y);
     for (var i2 = 1; i2 < leftPts.length - 1; i2++) {
       var cx = (leftPts[i2].x + leftPts[i2 + 1].x) / 2, cy = (leftPts[i2].y + leftPts[i2 + 1].y) / 2;
@@ -622,7 +674,7 @@ class LizardRenderer {
     }
     ctx.lineTo(rightPts[0].x, rightPts[0].y);
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "rgba(120,180,80,0.25)"; ctx.beginPath();
+    ctx.fillStyle = sc.stripe; ctx.beginPath();
     for (var i4 = 0; i4 < this.spine.length; i4++) {
       var n = this.spine[i4];
       var nx = this.spine[Math.min(i4 + 1, this.spine.length - 1)];
@@ -641,7 +693,7 @@ class LizardRenderer {
       ctx.lineTo(n2.x - Math.cos(a2) * ww2, n2.y - Math.sin(a2) * ww2);
     }
     ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "rgba(30,60,20,0.5)";
+    ctx.fillStyle = sc.dot;
     for (var i6 = 2; i6 < this.spine.length - 4; i6 += 2) {
       var sw = this._bodyWidthAt(i6) * 0.3;
       if (sw > 2) { ctx.beginPath(); ctx.arc(this.spine[i6].x, this.spine[i6].y, sw, 0, Math.PI * 2); ctx.fill(); }
@@ -651,32 +703,35 @@ class LizardRenderer {
   _drawHead() {
     var ctx = this.ctx, head = this.spine[0], neck = this.spine[2];
     var angle = Math.atan2(head.y - neck.y, head.x - neck.x);
+    var sc = this._skinColors || {head:"#4a7a30",outline:"#2a4d1f"};
+    var hs = this._headScale;
     ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(angle);
-    ctx.fillStyle = "#4a7a30";
-    ctx.beginPath(); ctx.ellipse(8, 0, 16, 12, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#2a4d1f"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = sc.head;
+    ctx.beginPath(); ctx.ellipse(8 * hs, 0, 16 * hs, 12 * hs, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = sc.outline; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = "#ff8800";
-    ctx.beginPath(); ctx.ellipse(12, -8, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(12, 8, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(12 * hs, -8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(12 * hs, 8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#111";
-    ctx.beginPath(); ctx.ellipse(13, -8, 2, 3.5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(13, 8, 2, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(13 * hs, -8 * hs, 2 * hs, 3.5 * hs, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(13 * hs, 8 * hs, 2 * hs, 3.5 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#1a3010";
-    ctx.beginPath(); ctx.arc(22, -3, 1.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(22, 3, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(22 * hs, -3 * hs, 1.5 * hs, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(22 * hs, 3 * hs, 1.5 * hs, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
   _drawLegs() {
     var self = this, ctx = this.ctx;
+    var sc = this._skinColors || {leg:"#3d6b2e",outline:"#2a4d1f"};
     this.legs.forEach(function(leg) {
       var hip = self._getHip(leg);
       var knee = self._solveIK(hip, leg.foot, self.LEG_LENGTH1, self.LEG_LENGTH2, -leg.side);
-      ctx.strokeStyle = "#3d6b2e"; ctx.lineWidth = 6; ctx.lineCap = "round";
+      ctx.strokeStyle = sc.leg; ctx.lineWidth = 6; ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(knee.x, knee.y); ctx.stroke();
       ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(leg.foot.x, leg.foot.y); ctx.stroke();
-      ctx.fillStyle = "#2a4d1f";
+      ctx.fillStyle = sc.outline;
       ctx.beginPath(); ctx.arc(knee.x, knee.y, 4, 0, Math.PI * 2); ctx.fill();
       self._drawFoot(leg.foot, hip);
     });
@@ -684,13 +739,14 @@ class LizardRenderer {
 
   _drawFoot(foot, hip) {
     var ctx = this.ctx;
+    var sc = this._skinColors || {leg:"#3d6b2e"};
     var angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
     ctx.save(); ctx.translate(foot.x, foot.y); ctx.rotate(angle);
-    ctx.fillStyle = "#3d6b2e";
+    ctx.fillStyle = sc.leg;
     for (var t = -2; t <= 2; t++) {
       var spread = t * 0.35;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * 10, Math.sin(spread) * 10);
-      ctx.lineWidth = 2.5; ctx.strokeStyle = "#3d6b2e"; ctx.stroke();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = sc.leg; ctx.stroke();
       ctx.beginPath(); ctx.arc(Math.cos(spread) * 10, Math.sin(spread) * 10, 1.5, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();

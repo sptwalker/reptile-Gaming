@@ -198,3 +198,83 @@ reptile-Gaming/
 - P3-养成：喂食、成长、蜕变、体力
 - P4-渲染：Canvas宠物渲染、属性映射
 - P5-联网：多人同屏、社交、对战框架
+
+### v0.9 - P8 繁殖系统
+
+#### 品质体系统一
+- 确认5级品质体系：1=普通, 2=优秀, 3=稀有, 4=史诗, 5=传说
+- 繁殖品质组合表扩展为15条（覆盖所有5×5父母品质对）
+
+#### 基因遗传引擎 (`server/services/gene-engine.js`, 465行)
+- 品质遗传：组合表查询 + 全局传说上限（≥1%减半，≥2%归零）
+- 天赋基因：显性/隐性双基因模型，80%遗传 / 20%变异（±1~3），表达倍率（纯合显性1.1/杂合1.0/纯合隐性0.9）
+- 外观遗传：5模块独立继承（spine/limbs/head/tail/skin），可配置父方权重
+- 技能遗传：35%父/35%母/10%双亲/20%变异分布，品质上限控制
+- 隐藏基因：5种类型（水晶鳞/暗影纱/炎之心/风暴翼/远古血），0.1%携带率，全局硬上限，7天冷却
+
+#### 交友市场与繁殖流程 (`server/services/breeding-service.js`, 535行)
+- 交友市场：上架/下架/浏览（性别过滤，JOIN宠物+用户，限50条）
+- 邀请系统：发送（校验阶段/性别/冷却/体力/心情/金币/待处理）、列表、接受（事务：更新邀请+创建笼+扣除资源+下架双方）、拒绝
+- 交配笼：4小时倒计时，成功概率（base 0.6 + 心情/休息加成 - 近期繁殖惩罚），随机1-2蛋
+- 孵化注入：繁殖蛋在finishHatch时注入遗传数据（基因组/外观/隐藏基因/父母ID/世代/性别/天赋/技能）
+
+#### 路由与前端
+- `server/routes/breeding.js`：9个POST端点（市场3+邀请4+笼2），全部限流
+- 前端：交友市场面板（性别过滤+市场卡片+邀请按钮）、邀请列表面板、交配笼面板（进度条+1s定时器+完成按钮）
+- CSS：~180行繁殖主题样式（粉色系）
+
+#### 技术要点
+- 循环依赖解决：hatch-service → breeding-service 使用函数内 lazy require
+- 数据库新增5张表：breeding_record, breeding_invite, dating_market, breeding_cage, global_stats, hidden_gene_log
+- pet表新增8个字段：gene_set, appearance_gene, hidden_gene, parent1_id, parent2_id, generation, breed_count, last_breed_at
+
+### v1.0 - P9 斗兽竞技场异步战斗系统
+
+#### 战斗引擎 (`server/services/battle-engine.js`, ~490行)
+- 30FPS帧级模拟，最大120秒（3600帧）
+- 4态AI状态机：aggressive（进攻）/ kiting（风筝）/ defensive（防御）/ fear（恐惧）
+- 伤害公式：ATK × (1 - DEF/(DEF+200)) × random(±15%) × rage × stamina_penalty × crit
+- 恐惧系统：每次被击中+8，阈值100触发逃跑判负，每秒自然衰减0.2
+- 狂暴计时器：60秒后启动，每秒+2%伤害倍率
+- 技能系统：14种技能战斗效果（近战/远程/buff/治疗/恐惧），独立冷却
+- buff系统：防御/闪避/暴击/攻击增益，持续时间衰减
+- 体力惩罚：战斗体力耗尽时伤害×0.5
+
+#### 战斗属性公式
+- HP = VIT×10 + STR×3 + level×5
+- ATK = STR×3 + AGI×1 + level×2
+- DEF = VIT×2 + STR×1 + level×1
+- SPD = AGI×3 + PER×1
+
+#### 竞技场服务 (`server/services/arena-service.js`, ~520行)
+- 入场：stage≥2 + stamina≥1，计算战斗力，更新arena_status
+- 存钱罐：1金/分钟累积，可提取兑换
+- 对手匹配：同品质+同阶段，排除自己，按战斗力排序
+- 挑战：每日10次上限，赌注=min(双方存钱罐)但≥10金，随机地图
+- 结算：胜方+赌注+5金-1体力，败方-赌注-5金-10体力+恢复期30分钟，平局双方-10体力+10金
+- 战斗记录：72小时自动过期，支持回放
+- 管理员测试：任意两宠物模拟战斗
+
+#### 地图系统
+- 3张地图：草原（无buff）、沼泽（速度-20%）、火山（攻击+10%）
+- 挑战时随机选择
+
+#### API路由 (`server/routes/arena.js`, 11个端点)
+- /enter, /my, /opponents, /collect, /challenge, /battle, /history, /replay, /live, /admin-test
+- 全部POST方法 + 滑动窗口限流
+
+#### 前端 (`client/js/arena.js`, ~380行)
+- 竞技场区域：入场按钮/状态显示/战斗记录入口
+- 竞技场面板：我的宠物列表（金币累积/提取）、对手列表（挑战按钮）
+- 战斗回放：Canvas渲染（单位移动+状态指示）、HP条/恐惧值/狂暴倍率HUD、播放/暂停/倍速/进度条、事件日志
+- 战斗历史：记录列表+回放按钮
+
+#### 数据库变更
+- arena_pet表新增：arena_gold, daily_challenges, daily_reset_date
+- battle_challenge表新增：bet_amount, reward_detail
+- 含兼容迁移（ALTER TABLE）
+
+#### game-rules.js 新增 ~130行常量
+- 帧率/时长、伤害浮动/暴击/闪避、狂暴系统、恐惧系统、体力惩罚
+- 战斗属性公式系数、结算奖惩值、AI阈值、地图定义、14种技能战斗效果
+

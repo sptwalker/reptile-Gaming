@@ -683,7 +683,7 @@ body {
 /* ═══ 蜕变动画覆盖层 (P6) ═══ */
 .evolve-overlay {
     position: fixed;
-    inset: 0;
+    top: 0; right: 0; bottom: 0; left: 0;
     background: rgba(0, 0, 0, 0.85);
     display: flex;
     justify-content: center;
@@ -712,7 +712,7 @@ body {
 }
 .evolve-anim-flash {
     position: absolute;
-    inset: 0;
+    top: 0; right: 0; bottom: 0; left: 0;
     background: radial-gradient(circle, rgba(210,168,255,0.3) 0%, transparent 70%);
     animation: evolveFlash 1.5s ease-out;
     pointer-events: none;
@@ -763,3 +763,363 @@ body {
     max-width: 200px;
     margin: 0 auto;
 }
+
+/* ═══ 跑道系统 (P7) ═══ */
+.treadmill-section {
+    border-top: 1px solid #21262d;
+    padding-top: 16px;
+    margin-bottom: 18px;
+}
+.treadmill-section h4 {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 12px;
+}
+.treadmill-info {
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #8b949e;
+}
+.treadmill-info .tm-tier {
+    font-size: 15px;
+    color: #f9d423;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.treadmill-info .tm-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.treadmill-info .tm-bar-track {
+    flex: 1;
+    height: 8px;
+    background: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.treadmill-info .tm-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f9d423, #f0883e);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.treadmill-info .tm-running {
+    color: #3fb950;
+    font-weight: 600;
+    animation: tmPulse 1.5s ease-in-out infinite;
+}
+@keyframes tmPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.treadmill-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.btn-tm {
+    padding: 8px 16px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #161b22;
+    color: #e6edf3;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+.btn-tm:hover:not(:disabled) {
+    border-color: #f9d423;
+    background: rgba(249, 212, 35, 0.1);
+}
+.btn-tm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.btn-tm-collect {
+    border-color: #f9d423;
+    color: #f9d423;
+}
+
+/* ═══ 售卖系统 (P7) ═══ */
+.sell-section {
+    border-top: 1px solid #21262d;
+    padding-top: 16px;
+    margin-bottom: 18px;
+}
+.sell-section h4 {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 12px;
+}
+.sell-info {
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #8b949e;
+}
+.sell-info .sell-price {
+    font-size: 18px;
+    color: #ffaa00;
+    font-weight: 700;
+    margin-top: 6px;
+}
+.btn-sell {
+    padding: 8px 20px;
+    border: 1px solid #f85149;
+    border-radius: 8px;
+    background: rgba(248, 81, 73, 0.1);
+    color: #f85149;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-sell:hover:not(:disabled) {
+    background: rgba(248, 81, 73, 0.2);
+}
+.btn-sell:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════
+ * P8 繁殖系统样式
+ * ═══════════════════════════════════════════ */
+
+.breed-section {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(255, 105, 180, 0.05);
+    border: 1px solid rgba(255, 105, 180, 0.2);
+    border-radius: 10px;
+}
+.breed-section h4 { margin: 0 0 8px; }
+.breed-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.btn-breed {
+    padding: 6px 14px;
+    border: 1px solid rgba(255, 105, 180, 0.4);
+    border-radius: 8px;
+    background: rgba(255, 105, 180, 0.1);
+    color: #FF69B4;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-breed:hover { background: rgba(255, 105, 180, 0.2); }
+
+/* 交友市场面板 */
+.market-panel, .invite-panel, .cage-panel {
+    padding: 16px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+.market-header, .invite-header, .cage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.market-header h3, .invite-header h3, .cage-header h3 { margin: 0; }
+.market-filters {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.market-filter.active {
+    background: rgba(255, 105, 180, 0.2);
+    border-color: #FF69B4;
+    color: #FF69B4;
+}
+.market-list, .invite-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.market-empty {
+    text-align: center;
+    color: #888;
+    padding: 20px;
+}
+
+/* 市场卡片 */
+.market-card {
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    transition: border-color 0.2s;
+}
+.market-card:hover { border-color: rgba(255, 105, 180, 0.4); }
+.market-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.market-pet-name { font-weight: 600; font-size: 14px; }
+.market-gender { font-size: 16px; }
+.market-card-info {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 4px;
+}
+.market-card-owner { font-size: 11px; color: #666; margin-bottom: 8px; }
+.market-card-actions { display: flex; gap: 6px; }
+.btn-invite {
+    background: rgba(255, 105, 180, 0.15);
+    border: 1px solid rgba(255, 105, 180, 0.3);
+    color: #FF69B4;
+    cursor: pointer;
+}
+.btn-invite:hover { background: rgba(255, 105, 180, 0.25); }
+
+/* 邀请卡片 */
+.invite-card {
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+.invite-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+.invite-card-actions { display: flex; gap: 8px; }
+.btn-accept {
+    background: rgba(85, 255, 85, 0.15);
+    border: 1px solid rgba(85, 255, 85, 0.3);
+    color: #55FF55;
+    cursor: pointer;
+}
+.btn-accept:hover { background: rgba(85, 255, 85, 0.25); }
+.btn-reject {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    color: #f85149;
+    cursor: pointer;
+}
+.btn-reject:hover { background: rgba(248, 81, 73, 0.2); }
+
+/* 交配笼 */
+.cage-pair {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+.cage-pet { font-weight: 600; }
+.cage-heart { font-size: 24px; animation: pulse 1.5s infinite; }
+.cage-progress { margin-bottom: 12px; }
+.cage-time {
+    display: block;
+    text-align: center;
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 4px;
+}
+.cage-result {
+    text-align: center;
+    padding: 20px;
+    border-radius: 10px;
+    font-size: 15px;
+    line-height: 1.8;
+}
+.cage-result.success {
+    background: rgba(85, 255, 85, 0.1);
+    border: 1px solid rgba(85, 255, 85, 0.3);
+    color: #55FF55;
+}
+.cage-result.fail {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    color: #f85149;
+}
+.btn-cage-finish {
+    display: block;
+    margin: 0 auto;
+}
+
+/* ══════════════════════════════════════════════════
+ * P9 竞技场样式
+ * ══════════════════════════════════════════════════ */
+
+.arena-section { margin-top: 16px; padding: 12px; background: rgba(255, 140, 0, 0.05); border-radius: 8px; border: 1px solid rgba(255, 140, 0, 0.2); }
+.arena-section h4 { margin: 0 0 8px; color: #ff8c00; }
+.arena-info p { margin: 4px 0; font-size: 13px; color: #aaa; }
+.arena-status-active { color: #55ff55 !important; font-weight: bold; }
+.arena-status-recovery { color: #ffaa00 !important; }
+.arena-actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn-arena { background: linear-gradient(135deg, #ff6b00, #ff8c00); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+.btn-arena:hover { background: linear-gradient(135deg, #ff8c00, #ffaa00); }
+
+/* 竞技场面板 */
+.arena-panel { padding: 16px; }
+.arena-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.arena-header h3 { margin: 0; color: #ff8c00; }
+
+.arena-pet-card { background: rgba(255, 140, 0, 0.08); border: 1px solid rgba(255, 140, 0, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.arena-pet-name { font-weight: bold; color: #fff; font-size: 14px; }
+.arena-pet-stats { display: flex; gap: 12px; margin: 6px 0; font-size: 12px; color: #ccc; }
+.arena-pet-actions { display: flex; gap: 8px; margin-top: 8px; }
+.arena-recovering { color: #ffaa00; }
+.arena-empty { color: #666; text-align: center; padding: 20px; }
+
+/* 对手卡片 */
+.arena-opponent-card { display: flex; justify-content: space-between; align-items: center; background: rgba(255, 50, 50, 0.05); border: 1px solid rgba(255, 50, 50, 0.15); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+.arena-opp-info { display: flex; gap: 10px; align-items: center; font-size: 12px; color: #ccc; }
+.arena-opp-name { font-weight: bold; color: #fff; }
+.arena-opp-owner { color: #888; }
+.btn-challenge { background: #c0392b; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-challenge:hover { background: #e74c3c; }
+
+/* 战斗面板 */
+.battle-panel { padding: 16px; }
+.battle-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.battle-header h3 { margin: 0; color: #ff8c00; }
+
+#battleCanvas { width: 100%; max-width: 800px; height: 400px; background: #1a1a2e; border-radius: 8px; border: 1px solid #333; display: block; margin: 0 auto; }
+
+.battle-hud { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin-top: 8px; background: rgba(0,0,0,0.3); border-radius: 6px; }
+.battle-hud-left, .battle-hud-right { flex: 1; }
+.battle-hud-center { text-align: center; flex: 0.5; }
+.battle-name { font-weight: bold; font-size: 13px; color: #fff; }
+.battle-hp-bar { height: 8px; background: #333; border-radius: 4px; margin: 4px 0; overflow: hidden; }
+.battle-hp-fill { height: 100%; background: linear-gradient(90deg, #27ae60, #2ecc71); border-radius: 4px; transition: width 0.1s; }
+.battle-hud-right .battle-hp-fill { background: linear-gradient(90deg, #c0392b, #e74c3c); }
+.battle-fear { font-size: 11px; color: #ffaa00; }
+.battle-timer { font-size: 16px; font-weight: bold; color: #fff; }
+.battle-rage { font-size: 11px; color: #ff4444; display: block; margin-top: 2px; }
+
+.battle-controls { display: flex; gap: 8px; align-items: center; margin-top: 8px; padding: 8px; }
+.battle-seek { flex: 1; }
+
+.battle-result { text-align: center; padding: 12px; margin-top: 10px; background: rgba(255, 140, 0, 0.1); border-radius: 8px; border: 1px solid rgba(255, 140, 0, 0.3); }
+.battle-result-text { font-size: 18px; font-weight: bold; color: #ffaa00; }
+.battle-result-stats { margin-top: 6px; font-size: 12px; color: #aaa; display: flex; justify-content: space-around; }
+
+.battle-log { max-height: 150px; overflow-y: auto; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 11px; font-family: monospace; }
+.battle-log-entry { padding: 2px 0; color: #ccc; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+/* 历史面板 */
+.history-panel { padding: 16px; }
+.history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.history-header h3 { margin: 0; color: #ff8c00; }
+.history-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; margin-bottom: 6px; font-size: 12px; color: #ccc; }
+

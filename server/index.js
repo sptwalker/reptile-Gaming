@@ -70,6 +70,15 @@ app.use('/api/nurture', authMiddleware, require('./routes/nurture'));
 /* 日志模块（全部需要鉴权） */
 app.use('/api/log', authMiddleware, require('./routes/log'));
 
+/* 跑道模块（全部需要鉴权） (P7) */
+app.use('/api/treadmill', authMiddleware, require('./routes/treadmill'));
+
+/* 繁殖模块（全部需要鉴权） (P8) */
+app.use('/api/breeding', authMiddleware, require('./routes/breeding'));
+
+/* 竞技场模块（全部需要鉴权） (P9) */
+app.use('/api/arena', authMiddleware, require('./routes/arena'));
+
 /* ── 404 处理 ── */
 app.use('/api/{*path}', (_req, res) => {
     res.json({ code: 1001, data: null, msg: '接口不存在' });

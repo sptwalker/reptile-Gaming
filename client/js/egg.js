@@ -70,6 +70,34 @@ const Egg = (() => {
     const evolveAnimSkill = document.getElementById('evolveAnimSkill');
     const btnEvolveClose = document.getElementById('btnEvolveClose');
 
+    /* 跑道面板 DOM (P7) */
+    const treadmillSection = document.getElementById('treadmillSection');
+    const treadmillInfo    = document.getElementById('treadmillInfo');
+    const treadmillActions = document.getElementById('treadmillActions');
+    const treadmillMsg     = document.getElementById('treadmillMsg');
+
+    /* 售卖面板 DOM (P7) */
+    const sellSection = document.getElementById('sellSection');
+    const sellInfo    = document.getElementById('sellInfo');
+    const btnSellPet  = document.getElementById('btnSellPet');
+    const sellMsg     = document.getElementById('sellMsg');
+
+    /* 繁殖面板 DOM (P8) */
+    const breedSection  = document.getElementById('breedSection');
+    const breedInfo     = document.getElementById('breedInfo');
+    const breedActions  = document.getElementById('breedActions');
+    const breedMsg      = document.getElementById('breedMsg');
+    const marketPanel   = document.getElementById('marketPanel');
+    const marketList    = document.getElementById('marketList');
+    const marketMsg     = document.getElementById('marketMsg');
+    const invitePanel   = document.getElementById('invitePanel');
+    const inviteList    = document.getElementById('inviteList');
+    const inviteMsg     = document.getElementById('inviteMsg');
+    const cagePanel     = document.getElementById('cagePanel');
+    const cageInfo      = document.getElementById('cageInfo');
+    const cageActions   = document.getElementById('cageActions');
+    const cageMsg       = document.getElementById('cageMsg');
+
     /* 食物定义（展示用，数值以服务端为准） */
     const FOOD_LIST = [
         { code: 'insect',     name: '🦗 昆虫', cost: 5,  desc: '饱食+20 经验+10' },
@@ -83,6 +111,7 @@ const Egg = (() => {
     let _syncInterval = null;
     let _feedCooldownTimer = null;
     let _lizardRenderer = null;
+    let _treadmillTimer = null;
 
     const talentInputs = {
         str: document.getElementById('talStr'),
@@ -112,6 +141,12 @@ const Egg = (() => {
         talentPanel.style.display = 'none';
         petCreated.style.display = 'none';
         petPanel.style.display = 'none';
+        marketPanel.style.display = 'none';
+        invitePanel.style.display = 'none';
+        cagePanel.style.display = 'none';
+        if (document.getElementById('arenaPanel')) document.getElementById('arenaPanel').style.display = 'none';
+        if (document.getElementById('battlePanel')) document.getElementById('battlePanel').style.display = 'none';
+        if (document.getElementById('historyPanel')) document.getElementById('historyPanel').style.display = 'none';
         btnStartHatch.style.display = 'none';
         btnFinishHatch.style.display = 'none';
         eggTimer.style.display = 'none';
@@ -121,6 +156,7 @@ const Egg = (() => {
         /* PF-03: 清理休息冷却定时器 */
         if (_restCdTimer) { clearInterval(_restCdTimer); _restCdTimer = null; }
         if (_feedCooldownTimer) { clearInterval(_feedCooldownTimer); _feedCooldownTimer = null; }
+        if (_treadmillTimer) { clearInterval(_treadmillTimer); _treadmillTimer = null; }
         if (_lizardRenderer) { _lizardRenderer.stop(); }
     }
 
@@ -497,14 +533,31 @@ const Egg = (() => {
         /* 渲染蜕变区域 (P6) */
         renderEvolveSection(data);
 
+        /* 渲染跑道区域 (P7) */
+        renderTreadmillSection(data.pet);
+
+        /* 渲染售卖区域 (P7) */
+        renderSellSection(data.pet);
+
+        /* 渲染繁殖区域 (P8) */
+        renderBreedSection(data.pet);
+
+        /* 渲染竞技场区域 (P9) */
+        if (typeof Arena !== 'undefined' && Arena.renderArenaSection) {
+            Arena.renderArenaSection(data.pet);
+        }
+
         /* 启动自动同步（每30秒） */
         startSync(pet.id);
 
-        /* 启动蜥蜴渲染器 */
+        /* 启动蜥蜴渲染器 (RB-1/RB-3/PF-2) */
         var gameCanvas = document.getElementById('gameCanvas');
         if (gameCanvas && typeof LizardRenderer !== 'undefined') {
             if (!_lizardRenderer) {
                 _lizardRenderer = new LizardRenderer(gameCanvas, { activity: 5 });
+            }
+            if (data.render_params || data.body_seed) {
+                _lizardRenderer.applyRenderParams(data.render_params, data.body_seed);
             }
             _lizardRenderer.toggleAI(true);
             _lizardRenderer.start();
@@ -800,24 +853,469 @@ const Egg = (() => {
         if (goldEl) goldEl.textContent = `💰 ${d.gold}`;
     }
 
-    /* ── RB-02: Canvas 分辨率初始化 ── */
-    function initCanvas() {
-        const canvas = document.getElementById('gameCanvas');
-        if (!canvas) return;
-        const wrap = document.getElementById('canvasWrap');
-        function resize() {
-            const rect = wrap.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            canvas.width = Math.round(rect.width * dpr);
-            canvas.height = Math.round(rect.height * dpr);
-            const ctx = canvas.getContext('2d');
-            if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    /* ═══════════════════════════════════════════
+     * 跑道系统 (P7)
+     * ═══════════════════════════════════════════ */
+
+    const TREADMILL_TIERS = {
+        1: { name: '初级跑道', install_cost: 0,   gold_per_min: 12, daily_cap: 300 },
+        2: { name: '中级跑道', install_cost: 30,  gold_per_min: 15, daily_cap: 400 },
+        3: { name: '高级跑道', install_cost: 100, gold_per_min: 20, daily_cap: 550 },
+        4: { name: '超级跑道', install_cost: 300, gold_per_min: 30, daily_cap: 800 }
+    };
+
+    /**
+     * 渲染跑道区域
+     * @param {object} pet 宠物数据
+     */
+    async function renderTreadmillSection(pet) {
+        treadmillSection.style.display = 'block';
+        treadmillMsg.textContent = '';
+        treadmillMsg.className = 'nurture-msg';
+
+        const res = await Api.post('/api/treadmill/status', { pet_id: pet.id });
+        if (res.code !== 0) {
+            treadmillInfo.innerHTML = '<span style="color:#f85149">跑道状态获取失败</span>';
+            return;
         }
-        resize();
-        window.addEventListener('resize', resize);
+
+        const d = res.data;
+
+        if (!d.installed) {
+            /* 未安装跑道 */
+            treadmillInfo.innerHTML = '<p>尚未安装跑道，安装后宠物可以跑步产金</p>';
+            treadmillActions.innerHTML = `<button class="btn btn-tm" id="btnTmInstall">🔧 安装初级跑道 (免费)</button>`;
+            document.getElementById('btnTmInstall').addEventListener('click', () => handleTmInstall(pet.id, 1));
+            return;
+        }
+
+        /* 已安装 */
+        const pct = d.daily_cap > 0 ? (d.collected_today / d.daily_cap * 100).toFixed(1) : 0;
+        let infoHtml = `<div class="tm-tier">🏃 ${d.tier_name} · ${d.gold_per_min}金/分钟</div>`;
+        infoHtml += `<div class="tm-progress">
+            <span>今日 ${d.collected_today}/${d.daily_cap}</span>
+            <div class="tm-bar-track"><div class="tm-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+
+        if (d.is_running) {
+            infoHtml += `<div class="tm-running">⚡ 跑道运行中...</div>`;
+            _startTreadmillTimer(d.started_at);
+        }
+
+        treadmillInfo.innerHTML = infoHtml;
+
+        /* 操作按钮 */
+        let actHtml = '';
+        if (d.is_running) {
+            actHtml += `<button class="btn btn-tm btn-tm-collect" id="btnTmCollect">💰 收集金币</button>`;
+        } else {
+            actHtml += `<button class="btn btn-tm" id="btnTmStart">▶ 开始跑步</button>`;
+        }
+        if (d.tier < 4) {
+            const nextTier = TREADMILL_TIERS[d.tier + 1];
+            actHtml += `<button class="btn btn-tm" id="btnTmUpgrade">⬆ 升级${nextTier.name} (💰${nextTier.install_cost})</button>`;
+        }
+        treadmillActions.innerHTML = actHtml;
+
+        /* 绑定事件 */
+        const btnStart = document.getElementById('btnTmStart');
+        const btnCollect = document.getElementById('btnTmCollect');
+        const btnUpgrade = document.getElementById('btnTmUpgrade');
+        if (btnStart) btnStart.addEventListener('click', () => handleTmStart(pet.id));
+        if (btnCollect) btnCollect.addEventListener('click', () => handleTmCollect(pet.id));
+        if (btnUpgrade) btnUpgrade.addEventListener('click', () => handleTmInstall(pet.id, d.tier + 1));
     }
-    initCanvas();
+
+    function _startTreadmillTimer(startedAt) {
+        if (_treadmillTimer) { clearInterval(_treadmillTimer); _treadmillTimer = null; }
+        const runningEl = treadmillInfo.querySelector('.tm-running');
+        if (!runningEl) return;
+
+        function tick() {
+            const elapsed = Math.floor(Date.now() / 1000) - startedAt;
+            const m = Math.floor(elapsed / 60);
+            const s = elapsed % 60;
+            runningEl.textContent = `⚡ 跑道运行中... ${m}:${String(s).padStart(2, '0')}`;
+        }
+        tick();
+        _treadmillTimer = setInterval(tick, 1000);
+    }
+
+    async function handleTmInstall(petId, tier) {
+        const res = await Api.post('/api/treadmill/install', { pet_id: petId, tier });
+        if (res.code !== 0) {
+            treadmillMsg.textContent = res.msg;
+            treadmillMsg.className = 'nurture-msg error';
+            return;
+        }
+        treadmillMsg.textContent = `${res.data.tier_name} 安装成功！`;
+        treadmillMsg.className = 'nurture-msg success';
+        _updateGold(res.data.gold_remain);
+        await renderTreadmillSection({ id: petId });
+    }
+
+    async function handleTmStart(petId) {
+        const res = await Api.post('/api/treadmill/start', { pet_id: petId });
+        if (res.code !== 0) {
+            treadmillMsg.textContent = res.msg;
+            treadmillMsg.className = 'nurture-msg error';
+            return;
+        }
+        treadmillMsg.textContent = `跑步开始！消耗体力 ${res.data.stamina_cost}`;
+        treadmillMsg.className = 'nurture-msg success';
+        await syncAndUpdateBars();
+        await renderTreadmillSection({ id: petId });
+    }
+
+    async function handleTmCollect(petId) {
+        if (_treadmillTimer) { clearInterval(_treadmillTimer); _treadmillTimer = null; }
+        const res = await Api.post('/api/treadmill/collect', { pet_id: petId });
+        if (res.code !== 0) {
+            treadmillMsg.textContent = res.msg;
+            treadmillMsg.className = 'nurture-msg error';
+            return;
+        }
+        treadmillMsg.textContent = `收集 ${res.data.gold_earned} 金币！今日 ${res.data.collected_today}/${res.data.daily_cap}`;
+        treadmillMsg.className = 'nurture-msg success';
+        _updateGold(res.data.gold_remain);
+        await renderTreadmillSection({ id: petId });
+    }
+
+    function _updateGold(gold) {
+        const goldEl = document.getElementById('userGold');
+        if (goldEl) goldEl.textContent = `💰 ${gold}`;
+    }
+
+    /* ═══════════════════════════════════════════
+     * 宠物售卖 (P7)
+     * ═══════════════════════════════════════════ */
+
+    /**
+     * 渲染售卖区域
+     * @param {object} pet 宠物数据
+     */
+    async function renderSellSection(pet) {
+        sellSection.style.display = 'block';
+        sellMsg.textContent = '';
+        sellMsg.className = 'nurture-msg';
+        btnSellPet.disabled = true;
+
+        const res = await Api.post('/api/pet/evaluate', { pet_id: pet.id });
+        if (res.code !== 0) {
+            sellInfo.innerHTML = '<span style="color:#f85149">评估失败</span>';
+            return;
+        }
+
+        const d = res.data;
+        sellInfo.innerHTML = `
+            <p>系统评估 <strong>${d.pet_name}</strong> (Lv.${d.level} 品质${d.quality} 阶段${d.stage} 技能×${d.skill_count})</p>
+            <div class="sell-price">💰 售价：${d.sell_price} 金币</div>
+            <p style="color:#f85149;margin-top:6px;font-size:12px">⚠ 售卖后宠物将被永久删除，不可恢复</p>`;
+
+        btnSellPet.disabled = false;
+        btnSellPet.dataset.petId = pet.id;
+        btnSellPet.dataset.petName = d.pet_name;
+    }
+
+    btnSellPet.addEventListener('click', async () => {
+        const petId = parseInt(btnSellPet.dataset.petId, 10);
+        const petName = btnSellPet.dataset.petName || '宠物';
+        if (!petId) return;
+
+        if (!confirm(`确定要售卖 ${petName} 吗？此操作不可撤销！`)) return;
+
+        btnSellPet.disabled = true;
+        const res = await Api.post('/api/pet/sell', { pet_id: petId });
+
+        if (res.code !== 0) {
+            sellMsg.textContent = res.msg;
+            sellMsg.className = 'nurture-msg error';
+            btnSellPet.disabled = false;
+            return;
+        }
+
+        sellMsg.textContent = `${res.data.pet_name} 已售出，获得 ${res.data.sell_price} 金币`;
+        sellMsg.className = 'nurture-msg success';
+        _updateGold(res.data.gold_remain);
+
+        /* 清除宠物引用，回到领蛋界面 */
+        _lastCreatedPetId = null;
+        if (_lizardRenderer) { _lizardRenderer.stop(); _lizardRenderer = null; }
+        setTimeout(() => {
+            hideAll();
+            eggClaim.style.display = 'block';
+        }, 2000);
+    });
+
+    /* ═══════════════════════════════════════════
+     * P8 繁殖系统 UI
+     * ═══════════════════════════════════════════ */
+
+    let _cageTimer = null;
+    let _breedPetId = null;
+
+    /**
+     * 渲染繁殖区（在宠物面板中）
+     */
+    async function renderBreedSection(pet) {
+        breedSection.style.display = 'block';
+
+        /* 阶段不足 */
+        if (pet.stage < 2) {
+            breedInfo.innerHTML = '<p style="color:#888">宠物需达到成年阶段才能繁殖</p>';
+            breedActions.innerHTML = '';
+            return;
+        }
+
+        _breedPetId = pet.id;
+        const genderIcon = GENDER_ICONS[pet.gender] || '';
+        const cooldownInfo = pet.last_breed_at ? '（有冷却限制）' : '';
+
+        breedInfo.innerHTML = `
+            <p>${genderIcon} ${pet.name} 可参与繁殖 ${cooldownInfo}</p>`;
+
+        breedActions.innerHTML = `
+            <button class="btn btn-breed" id="btnMarketRegister">📋 上架交友市场</button>
+            <button class="btn btn-breed" id="btnBrowseMarket">💕 浏览市场</button>
+            <button class="btn btn-breed" id="btnViewInvites">📬 查看邀请</button>
+            <button class="btn btn-breed" id="btnViewCage">🏠 交配笼</button>`;
+
+        document.getElementById('btnMarketRegister').addEventListener('click', async () => {
+            const res = await Api.post('/api/breeding/market/list', { pet_id: pet.id });
+            breedMsg.textContent = res.code === 0 ? '已上架交友市场' : res.msg;
+            breedMsg.className = `nurture-msg ${res.code === 0 ? 'success' : 'error'}`;
+        });
+
+        document.getElementById('btnBrowseMarket').addEventListener('click', () => {
+            showMarketPanel(pet);
+        });
+
+        document.getElementById('btnViewInvites').addEventListener('click', () => {
+            showInvitePanel();
+        });
+
+        document.getElementById('btnViewCage').addEventListener('click', () => {
+            showCagePanel();
+        });
+    }
+
+    /**
+     * 交友市场面板
+     */
+    async function showMarketPanel(myPet) {
+        petPanel.style.display = 'none';
+        marketPanel.style.display = 'block';
+        await loadMarketListings(0, myPet);
+    }
+
+    async function loadMarketListings(gender, myPet) {
+        const body = {};
+        if (gender) body.gender = gender;
+        const res = await Api.post('/api/breeding/market/browse', body);
+        if (res.code !== 0) {
+            marketMsg.textContent = res.msg;
+            marketMsg.className = 'nurture-msg error';
+            return;
+        }
+
+        const listings = res.data.listings;
+        if (listings.length === 0) {
+            marketList.innerHTML = '<p class="market-empty">暂无可配对的宠物</p>';
+            return;
+        }
+
+        marketList.innerHTML = listings.map(l => `
+            <div class="market-card" data-pet-id="${l.pet_id}">
+                <div class="market-card-header">
+                    <span class="market-pet-name" style="color:${QUALITY_COLORS[l.quality]}">${l.name}</span>
+                    <span class="market-gender" style="color:${GENDER_COLORS[l.gender]}">${GENDER_ICONS[l.gender]}</span>
+                </div>
+                <div class="market-card-info">
+                    <span>Lv.${l.level}</span>
+                    <span>${l.quality_name}</span>
+                    <span>${l.stage_name}</span>
+                    <span>心情:${l.mood}</span>
+                </div>
+                <div class="market-card-owner">主人: ${l.owner_name || '匿名'}</div>
+                <div class="market-card-actions">
+                    <button class="btn btn-sm btn-invite" data-target="${l.pet_id}">发送邀请</button>
+                </div>
+            </div>
+        `).join('');
+
+        /* 绑定邀请按钮 */
+        marketList.querySelectorAll('.btn-invite').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!_breedPetId) return;
+                const targetId = parseInt(btn.dataset.target, 10);
+                const protocol = confirm('选择蛋分配方式：\n确定 = 双蛋各一(split)\n取消 = 单蛋归你(single)') ? 'split' : 'single';
+                const res = await Api.post('/api/breeding/invite/send', {
+                    pet_id: _breedPetId,
+                    target_pet_id: targetId,
+                    egg_protocol: protocol,
+                });
+                marketMsg.textContent = res.code === 0 ? '邀请已发送' : res.msg;
+                marketMsg.className = `nurture-msg ${res.code === 0 ? 'success' : 'error'}`;
+            });
+        });
+    }
+
+    /* 市场过滤按钮 */
+    document.querySelectorAll('.market-filter').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.market-filter').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            loadMarketListings(parseInt(btn.dataset.gender, 10) || 0);
+        });
+    });
+
+    document.getElementById('btnMarketClose').addEventListener('click', () => {
+        marketPanel.style.display = 'none';
+        petPanel.style.display = 'block';
+    });
+
+    /**
+     * 邀请列表面板
+     */
+    async function showInvitePanel() {
+        petPanel.style.display = 'none';
+        invitePanel.style.display = 'block';
+
+        const res = await Api.post('/api/breeding/invite/list');
+        if (res.code !== 0) {
+            inviteMsg.textContent = res.msg;
+            inviteMsg.className = 'nurture-msg error';
+            return;
+        }
+
+        const invites = res.data.invites;
+        if (invites.length === 0) {
+            inviteList.innerHTML = '<p class="market-empty">暂无配对邀请</p>';
+            return;
+        }
+
+        inviteList.innerHTML = invites.map(inv => `
+            <div class="invite-card">
+                <div class="invite-card-info">
+                    <span>来自: ${inv.from_name || '匿名'}</span>
+                    <span>对方宠物: <strong style="color:${QUALITY_COLORS[inv.pet1_quality]}">${inv.pet1_name}</strong> ${GENDER_ICONS[inv.pet1_gender]}</span>
+                    <span>→ 你的: <strong style="color:${QUALITY_COLORS[inv.pet2_quality]}">${inv.pet2_name}</strong> ${GENDER_ICONS[inv.pet2_gender]}</span>
+                    <span>协议: ${inv.egg_protocol === 'split' ? '双蛋各一' : '单蛋归对方'}</span>
+                </div>
+                <div class="invite-card-actions">
+                    <button class="btn btn-sm btn-accept" data-id="${inv.id}">接受</button>
+                    <button class="btn btn-sm btn-reject" data-id="${inv.id}">拒绝</button>
+                </div>
+            </div>
+        `).join('');
+
+        inviteList.querySelectorAll('.btn-accept').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const res = await Api.post('/api/breeding/invite/accept', { invite_id: parseInt(btn.dataset.id, 10) });
+                inviteMsg.textContent = res.code === 0 ? '已接受，进入交配笼' : res.msg;
+                inviteMsg.className = `nurture-msg ${res.code === 0 ? 'success' : 'error'}`;
+                if (res.code === 0) {
+                    setTimeout(() => showCagePanel(), 1500);
+                }
+            });
+        });
+
+        inviteList.querySelectorAll('.btn-reject').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const res = await Api.post('/api/breeding/invite/reject', { invite_id: parseInt(btn.dataset.id, 10) });
+                inviteMsg.textContent = res.code === 0 ? '已拒绝' : res.msg;
+                inviteMsg.className = `nurture-msg ${res.code === 0 ? 'success' : 'error'}`;
+                if (res.code === 0) btn.closest('.invite-card').remove();
+            });
+        });
+    }
+
+    document.getElementById('btnInviteClose').addEventListener('click', () => {
+        invitePanel.style.display = 'none';
+        petPanel.style.display = 'block';
+    });
+
+    /**
+     * 交配笼面板
+     */
+    async function showCagePanel() {
+        petPanel.style.display = 'none';
+        invitePanel.style.display = 'none';
+        marketPanel.style.display = 'none';
+        cagePanel.style.display = 'block';
+
+        const res = await Api.post('/api/breeding/cage/status');
+        if (res.code !== 0) {
+            cageMsg.textContent = res.msg;
+            cageMsg.className = 'nurture-msg error';
+            return;
+        }
+
+        const cages = res.data.cages;
+        if (cages.length === 0) {
+            cageInfo.innerHTML = '<p class="market-empty">暂无交配中的宠物</p>';
+            cageActions.innerHTML = '';
+            return;
+        }
+
+        const cage = cages[0];
+        const renderCage = () => {
+            const remaining = Math.max(0, cage.finish_at - Math.floor(Date.now() / 1000));
+            const progress = Math.min(1, 1 - remaining / (cage.finish_at - cage.started_at));
+
+            cageInfo.innerHTML = `
+                <div class="cage-pair">
+                    <span class="cage-pet">${cage.pet1_name}</span>
+                    <span class="cage-heart">💕</span>
+                    <span class="cage-pet">${cage.pet2_name}</span>
+                </div>
+                <div class="cage-progress">
+                    <div class="tm-bar-track">
+                        <div class="tm-bar-fill" style="width:${(progress * 100).toFixed(1)}%"></div>
+                    </div>
+                    <span class="cage-time">${remaining > 0 ? formatTime(remaining) : '已完成'}</span>
+                </div>`;
+
+            if (remaining <= 0) {
+                cageActions.innerHTML = `<button class="btn btn-primary btn-cage-finish" data-id="${cage.id}">🎉 领取结果</button>`;
+                cageActions.querySelector('.btn-cage-finish').addEventListener('click', async () => {
+                    const r = await Api.post('/api/breeding/cage/finish', { cage_id: cage.id });
+                    if (r.code !== 0) {
+                        cageMsg.textContent = r.msg;
+                        cageMsg.className = 'nurture-msg error';
+                        return;
+                    }
+                    if (_cageTimer) { clearInterval(_cageTimer); _cageTimer = null; }
+
+                    if (r.data.success) {
+                        const eggList = r.data.eggs.map(e =>
+                            `🥚 ${e.quality_name}蛋${e.hidden_unlocked ? ' ✨' + e.hidden_name + '解锁!' : ''}`
+                        ).join('<br>');
+                        cageInfo.innerHTML = `<div class="cage-result success">🎉 繁殖成功！<br>${eggList}</div>`;
+                    } else {
+                        cageInfo.innerHTML = `<div class="cage-result fail">😔 繁殖失败（成功率: ${(r.data.prob * 100).toFixed(0)}%）</div>`;
+                    }
+                    cageActions.innerHTML = '';
+                });
+            } else {
+                cageActions.innerHTML = '';
+            }
+        };
+
+        renderCage();
+        if (_cageTimer) clearInterval(_cageTimer);
+        _cageTimer = setInterval(renderCage, 1000);
+    }
+
+    document.getElementById('btnCageClose').addEventListener('click', () => {
+        if (_cageTimer) { clearInterval(_cageTimer); _cageTimer = null; }
+        cagePanel.style.display = 'none';
+        if (document.getElementById('arenaPanel')) document.getElementById('arenaPanel').style.display = 'none';
+        if (document.getElementById('battlePanel')) document.getElementById('battlePanel').style.display = 'none';
+        if (document.getElementById('historyPanel')) document.getElementById('historyPanel').style.display = 'none';
+        petPanel.style.display = 'block';
+    });
 
     /* ── 公共接口 ── */
-    return { init };
+    return { init, refreshPetPanel: fetchAndShowPetPanel };
 })();

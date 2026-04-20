@@ -13,6 +13,7 @@ const { getDB, now, writeLog } = require('../db');
 const { secureRandom }         = require('../utils/random');
 const { sanitize }             = require('../utils/validator');
 const rules                    = require('../models/game-rules');
+const geneEngine               = require('./gene-engine');
 
 /**
  * 开始孵化
@@ -286,12 +287,65 @@ function finishHatch(uid, eggId, petName, talents, ip) {
     /* 服务端随机性别 (S-A03) */
     const gender = secureRandom(1, 2);
 
+    /* P8: 检查是否为繁殖蛋，注入遗传数据 */
+    const breedingService = require('./breeding-service');
+    const breedRecord = breedingService.getBreedingRecord(eggId);
+    let geneSetJson = '';
+    let appearanceGeneJson = '';
+    let hiddenGene = '';
+    let parent1Id = 0;
+    let parent2Id = 0;
+    let generation = 0;
+    let finalGender = gender;
+
+    if (breedRecord) {
+        /* 繁殖蛋：使用遗传数据覆盖天赋 */
+        if (breedRecord.talents) {
+            talents = breedRecord.talents;
+            allocMode = 'inherited';
+        }
+        if (breedRecord.geneSet) {
+            geneSetJson = JSON.stringify(breedRecord.geneSet);
+        }
+        if (breedRecord.appearanceGene) {
+            appearanceGeneJson = JSON.stringify(breedRecord.appearanceGene);
+        }
+        if (breedRecord.hiddenGene) {
+            hiddenGene = breedRecord.hiddenGene;
+        }
+        parent1Id = breedRecord.parent1_id || 0;
+        parent2Id = breedRecord.parent2_id || 0;
+        generation = breedRecord.generation || 0;
+        if (breedRecord.gender) {
+            finalGender = breedRecord.gender;
+        }
+        /* 使用遗传外观种子 */
+        if (breedRecord.patternSeed) {
+            patternSeed = breedRecord.patternSeed;
+        }
+    } else {
+        /* 初代蛋：生成初始基因组 */
+        const initGeneSet = geneEngine.generateInitialGeneSet(talents);
+        geneSetJson = JSON.stringify(initGeneSet);
+        const initAppGene = geneEngine.generateInitialAppearanceGene(patternSeed);
+        appearanceGeneJson = JSON.stringify(initAppGene);
+        hiddenGene = geneEngine.rollHiddenGene();
+        finalGender = gender;
+    }
+
+    /* 重新计算初始属性 */
+    for (const attr of attrs) {
+        attrTotals[attr] = initBase + talents[attr];
+    }
+
     /* 事务：创建宠物 + 创建属性 + 解锁初始技能 */
     const insertPet = db.prepare(`
         INSERT INTO pet (user_id, egg_id, name, quality, gender, level, exp, stage,
                          stamina, stamina_max, satiety, satiety_max, mood,
-                         is_active, body_seed, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 1, 0, 0, 100, 100, 100, 100, 50, 1, ?, ?, ?)
+                         is_active, body_seed, gene_set, appearance_gene, hidden_gene,
+                         parent1_id, parent2_id, generation,
+                         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 1, 0, 0, 100, 100, 100, 100, 50, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertAttr = db.prepare(`
         INSERT INTO pet_attr (pet_id,
@@ -311,8 +365,11 @@ function finishHatch(uid, eggId, petName, talents, ip) {
     const txn = db.transaction(() => {
         /* 1. 创建宠物 */
         const petResult = insertPet.run(
-            uid, eggId, cleanName, egg.quality, gender,
-            JSON.stringify(patternSeed), ts, ts
+            uid, eggId, cleanName, egg.quality, finalGender,
+            JSON.stringify(patternSeed),
+            geneSetJson, appearanceGeneJson, hiddenGene,
+            parent1Id, parent2Id, generation,
+            ts, ts
         );
         const petId = petResult.lastInsertRowid;
 
@@ -327,9 +384,12 @@ function finishHatch(uid, eggId, petName, talents, ip) {
             ts, ts
         );
 
-        /* 3. 解锁初始技能 */
-        for (const sk of rules.INITIAL_SKILLS) {
-            insertSkill.run(petId, sk.skill_code, sk.skill_level, sk.slot_index, ts, ts, ts);
+        /* 3. 解锁初始技能（繁殖蛋使用遗传技能） */
+        const skillList = (breedRecord && breedRecord.skills && breedRecord.skills.length > 0)
+            ? breedRecord.skills.map((sk, idx) => ({ ...sk, slot_index: idx }))
+            : rules.INITIAL_SKILLS;
+        for (const sk of skillList) {
+            insertSkill.run(petId, sk.skill_code, sk.skill_level, sk.slot_index || 0, ts, ts, ts);
         }
 
         /* 注：蛋记录保留（pet.egg_id 外键引用），通过 is_hatched=1 + 关联宠物标识已消耗 */
@@ -341,8 +401,8 @@ function finishHatch(uid, eggId, petName, talents, ip) {
 
     /* 审计日志 */
     writeLog(uid, 'hatch_finish', 'pet', petId, {
-        egg_id: eggId, pet_id: petId, gender, alloc_mode: allocMode,
-        talent_points: egg.talent_points
+        egg_id: eggId, pet_id: petId, gender: finalGender, alloc_mode: allocMode,
+        talent_points: egg.talent_points, is_bred: !!breedRecord
     }, ip);
     writeLog(uid, 'talent_assign', 'pet', petId, {
         pet_id: petId, mode: allocMode, ...talents
@@ -358,13 +418,20 @@ function finishHatch(uid, eggId, petName, talents, ip) {
         };
     }
 
-    /* 获取初始技能列表 */
-    const skills = rules.INITIAL_SKILLS.map(sk => ({
-        skill_code:  sk.skill_code,
-        skill_level: sk.skill_level,
-        is_equipped: 1,
-        slot_index:  sk.slot_index
-    }));
+    /* 获取实际技能列表 */
+    const skillList2 = (breedRecord && breedRecord.skills && breedRecord.skills.length > 0)
+        ? breedRecord.skills.map((sk, idx) => ({
+            skill_code: sk.skill_code,
+            skill_level: sk.skill_level,
+            is_equipped: 1,
+            slot_index: idx,
+        }))
+        : rules.INITIAL_SKILLS.map(sk => ({
+            skill_code:  sk.skill_code,
+            skill_level: sk.skill_level,
+            is_equipped: 1,
+            slot_index:  sk.slot_index
+        }));
 
     return {
         code: 0,
@@ -372,8 +439,8 @@ function finishHatch(uid, eggId, petName, talents, ip) {
             pet_id:      petId,
             name:        cleanName,
             quality:     egg.quality,
-            gender,
-            gender_name: rules.GENDER_NAMES[gender],
+            gender:      finalGender,
+            gender_name: rules.GENDER_NAMES[finalGender],
             level:       1,
             exp:         0,
             stage:       0,
@@ -386,8 +453,12 @@ function finishHatch(uid, eggId, petName, talents, ip) {
             alloc_mode:  allocMode,
             attrs:       attrResponse,
             derived,
-            skills,
-            body_seed:   patternSeed
+            skills:      skillList2,
+            body_seed:   patternSeed,
+            generation,
+            parent1_id:  parent1Id,
+            parent2_id:  parent2Id,
+            hidden_gene: hiddenGene,
         },
         msg: 'success'
     };

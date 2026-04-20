@@ -271,6 +271,13 @@ function _migrate() {
         console.log('[DB] 迁移: pet 表新增 last_breed_at 字段');
     }
 
+    /* P8: pet 表增加隐藏基因字段 */
+    const hasHiddenGene = cols.some(c => c.name === 'hidden_gene');
+    if (!hasHiddenGene) {
+        _db.exec("ALTER TABLE pet ADD COLUMN hidden_gene TEXT NOT NULL DEFAULT ''");
+        console.log('[DB] 迁移: pet 表新增 hidden_gene 字段');
+    }
+
     /* P9: pet 表增加竞技场状态字段 */
     const hasArenaStatus = cols.some(c => c.name === 'arena_status');
     if (!hasArenaStatus) {
@@ -307,6 +314,7 @@ function _migrate() {
             pet1_id         INTEGER NOT NULL,
             pet2_id         INTEGER NOT NULL,
             status          TEXT    NOT NULL DEFAULT 'pending',
+            egg_protocol    TEXT    NOT NULL DEFAULT 'single',
             expire_at       INTEGER NOT NULL DEFAULT 0,
             created_at      INTEGER NOT NULL DEFAULT 0,
             updated_at      INTEGER NOT NULL DEFAULT 0,
@@ -314,6 +322,65 @@ function _migrate() {
             FOREIGN KEY (to_uid)   REFERENCES user(id)
         );
         CREATE INDEX IF NOT EXISTS idx_invite_to ON breeding_invite(to_uid, status);
+    `);
+
+    /* P8: 交友市场注册表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS dating_market (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            pet_id          INTEGER NOT NULL,
+            user_id         INTEGER NOT NULL,
+            status          TEXT    NOT NULL DEFAULT 'listed',
+            listed_at       INTEGER NOT NULL DEFAULT 0,
+            unlisted_at     INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (pet_id)  REFERENCES pet(id),
+            FOREIGN KEY (user_id) REFERENCES user(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dating_pet  ON dating_market(pet_id);
+        CREATE INDEX IF NOT EXISTS idx_dating_user ON dating_market(user_id);
+        CREATE INDEX IF NOT EXISTS idx_dating_status ON dating_market(status);
+    `);
+
+    /* P8: 交配笼表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS breeding_cage (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            invite_id       INTEGER NOT NULL,
+            pet1_id         INTEGER NOT NULL,
+            pet2_id         INTEGER NOT NULL,
+            user1_id        INTEGER NOT NULL,
+            user2_id        INTEGER NOT NULL,
+            started_at      INTEGER NOT NULL DEFAULT 0,
+            finish_at       INTEGER NOT NULL DEFAULT 0,
+            status          TEXT    NOT NULL DEFAULT 'mating',
+            result          TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (invite_id) REFERENCES breeding_invite(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cage_status ON breeding_cage(status);
+    `);
+
+    /* P8: 全局统计表（传说上限等） */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS global_stats (
+            key             TEXT    PRIMARY KEY,
+            value           TEXT    NOT NULL DEFAULT '0',
+            updated_at      INTEGER NOT NULL DEFAULT 0
+        );
+    `);
+
+    /* P8: 隐藏基因解锁记录表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS hidden_gene_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            gene_type       TEXT    NOT NULL,
+            pet_id          INTEGER NOT NULL,
+            parent1_id      INTEGER NOT NULL,
+            parent2_id      INTEGER NOT NULL,
+            unlocked_at     INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (pet_id) REFERENCES pet(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_hglog_type ON hidden_gene_log(gene_type);
     `);
 
     /* P8: 技能池表 */
@@ -339,6 +406,9 @@ function _migrate() {
             status          TEXT    NOT NULL DEFAULT 'active',
             recovery_until  INTEGER NOT NULL DEFAULT 0,
             consecutive_losses INTEGER NOT NULL DEFAULT 0,
+            arena_gold      INTEGER NOT NULL DEFAULT 0,
+            daily_challenges INTEGER NOT NULL DEFAULT 0,
+            daily_reset_date TEXT   NOT NULL DEFAULT '',
             FOREIGN KEY (pet_id)  REFERENCES pet(id),
             FOREIGN KEY (user_id) REFERENCES user(id)
         );
@@ -355,8 +425,10 @@ function _migrate() {
             attacker_uid    INTEGER NOT NULL,
             defender_uid    INTEGER NOT NULL,
             map_id          TEXT    NOT NULL DEFAULT '',
+            bet_amount      INTEGER NOT NULL DEFAULT 0,
             status          TEXT    NOT NULL DEFAULT 'pending',
             result          TEXT    NOT NULL DEFAULT '',
+            reward_detail   TEXT    NOT NULL DEFAULT '',
             created_at      INTEGER NOT NULL DEFAULT 0,
             finished_at     INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (attacker_pet_id) REFERENCES pet(id),
@@ -394,6 +466,27 @@ function _migrate() {
         );
     `);
 
+    /* P7: 跑道表 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS treadmill (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            pet_id          INTEGER NOT NULL,
+            user_id         INTEGER NOT NULL,
+            tier            INTEGER NOT NULL DEFAULT 1,
+            is_running      INTEGER NOT NULL DEFAULT 0,
+            started_at      INTEGER NOT NULL DEFAULT 0,
+            collected_today INTEGER NOT NULL DEFAULT 0,
+            last_collect_at INTEGER NOT NULL DEFAULT 0,
+            last_reset_date TEXT    NOT NULL DEFAULT '',
+            created_at      INTEGER NOT NULL DEFAULT 0,
+            updated_at      INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (pet_id)  REFERENCES pet(id),
+            FOREIGN KEY (user_id) REFERENCES user(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_treadmill_pet  ON treadmill(pet_id);
+        CREATE INDEX IF NOT EXISTS idx_treadmill_user ON treadmill(user_id);
+    `);
+
     /* SEC-04: user 表增加 token_version 字段（Token吊销支持） */
     const userCols = _db.pragma('table_info(user)');
     const hasTokenVersion = userCols.some(c => c.name === 'token_version');
@@ -403,6 +496,39 @@ function _migrate() {
     }
 
     console.log('[DB] P8/P9 数据表迁移完成');
+
+    /* P9: arena_pet 表增加新字段（兼容旧表） */
+    const arenaCols = _db.pragma('table_info(arena_pet)');
+    const hasArenaGold = arenaCols.some(c => c.name === 'arena_gold');
+    if (!hasArenaGold) {
+        _db.exec('ALTER TABLE arena_pet ADD COLUMN arena_gold INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: arena_pet 表新增 arena_gold 字段');
+    }
+    const hasDailyChallenges = arenaCols.some(c => c.name === 'daily_challenges');
+    if (!hasDailyChallenges) {
+        _db.exec('ALTER TABLE arena_pet ADD COLUMN daily_challenges INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: arena_pet 表新增 daily_challenges 字段');
+    }
+    const hasDailyResetDate = arenaCols.some(c => c.name === 'daily_reset_date');
+    if (!hasDailyResetDate) {
+        _db.exec("ALTER TABLE arena_pet ADD COLUMN daily_reset_date TEXT NOT NULL DEFAULT ''");
+        console.log('[DB] 迁移: arena_pet 表新增 daily_reset_date 字段');
+    }
+
+    /* P9: battle_challenge 表增加新字段（兼容旧表） */
+    const challengeCols = _db.pragma('table_info(battle_challenge)');
+    const hasBetAmount = challengeCols.some(c => c.name === 'bet_amount');
+    if (!hasBetAmount) {
+        _db.exec('ALTER TABLE battle_challenge ADD COLUMN bet_amount INTEGER NOT NULL DEFAULT 0');
+        console.log('[DB] 迁移: battle_challenge 表新增 bet_amount 字段');
+    }
+    const hasRewardDetail = challengeCols.some(c => c.name === 'reward_detail');
+    if (!hasRewardDetail) {
+        _db.exec("ALTER TABLE battle_challenge ADD COLUMN reward_detail TEXT NOT NULL DEFAULT ''");
+        console.log('[DB] 迁移: battle_challenge 表新增 reward_detail 字段');
+    }
+
+    console.log('[DB] P9 竞技场表迁移完成');
 }
 
 /**
