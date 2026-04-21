@@ -399,3 +399,54 @@ reptile-Gaming/
 - `server/services/battle-engine.js` — 战斗引擎增强
 
 
+### v1.3 - 蜥蜴可见性修复 + 健康系统 + 属性面板 (2026-04-22)
+
+> 修复蜥蜴在饲养箱中不可见的根本原因，新增健康属性全栈实现，用属性面板替换跑道侧边按钮
+
+#### 关键修复：蜥蜴不可见（根因）
+
+- **根因**：`auth.js` 第84行 `mainPanel.style.display = 'block'` 覆盖了 CSS `.game-screen` 的 `display: flex`
+- flex 布局被破坏后，`.game-center`（`flex: 1`）高度塌缩为0，Canvas 父容器 `#canvasWrap` 高度为0，`getBoundingClientRect()` 返回零尺寸
+- **修复**：`'block'` → `'flex'`，一字之差
+
+#### LizardRenderer 健壮性增强
+
+1. **`start()` 方法重写**
+   - 每次调用都执行 `_resize()`，不依赖构造函数的初始尺寸
+   - 尺寸为0时通过 `requestAnimationFrame` 延迟重试
+   - 尺寸从0恢复后重新初始化 spine/legs
+   - 重新绑定 resize/visibility 监听器
+
+2. **`_ensureCanvasEvents()` 新增**
+   - `_evBound` 标志追踪鼠标事件绑定状态
+   - `stop()` 解绑后 `start()` 自动重新绑定
+
+3. **`_loop()` 异常保护**
+   - `_render()` 包裹 try-catch，防止未捕获异常导致渲染循环静默死亡
+
+4. **`egg.js` rAF 延迟初始化**
+   - `showPetPanel()` 中 LizardRenderer 创建和 `start()` 包裹在 `requestAnimationFrame` 中，确保浏览器布局完成后再读取尺寸
+
+#### 健康属性（全栈）
+
+- **数据库**：`db.js` P10迁移，pet表新增 `health`/`health_max` 字段
+- **规则**：`game-rules.js` 新增 `HEALTH_INIT: 100`、`HEALTH_MAX_INIT: 100`、`HEALTH_DECAY_INTERVAL: 1800`、`HEALTH_DECAY_AMOUNT: 2`
+- **服务端**：`pet-service.js` listPets/getPetDetail 返回健康字段；`nurture-service.js` applyTimeDecay 包含健康衰减，syncPet 返回健康值
+- **前端**：HUD顶栏新增健康条（红色），宠物面板新增健康状态条，实时同步更新
+
+#### 属性面板（替换跑道按钮）
+
+- 侧边栏「跑道」按钮替换为「属性」按钮
+- 单屏覆盖面板：宠物身份信息、4条状态条（饱食/体力/心情/健康）、跑道升级入口、出售宠物入口（异步估价）
+- 完整 CSS 样式（暗色主题卡片布局）
+
+#### 变更文件（9个）
+- `client/js/auth.js` — display: block → flex（根因修复）
+- `client/js/lizard-renderer.js` — start() 重写 + _ensureCanvasEvents + _loop try-catch
+- `client/js/egg.js` — rAF 延迟渲染器初始化 + 属性面板 + 健康条
+- `client/index.html` — 健康条 HTML + 属性面板结构
+- `client/css/main.css` — 健康条样式 + 属性面板样式
+- `server/db.js` — P10 health/health_max 迁移
+- `server/models/game-rules.js` — 健康常量
+- `server/services/pet-service.js` — 健康字段返回
+- `server/services/nurture-service.js` — 健康衰减 + 同步

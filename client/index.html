@@ -2,16 +2,14 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>爬虫宠物养成</title>
     <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
     <!-- ═══ 登录/注册面板 ═══ -->
-    <div id="authPanel" class="panel">
+    <div id="authPanel" class="panel auth-panel-center">
         <h1 class="title">🦎 爬虫宠物养成</h1>
-
-        <!-- 登录表单 -->
         <form id="loginForm" class="auth-form">
             <h2>登录</h2>
             <input type="text" id="loginUser" placeholder="用户名" autocomplete="username" required>
@@ -19,8 +17,6 @@
             <button type="submit" class="btn btn-primary">登 录</button>
             <p class="switch-text">没有账号？<a href="#" id="toRegister">去注册</a></p>
         </form>
-
-        <!-- 注册表单 -->
         <form id="registerForm" class="auth-form" style="display:none">
             <h2>注册</h2>
             <input type="text" id="regUser" placeholder="用户名（3~16字符）" autocomplete="username" required>
@@ -29,228 +25,297 @@
             <button type="submit" class="btn btn-primary">注 册</button>
             <p class="switch-text">已有账号？<a href="#" id="toLogin">去登录</a></p>
         </form>
-
-        <!-- 消息提示 -->
         <div id="authMsg" class="msg"></div>
     </div>
 
-    <!-- ═══ 主界面（登录后显示） ═══ -->
-    <div id="mainPanel" class="panel" style="display:none">
-        <div class="user-bar">
-            <span id="userNickname"></span>
-            <span id="userGold" class="gold-badge"></span>
-            <button id="btnLogout" class="btn btn-sm">退出</button>
+    <!-- ═══ 主界面（全屏布局） ═══ -->
+    <div id="mainPanel" class="game-screen" style="display:none">
+
+        <!-- 顶部 HUD 状态栏 -->
+        <div class="hud-top">
+            <div class="hud-left">
+                <span id="userNickname" class="hud-nick"></span>
+                <span id="userGold" class="gold-badge">💰 0</span>
+            </div>
+            <div class="hud-center" id="hudBars">
+                <div class="hud-bar-group">
+                    <span class="hud-bar-icon">⚡</span>
+                    <div class="hud-bar-track"><div id="hudStaminaFill" class="hud-bar-fill hud-bar-stamina"></div></div>
+                    <span id="hudStaminaVal" class="hud-bar-val">0/0</span>
+                </div>
+                <div class="hud-bar-group">
+                    <span class="hud-bar-icon">🍖</span>
+                    <div class="hud-bar-track"><div id="hudSatietyFill" class="hud-bar-fill hud-bar-satiety"></div></div>
+                    <span id="hudSatietyVal" class="hud-bar-val">0/0</span>
+                </div>
+                <div class="hud-bar-group">
+                    <span class="hud-bar-icon">😊</span>
+                    <div class="hud-bar-track"><div id="hudMoodFill" class="hud-bar-fill hud-bar-mood"></div></div>
+                    <span id="hudMoodVal" class="hud-bar-val">0</span>
+                </div>
+                <div class="hud-bar-group">
+                    <span class="hud-bar-icon">💚</span>
+                    <div class="hud-bar-track"><div id="hudHealthFill" class="hud-bar-fill hud-bar-health"></div></div>
+                    <span id="hudHealthVal" class="hud-bar-val">0/0</span>
+                </div>
+            </div>
+            <div class="hud-right">
+                <span id="hudPetInfo" class="hud-pet-info"></span>
+                <button id="btnLogout" class="btn btn-sm">退出</button>
+            </div>
         </div>
 
-        <!-- ═══ 宠物蛋区域 ═══ -->
-        <div id="eggSection">
-            <!-- 无蛋状态：领取按钮 -->
-            <div id="eggClaim" style="display:none">
-                <div class="egg-empty-icon">🥚</div>
-                <p class="egg-hint">你还没有宠物蛋，领取你的第一枚蛋吧！</p>
-                <button id="btnClaimEgg" class="btn btn-primary">领取宠物蛋</button>
+        <!-- 中央饲养区（Canvas） -->
+        <div class="game-center">
+            <div id="canvasWrap" class="terrarium">
+                <canvas id="gameCanvas"></canvas>
+                <div id="terrariumLabel" class="terrarium-label" style="display:none"></div>
             </div>
+        </div>
 
-            <!-- 有蛋状态：蛋卡片 -->
-            <div id="eggCard" class="egg-card" style="display:none">
-                <div class="egg-visual">
-                    <div id="eggIcon" class="egg-icon">🥚</div>
-                    <div id="eggQuality" class="egg-quality"></div>
+        <!-- 左侧浮动操作按钮 -->
+        <div class="side-actions" id="sideActions" style="display:none">
+            <button class="side-btn" id="btnSideFeed" title="喂食">🍽</button>
+            <button class="side-btn" id="btnSideRest" title="休息">💤</button>
+            <button class="side-btn" id="btnSideEvolve" title="蜕变">🔮</button>
+            <button class="side-btn" id="btnSideAttr" title="属性">📊</button>
+        </div>
+
+        <!-- 底部食物栏 + 菜单 -->
+        <div class="hud-bottom" id="hudBottom" style="display:none">
+            <div class="food-bar" id="foodBar"></div>
+            <button class="menu-btn" id="btnMenu">☰</button>
+        </div>
+
+        <!-- 底部消息提示 -->
+        <div id="feedMsg" class="float-msg"></div>
+
+        <!-- ═══ 菜单弹出面板 ═══ -->
+        <div id="menuOverlay" class="overlay-panel" style="display:none">
+            <div class="overlay-content menu-grid">
+                <h3>菜单</h3>
+                <div class="menu-items">
+                    <button class="menu-item" id="menuPetDetail">📋 宠物详情</button>
+                    <button class="menu-item" id="menuSell">💰 售卖宠物</button>
+                    <button class="menu-item" id="menuBreed">💕 繁殖</button>
+                    <button class="menu-item" id="menuArena">⚔️ 竞技场</button>
+                    <button class="menu-item" id="menuHistory">📜 战斗记录</button>
                 </div>
-                <div class="egg-info">
-                    <div id="eggStatus" class="egg-status"></div>
-                    <div id="eggTimer" class="egg-timer" style="display:none"></div>
-                    <div id="eggProgress" class="egg-progress-bar" style="display:none">
-                        <div id="eggProgressFill" class="egg-progress-fill"></div>
+                <button class="btn btn-sm overlay-close" id="menuClose">关闭</button>
+            </div>
+        </div>
+
+        <!-- ═══ 宠物蛋区域（覆盖层） ═══ -->
+        <div id="eggSection" class="overlay-panel" style="display:none">
+            <div class="overlay-content">
+                <div id="eggClaim" style="display:none">
+                    <div class="egg-empty-icon">🥚</div>
+                    <p class="egg-hint">你还没有宠物蛋，领取你的第一枚蛋吧！</p>
+                    <button id="btnClaimEgg" class="btn btn-primary">领取宠物蛋</button>
+                </div>
+                <div id="eggCard" class="egg-card" style="display:none">
+                    <div class="egg-visual">
+                        <div id="eggIcon" class="egg-icon">🥚</div>
+                        <div id="eggQuality" class="egg-quality"></div>
+                    </div>
+                    <div class="egg-info">
+                        <div id="eggStatus" class="egg-status"></div>
+                        <div id="eggTimer" class="egg-timer" style="display:none"></div>
+                        <div id="eggProgress" class="egg-progress-bar" style="display:none">
+                            <div id="eggProgressFill" class="egg-progress-fill"></div>
+                        </div>
+                    </div>
+                    <div class="egg-actions">
+                        <button id="btnStartHatch" class="btn btn-primary" style="display:none">开始孵化</button>
+                        <button id="btnFinishHatch" class="btn btn-primary" style="display:none">孵化完成！分配天赋</button>
                     </div>
                 </div>
-                <div class="egg-actions">
-                    <button id="btnStartHatch" class="btn btn-primary" style="display:none">开始孵化</button>
-                    <button id="btnFinishHatch" class="btn btn-primary" style="display:none">孵化完成！分配天赋</button>
+                <div id="talentPanel" class="talent-panel" style="display:none">
+                    <h3>分配天赋点</h3>
+                    <p id="talentRemaining" class="talent-remaining"></p>
+                    <div class="talent-grid">
+                        <div class="talent-row"><label>力量(STR)</label><input type="number" id="talStr" min="0" value="0"><span class="talent-desc">攻击·体型</span></div>
+                        <div class="talent-row"><label>敏捷(AGI)</label><input type="number" id="talAgi" min="0" value="0"><span class="talent-desc">速度·闪避</span></div>
+                        <div class="talent-row"><label>体质(VIT)</label><input type="number" id="talVit" min="0" value="0"><span class="talent-desc">生命·防御</span></div>
+                        <div class="talent-row"><label>智力(INT)</label><input type="number" id="talInt" min="0" value="0"><span class="talent-desc">视野·技能</span></div>
+                        <div class="talent-row"><label>感知(PER)</label><input type="number" id="talPer" min="0" value="0"><span class="talent-desc">暴击·感知</span></div>
+                        <div class="talent-row"><label>魅力(CHA)</label><input type="number" id="talCha" min="0" value="0"><span class="talent-desc">花纹·社交</span></div>
+                    </div>
+                    <input type="text" id="petNameInput" placeholder="给宠物起个名字（1~12字符）" maxlength="12">
+                    <button id="btnConfirmTalent" class="btn btn-primary" disabled>确认分配</button>
+                    <div id="talentMsg" class="msg"></div>
                 </div>
-            </div>
-
-            <!-- 天赋分配面板 -->
-            <div id="talentPanel" class="talent-panel" style="display:none">
-                <h3>分配天赋点</h3>
-                <p id="talentRemaining" class="talent-remaining"></p>
-                <div class="talent-grid">
-                    <div class="talent-row"><label>力量(STR)</label><input type="number" id="talStr" min="0" value="0"><span class="talent-desc">攻击·体型</span></div>
-                    <div class="talent-row"><label>敏捷(AGI)</label><input type="number" id="talAgi" min="0" value="0"><span class="talent-desc">速度·闪避</span></div>
-                    <div class="talent-row"><label>体质(VIT)</label><input type="number" id="talVit" min="0" value="0"><span class="talent-desc">生命·防御</span></div>
-                    <div class="talent-row"><label>智力(INT)</label><input type="number" id="talInt" min="0" value="0"><span class="talent-desc">视野·技能</span></div>
-                    <div class="talent-row"><label>感知(PER)</label><input type="number" id="talPer" min="0" value="0"><span class="talent-desc">暴击·感知</span></div>
-                    <div class="talent-row"><label>魅力(CHA)</label><input type="number" id="talCha" min="0" value="0"><span class="talent-desc">花纹·社交</span></div>
+                <div id="petCreated" class="pet-created" style="display:none">
+                    <h3 id="petCreatedTitle"></h3>
+                    <div id="petCreatedAttrs" class="pet-attrs"></div>
+                    <div id="petCreatedDerived" class="pet-derived"></div>
+                    <button id="btnViewPet" class="btn btn-primary" style="margin-top:14px">查看宠物详情</button>
                 </div>
-                <input type="text" id="petNameInput" placeholder="给宠物起个名字（1~12字符）" maxlength="12">
-                <button id="btnConfirmTalent" class="btn btn-primary" disabled>确认分配</button>
-                <div id="talentMsg" class="msg"></div>
-            </div>
-
-            <!-- 宠物创建成功 -->
-            <div id="petCreated" class="pet-created" style="display:none">
-                <h3 id="petCreatedTitle"></h3>
-                <div id="petCreatedAttrs" class="pet-attrs"></div>
-                <div id="petCreatedDerived" class="pet-derived"></div>
-                <button id="btnViewPet" class="btn btn-primary" style="margin-top:14px">查看宠物详情</button>
             </div>
         </div>
 
-        <!-- ═══ 宠物信息面板 ═══ -->
-        <div id="petPanel" class="pet-panel" style="display:none">
-            <div class="pet-panel-header">
-                <h3 id="petPanelTitle"></h3>
-                <button id="btnBackToEgg" class="btn btn-sm">返回</button>
-            </div>
-            <div id="petPanelStatus" class="pet-panel-status"></div>
-            <div id="petPanelBars" class="pet-panel-bars"></div>
-
-            <!-- ═══ 养成操作区 (P5) ═══ -->
-            <div id="nurtureSection" class="nurture-section">
-                <h4>🍽 饲养</h4>
-                <div class="nurture-food-grid" id="foodGrid"></div>
-                <div id="feedMsg" class="nurture-msg"></div>
-                <div class="nurture-rest-row">
-                    <button id="btnRest" class="btn btn-rest">💤 休息 (+20体力)</button>
-                    <span id="restCooldown" class="nurture-cooldown"></span>
+        <!-- ═══ 宠物详情面板（覆盖层） ═══ -->
+        <div id="petPanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="pet-panel-header">
+                    <h3 id="petPanelTitle"></h3>
+                    <button id="btnBackToEgg" class="btn btn-sm">关闭</button>
                 </div>
+                <div id="petPanelStatus" class="pet-panel-status"></div>
+                <div id="petPanelBars" class="pet-panel-bars"></div>
+                <div id="nurtureSection" class="nurture-section">
+                    <h4>🍽 饲养</h4>
+                    <div class="nurture-food-grid" id="foodGrid"></div>
+                    <div class="nurture-rest-row">
+                        <button id="btnRest" class="btn btn-rest">💤 休息 (+20体力)</button>
+                        <span id="restCooldown" class="nurture-cooldown"></span>
+                    </div>
+                </div>
+                <div id="evolveSection" class="evolve-section" style="display:none">
+                    <h4>🔮 蜕变</h4>
+                    <div id="evolveInfo" class="evolve-info"></div>
+                    <button id="btnEvolve" class="btn btn-evolve" disabled>✨ 触发蜕变</button>
+                    <div id="evolveMsg" class="nurture-msg"></div>
+                </div>
+                <div id="treadmillSection" class="treadmill-section" style="display:none">
+                    <h4>🏃 跑道</h4>
+                    <div id="treadmillInfo" class="treadmill-info"></div>
+                    <div id="treadmillActions" class="treadmill-actions"></div>
+                    <div id="treadmillMsg" class="nurture-msg"></div>
+                </div>
+                <div id="sellSection" class="sell-section" style="display:none">
+                    <h4>💰 售卖宠物</h4>
+                    <div id="sellInfo" class="sell-info"></div>
+                    <button id="btnSellPet" class="btn btn-sell" disabled>确认售卖</button>
+                    <div id="sellMsg" class="nurture-msg"></div>
+                </div>
+                <div id="breedSection" class="breed-section" style="display:none">
+                    <h4>💕 繁殖</h4>
+                    <div id="breedInfo" class="breed-info"></div>
+                    <div id="breedActions" class="breed-actions"></div>
+                    <div id="breedMsg" class="nurture-msg"></div>
+                </div>
+                <div id="arenaSection" class="arena-section" style="display:none">
+                    <h4>⚔️ 竞技场</h4>
+                    <div id="arenaInfo" class="arena-info"></div>
+                    <div id="arenaActions" class="arena-actions"></div>
+                    <div id="arenaMsg" class="nurture-msg"></div>
+                </div>
+                <div id="petPanelAttrs" class="pet-panel-attrs"></div>
+                <div id="petPanelDerived" class="pet-panel-derived"></div>
+                <div id="petPanelSkills" class="pet-panel-skills"></div>
             </div>
-
-            <!-- ═══ 蜕变区 (P6) ═══ -->
-            <div id="evolveSection" class="evolve-section" style="display:none">
-                <h4>🔮 蜕变</h4>
-                <div id="evolveInfo" class="evolve-info"></div>
-                <button id="btnEvolve" class="btn btn-evolve" disabled>✨ 触发蜕变</button>
-                <div id="evolveMsg" class="nurture-msg"></div>
-            </div>
-
-            <!-- ═══ 跑道区 (P7) ═══ -->
-            <div id="treadmillSection" class="treadmill-section" style="display:none">
-                <h4>🏃 跑道</h4>
-                <div id="treadmillInfo" class="treadmill-info"></div>
-                <div id="treadmillActions" class="treadmill-actions"></div>
-                <div id="treadmillMsg" class="nurture-msg"></div>
-            </div>
-
-            <!-- ═══ 售卖区 (P7) ═══ -->
-            <div id="sellSection" class="sell-section" style="display:none">
-                <h4>💰 售卖宠物</h4>
-                <div id="sellInfo" class="sell-info"></div>
-                <button id="btnSellPet" class="btn btn-sell" disabled>确认售卖</button>
-                <div id="sellMsg" class="nurture-msg"></div>
-            </div>
-
-            <!-- ═══ 繁殖区 (P8) ═══ -->
-            <div id="breedSection" class="breed-section" style="display:none">
-                <h4>💕 繁殖</h4>
-                <div id="breedInfo" class="breed-info"></div>
-                <div id="breedActions" class="breed-actions"></div>
-                <div id="breedMsg" class="nurture-msg"></div>
-            </div>
-
-            <!-- ═══ 竞技场区 (P9) ═══ -->
-            <div id="arenaSection" class="arena-section" style="display:none">
-                <h4>⚔️ 竞技场</h4>
-                <div id="arenaInfo" class="arena-info"></div>
-                <div id="arenaActions" class="arena-actions"></div>
-                <div id="arenaMsg" class="nurture-msg"></div>
-            </div>
-
-            <div id="petPanelAttrs" class="pet-panel-attrs"></div>
-            <div id="petPanelDerived" class="pet-panel-derived"></div>
-            <div id="petPanelSkills" class="pet-panel-skills"></div>
-        </div>
-
-        <div id="canvasWrap">
-            <canvas id="gameCanvas"></canvas>
         </div>
 
         <!-- ═══ 交友市场面板 (P8) ═══ -->
-        <div id="marketPanel" class="market-panel" style="display:none">
-            <div class="market-header">
-                <h3>💕 交友市场</h3>
-                <button id="btnMarketClose" class="btn btn-sm">返回</button>
+        <div id="marketPanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="market-header">
+                    <h3>💕 交友市场</h3>
+                    <button id="btnMarketClose" class="btn btn-sm">返回</button>
+                </div>
+                <div class="market-filters">
+                    <button class="btn btn-sm market-filter active" data-gender="0">全部</button>
+                    <button class="btn btn-sm market-filter" data-gender="1">♂ 雄性</button>
+                    <button class="btn btn-sm market-filter" data-gender="2">♀ 雌性</button>
+                </div>
+                <div id="marketList" class="market-list"></div>
+                <div id="marketMsg" class="nurture-msg"></div>
             </div>
-            <div class="market-filters">
-                <button class="btn btn-sm market-filter active" data-gender="0">全部</button>
-                <button class="btn btn-sm market-filter" data-gender="1">♂ 雄性</button>
-                <button class="btn btn-sm market-filter" data-gender="2">♀ 雌性</button>
-            </div>
-            <div id="marketList" class="market-list"></div>
-            <div id="marketMsg" class="nurture-msg"></div>
         </div>
 
         <!-- ═══ 邀请列表面板 (P8) ═══ -->
-        <div id="invitePanel" class="invite-panel" style="display:none">
-            <div class="invite-header">
-                <h3>📬 配对邀请</h3>
-                <button id="btnInviteClose" class="btn btn-sm">返回</button>
+        <div id="invitePanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="invite-header">
+                    <h3>📬 配对邀请</h3>
+                    <button id="btnInviteClose" class="btn btn-sm">返回</button>
+                </div>
+                <div id="inviteList" class="invite-list"></div>
+                <div id="inviteMsg" class="nurture-msg"></div>
             </div>
-            <div id="inviteList" class="invite-list"></div>
-            <div id="inviteMsg" class="nurture-msg"></div>
         </div>
 
         <!-- ═══ 交配笼面板 (P8) ═══ -->
-        <div id="cagePanel" class="cage-panel" style="display:none">
-            <div class="cage-header">
-                <h3>🏠 交配笼</h3>
-                <button id="btnCageClose" class="btn btn-sm">返回</button>
+        <div id="cagePanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="cage-header">
+                    <h3>🏠 交配笼</h3>
+                    <button id="btnCageClose" class="btn btn-sm">返回</button>
+                </div>
+                <div id="cageInfo" class="cage-info"></div>
+                <div id="cageActions" class="cage-actions"></div>
+                <div id="cageMsg" class="nurture-msg"></div>
             </div>
-            <div id="cageInfo" class="cage-info"></div>
-            <div id="cageActions" class="cage-actions"></div>
-            <div id="cageMsg" class="nurture-msg"></div>
         </div>
 
         <!-- ═══ 竞技场面板 (P9) ═══ -->
-        <div id="arenaPanel" class="arena-panel" style="display:none">
-            <div class="arena-header">
-                <h3>⚔️ 斗兽竞技场</h3>
-                <button id="btnArenaClose" class="btn btn-sm">返回</button>
+        <div id="arenaPanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="arena-header">
+                    <h3>⚔️ 斗兽竞技场</h3>
+                    <button id="btnArenaClose" class="btn btn-sm">返回</button>
+                </div>
+                <div id="arenaMyPets" class="arena-my-pets"></div>
+                <div id="arenaOpponents" class="arena-opponents"></div>
+                <div id="arenaPanelMsg" class="nurture-msg"></div>
             </div>
-            <div id="arenaMyPets" class="arena-my-pets"></div>
-            <div id="arenaOpponents" class="arena-opponents"></div>
-            <div id="arenaPanelMsg" class="nurture-msg"></div>
         </div>
 
         <!-- ═══ 战斗回放面板 (P9) ═══ -->
-        <div id="battlePanel" class="battle-panel" style="display:none">
-            <div class="battle-header">
-                <h3>⚔️ 战斗</h3>
-                <button id="btnBattleClose" class="btn btn-sm">关闭</button>
-            </div>
-            <canvas id="battleCanvas" width="800" height="400"></canvas>
-            <div class="battle-hud">
-                <div class="battle-hud-left">
-                    <span id="battleNameA" class="battle-name"></span>
-                    <div class="battle-hp-bar"><div id="battleHpA" class="battle-hp-fill"></div></div>
-                    <span id="battleFearA" class="battle-fear"></span>
+        <div id="battlePanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="battle-header">
+                    <h3>⚔️ 战斗</h3>
+                    <button id="btnBattleClose" class="btn btn-sm">关闭</button>
                 </div>
-                <div class="battle-hud-center">
-                    <span id="battleTimer" class="battle-timer">0s</span>
-                    <span id="battleRage" class="battle-rage"></span>
+                <canvas id="battleCanvas" width="800" height="400"></canvas>
+                <div class="battle-hud">
+                    <div class="battle-hud-left">
+                        <span id="battleNameA" class="battle-name"></span>
+                        <div class="battle-hp-bar"><div id="battleHpA" class="battle-hp-fill"></div></div>
+                        <span id="battleFearA" class="battle-fear"></span>
+                    </div>
+                    <div class="battle-hud-center">
+                        <span id="battleTimer" class="battle-timer">0s</span>
+                        <span id="battleRage" class="battle-rage"></span>
+                    </div>
+                    <div class="battle-hud-right">
+                        <span id="battleNameB" class="battle-name"></span>
+                        <div class="battle-hp-bar"><div id="battleHpB" class="battle-hp-fill"></div></div>
+                        <span id="battleFearB" class="battle-fear"></span>
+                    </div>
                 </div>
-                <div class="battle-hud-right">
-                    <span id="battleNameB" class="battle-name"></span>
-                    <div class="battle-hp-bar"><div id="battleHpB" class="battle-hp-fill"></div></div>
-                    <span id="battleFearB" class="battle-fear"></span>
+                <div class="battle-controls">
+                    <button id="btnBattlePlay" class="btn btn-sm">▶ 播放</button>
+                    <button id="btnBattleSpeed" class="btn btn-sm">2x</button>
+                    <input id="battleSeek" type="range" min="0" max="100" value="0" class="battle-seek">
                 </div>
+                <div id="battleResult" class="battle-result" style="display:none"></div>
+                <div id="battleLog" class="battle-log"></div>
             </div>
-            <div class="battle-controls">
-                <button id="btnBattlePlay" class="btn btn-sm">▶ 播放</button>
-                <button id="btnBattleSpeed" class="btn btn-sm">2x</button>
-                <input id="battleSeek" type="range" min="0" max="100" value="0" class="battle-seek">
-            </div>
-            <div id="battleResult" class="battle-result" style="display:none"></div>
-            <div id="battleLog" class="battle-log"></div>
         </div>
 
         <!-- ═══ 战斗历史面板 (P9) ═══ -->
-        <div id="historyPanel" class="history-panel" style="display:none">
-            <div class="history-header">
-                <h3>📜 战斗记录</h3>
-                <button id="btnHistoryClose" class="btn btn-sm">返回</button>
+        <div id="historyPanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content overlay-scroll">
+                <div class="history-header">
+                    <h3>📜 战斗记录</h3>
+                    <button id="btnHistoryClose" class="btn btn-sm">返回</button>
+                </div>
+                <div id="historyList" class="history-list"></div>
             </div>
-            <div id="historyList" class="history-list"></div>
+        </div>
+
+        <!-- ═══ 属性面板 (P10) ═══ -->
+        <div id="attrPanel" class="overlay-panel" style="display:none">
+            <div class="overlay-content attr-panel-content">
+                <div class="attr-panel-header">
+                    <h3 id="attrPanelTitle">📊 属性</h3>
+                    <button id="btnAttrClose" class="btn btn-sm">关闭</button>
+                </div>
+                <div id="attrPanelBody" class="attr-panel-body"></div>
+            </div>
         </div>
     </div>
 
@@ -266,7 +331,6 @@
     </div>
 
     <script>
-    /* 全局异常捕获：防止空白页 */
     window.onerror = function(msg, url, line) {
         console.error('[GlobalError]', msg, url, line);
         var el = document.getElementById('authMsg') || document.getElementById('feedMsg');

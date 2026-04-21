@@ -290,6 +290,18 @@ function _migrate() {
         console.log('[DB] 迁移: pet 表新增 arena_status 字段');
     }
 
+    /* P10: pet 表增加健康属性 */
+    const hasHealth = cols.some(c => c.name === 'health');
+    if (!hasHealth) {
+        _db.exec('ALTER TABLE pet ADD COLUMN health INTEGER NOT NULL DEFAULT 100');
+        console.log('[DB] 迁移: pet 表新增 health 字段');
+    }
+    const hasHealthMax = cols.some(c => c.name === 'health_max');
+    if (!hasHealthMax) {
+        _db.exec('ALTER TABLE pet ADD COLUMN health_max INTEGER NOT NULL DEFAULT 100');
+        console.log('[DB] 迁移: pet 表新增 health_max 字段');
+    }
+
     /* P8: 繁殖记录表 */
     _db.exec(`
         CREATE TABLE IF NOT EXISTS breeding_record (

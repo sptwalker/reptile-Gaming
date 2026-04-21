@@ -99,6 +99,12 @@ module.exports = {
     REST_COOLDOWN:          1800,
     REST_AMOUNT:            20,
 
+    /* ── 健康 ── */
+    HEALTH_INIT:           100,
+    HEALTH_MAX_INIT:       100,
+    HEALTH_DECAY_INTERVAL: 1800,   // 每30分钟衰减
+    HEALTH_DECAY_AMOUNT:   2,      // 每次衰减2点
+
     /* ── 饱食 ── */
     SATIETY_DECAY_INTERVAL: 600,
     SATIETY_DECAY_AMOUNT:   5,

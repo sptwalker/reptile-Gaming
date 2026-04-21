@@ -81,7 +81,7 @@
     /* ── 进入主界面 ── */
     function enterMain(user) {
         authPanel.style.display = 'none';
-        mainPanel.style.display = 'block';
+        mainPanel.style.display = 'flex';
         userNickname.textContent = user.nickname || user.username;
         userGold.textContent = `💰 ${user.gold}`;
 

@@ -98,6 +98,13 @@ const Egg = (() => {
     const cageActions   = document.getElementById('cageActions');
     const cageMsg       = document.getElementById('cageMsg');
 
+    /* 新布局 DOM */
+    const sideActions   = document.getElementById('sideActions');
+    const hudBottom     = document.getElementById('hudBottom');
+    const foodBar       = document.getElementById('foodBar');
+    const menuOverlay   = document.getElementById('menuOverlay');
+    const btnMenu       = document.getElementById('btnMenu');
+
     /* 食物定义（展示用，数值以服务端为准） */
     const FOOD_LIST = [
         { code: 'insect',     name: '🦗 昆虫', cost: 5,  desc: '饱食+20 经验+10' },
@@ -136,6 +143,7 @@ const Egg = (() => {
     }
 
     function hideAll() {
+        eggSection.style.display = 'none';
         eggClaim.style.display = 'none';
         eggCard.style.display = 'none';
         talentPanel.style.display = 'none';
@@ -147,13 +155,17 @@ const Egg = (() => {
         if (document.getElementById('arenaPanel')) document.getElementById('arenaPanel').style.display = 'none';
         if (document.getElementById('battlePanel')) document.getElementById('battlePanel').style.display = 'none';
         if (document.getElementById('historyPanel')) document.getElementById('historyPanel').style.display = 'none';
+        if (document.getElementById('attrPanel')) document.getElementById('attrPanel').style.display = 'none';
+        if (menuOverlay) menuOverlay.style.display = 'none';
+        if (sideActions) sideActions.style.display = 'none';
+        if (hudBottom) hudBottom.style.display = 'none';
         btnStartHatch.style.display = 'none';
         btnFinishHatch.style.display = 'none';
         eggTimer.style.display = 'none';
         eggProgress.style.display = 'none';
+        feedMsg.textContent = '';
         stopTimer();
         stopSync();
-        /* PF-03: 清理休息冷却定时器 */
         if (_restCdTimer) { clearInterval(_restCdTimer); _restCdTimer = null; }
         if (_feedCooldownTimer) { clearInterval(_feedCooldownTimer); _feedCooldownTimer = null; }
         if (_treadmillTimer) { clearInterval(_treadmillTimer); _treadmillTimer = null; }
@@ -166,6 +178,7 @@ const Egg = (() => {
 
         /* 未领蛋 → 显示领取按钮 */
         if (user.egg_claimed === 0) {
+            eggSection.style.display = 'flex';
             eggClaim.style.display = 'block';
             return;
         }
@@ -178,6 +191,7 @@ const Egg = (() => {
 
         /* 蛋列表为空 → 显示领蛋按钮 */
         if (eggs.length === 0) {
+            eggSection.style.display = 'flex';
             eggClaim.style.display = 'block';
             return;
         }
@@ -210,6 +224,7 @@ const Egg = (() => {
     /* ── 显示蛋卡片 ── */
     function showEggCard(egg) {
         hideAll();
+        eggSection.style.display = 'flex';
         eggCard.style.display = 'block';
 
         const color = QUALITY_COLORS[egg.quality] || '#AAAAAA';
@@ -326,6 +341,7 @@ const Egg = (() => {
     /* ── 天赋分配面板 ── */
     function showTalentAllocation(totalPoints) {
         hideAll();
+        eggSection.style.display = 'flex';
         _talentTotal = totalPoints;
         talentPanel.style.display = 'block';
 
@@ -401,6 +417,7 @@ const Egg = (() => {
     /* ── 宠物创建成功展示 ── */
     function showPetCreated(pet) {
         hideAll();
+        eggSection.style.display = 'flex';
         petCreated.style.display = 'block';
 
         _lastCreatedPetId = pet.pet_id;
@@ -440,15 +457,9 @@ const Egg = (() => {
         await fetchAndShowPetPanel(_lastCreatedPetId);
     });
 
-    /* ── 返回按钮 ── */
+    /* ── 返回按钮（关闭宠物详情面板，回到 Canvas 主视图） ── */
     btnBackToEgg.addEventListener('click', () => {
-        hideAll();
-        eggSection.style.display = 'block';
-        if (_lastCreatedPetId) {
-            petCreated.style.display = 'block';
-        } else {
-            eggClaim.style.display = 'block';
-        }
+        petPanel.style.display = 'none';
     });
 
     /* ── 请求宠物详情并展示面板 ── */
@@ -462,21 +473,110 @@ const Egg = (() => {
         showPetPanel(res.data);
     }
 
-    /* ── 渲染宠物信息面板 ── */
+    /* ── 渲染宠物信息面板（主视图：Canvas + HUD） ── */
     function showPetPanel(data) {
         hideAll();
         eggSection.style.display = 'none';
-        petPanel.style.display = 'block';
 
+        const pet = data.pet;
+
+        /* 更新 HUD 顶栏 */
+        renderHudBars(pet);
+        const hudPetInfo = document.getElementById('hudPetInfo');
+        if (hudPetInfo) {
+            hudPetInfo.textContent = `${pet.stage_name} Lv.${pet.level} EXP ${pet.exp}/${pet.exp_next}`;
+        }
+
+        /* 显示侧边按钮和底部食物栏 */
+        if (sideActions) sideActions.style.display = 'flex';
+        if (hudBottom) hudBottom.style.display = 'flex';
+
+        /* 渲染底部食物栏 */
+        renderFoodBar();
+
+        /* 缓存宠物面板数据（菜单打开时用） */
+        _cachedPetData = data;
+
+        /* 渲染宠物详情面板内容（不显示，菜单打开时才显示） */
+        renderPetPanelContent(data);
+
+        /* 启动自动同步（每30秒） */
+        startSync(pet.id);
+
+        /* 启动蜥蜴渲染器 — rAF 确保布局完成后再初始化 */
+        var gameCanvas = document.getElementById('gameCanvas');
+        if (gameCanvas && typeof LizardRenderer !== 'undefined') {
+            var _renderData = data;
+            requestAnimationFrame(function() {
+                if (!_lizardRenderer) {
+                    _lizardRenderer = new LizardRenderer(gameCanvas, { activity: 5 });
+                }
+                if (_renderData.render_params || _renderData.body_seed) {
+                    _lizardRenderer.applyRenderParams(_renderData.render_params, _renderData.body_seed);
+                }
+                _lizardRenderer.toggleAI(true);
+                _lizardRenderer.start();
+            });
+        }
+    }
+
+    /* ── 缓存宠物数据 ── */
+    let _cachedPetData = null;
+
+    /* ── 更新 HUD 状态条 ── */
+    function renderHudBars(pet) {
+        const staminaPct = pet.stamina_max > 0 ? (pet.stamina / pet.stamina_max * 100).toFixed(1) : 0;
+        const satietyPct = pet.satiety_max > 0 ? (pet.satiety / pet.satiety_max * 100).toFixed(1) : 0;
+        const moodPct    = pet.mood;
+        const healthMax  = pet.health_max || 100;
+        const health     = pet.health !== undefined ? pet.health : healthMax;
+        const healthPct  = healthMax > 0 ? (health / healthMax * 100).toFixed(1) : 0;
+
+        const hudStaminaFill = document.getElementById('hudStaminaFill');
+        const hudSatietyFill = document.getElementById('hudSatietyFill');
+        const hudMoodFill    = document.getElementById('hudMoodFill');
+        const hudHealthFill  = document.getElementById('hudHealthFill');
+        const hudStaminaVal  = document.getElementById('hudStaminaVal');
+        const hudSatietyVal  = document.getElementById('hudSatietyVal');
+        const hudMoodVal     = document.getElementById('hudMoodVal');
+        const hudHealthVal   = document.getElementById('hudHealthVal');
+
+        if (hudStaminaFill) hudStaminaFill.style.width = staminaPct + '%';
+        if (hudSatietyFill) hudSatietyFill.style.width = satietyPct + '%';
+        if (hudMoodFill)    hudMoodFill.style.width = moodPct + '%';
+        if (hudHealthFill)  hudHealthFill.style.width = healthPct + '%';
+        if (hudStaminaVal)  hudStaminaVal.textContent = `${pet.stamina}/${pet.stamina_max}`;
+        if (hudSatietyVal)  hudSatietyVal.textContent = `${pet.satiety}/${pet.satiety_max}`;
+        if (hudMoodVal)     hudMoodVal.textContent = `${pet.mood}`;
+        if (hudHealthVal)   hudHealthVal.textContent = `${health}/${healthMax}`;
+    }
+
+    /* ── 渲染底部食物栏 ── */
+    function renderFoodBar() {
+        if (!foodBar) return;
+        let html = '';
+        for (const f of FOOD_LIST) {
+            html += `<button class="food-btn" data-food="${f.code}">
+                <span class="food-name">${f.name}</span>
+                <span class="food-cost">\u{1F4B0}${f.cost}</span>
+            </button>`;
+        }
+        foodBar.innerHTML = html;
+        foodBar.querySelectorAll('.food-btn').forEach(btn => {
+            btn.addEventListener('click', () => handleFeed(btn.dataset.food));
+        });
+    }
+
+    /* ── 渲染宠物详情面板内容（不显示面板本身） ── */
+    function renderPetPanelContent(data) {
         const pet = data.pet;
         const color = QUALITY_COLORS[pet.quality] || '#AAAAAA';
         const qName = pet.quality_name || QUALITY_NAMES[pet.quality] || '未知';
         const gIcon = GENDER_ICONS[pet.gender] || '';
         const gColor = GENDER_COLORS[pet.gender] || '#e6edf3';
 
-        petPanelTitle.innerHTML = `🦎 <span style="color:${color}">${pet.name}</span> <span style="color:${gColor};font-size:18px">${gIcon}</span> <small style="color:${color}">[${qName}]</small>`;
+        petPanelTitle.innerHTML = `\u{1F98E} <span style="color:${color}">${pet.name}</span> <span style="color:${gColor};font-size:18px">${gIcon}</span> <small style="color:${color}">[${qName}]</small>`;
 
-        /* 状态信息 */
         petPanelStatus.innerHTML = `
             <div class="pp-status-row">
                 <span class="pp-stage">${pet.stage_name}</span>
@@ -484,11 +584,9 @@ const Egg = (() => {
                 <span class="pp-exp">EXP ${pet.exp}/${pet.exp_next}</span>
             </div>`;
 
-        /* 状态条：体力 / 饱食度 / 心情 */
         renderBars(pet);
 
-        /* 六维属性 */
-        const attrNames = { str: '力量', agi: '敏捷', vit: '体质', int: '智力', per: '感知', cha: '魅力' };
+        const attrNames = { str: '\u529B\u91CF', agi: '\u654F\u6377', vit: '\u4F53\u8D28', int: '\u667A\u529B', per: '\u611F\u77E5', cha: '\u9B45\u529B' };
         let attrHtml = '<div class="attr-grid">';
         for (const [key, label] of Object.entries(attrNames)) {
             const a = data.attrs[key];
@@ -497,7 +595,6 @@ const Egg = (() => {
         attrHtml += '</div>';
         petPanelAttrs.innerHTML = attrHtml;
 
-        /* 衍生属性 */
         const d = data.derived;
         petPanelDerived.innerHTML = `
             <div class="derived-grid">
@@ -509,10 +606,9 @@ const Egg = (() => {
                 <span>DODGE ${(d.dodge_rate / 100).toFixed(1)}%</span>
             </div>`;
 
-        /* 技能列表 */
         const SKILL_NAMES = {
-            bite: '撕咬', scratch: '抓挠', tail_whip: '尾击', camouflage: '伪装',
-            venom_spit: '毒液喷射', iron_hide: '铁甲', dragon_rush: '龙突', regen: '再生', predator_eye: '掠食之眼'
+            bite: '\u6495\u54AC', scratch: '\u6293\u6320', tail_whip: '\u5C3E\u51FB', camouflage: '\u4F2A\u88C5',
+            venom_spit: '\u6BD2\u6DB2\u55B7\u5C04', iron_hide: '\u94C1\u7532', dragon_rush: '\u9F99\u7A81', regen: '\u518D\u751F', predator_eye: '\u63A0\u98DF\u4E4B\u773C'
         };
         if (data.skills && data.skills.length > 0) {
             let skillHtml = '<div class="pp-skill-list">';
@@ -522,45 +618,18 @@ const Egg = (() => {
                 skillHtml += `<span class="pp-skill-badge${equipped}">${sName} Lv.${sk.skill_level}</span>`;
             }
             skillHtml += '</div>';
-            petPanelSkills.innerHTML = '<h4>技能</h4>' + skillHtml;
+            petPanelSkills.innerHTML = '<h4>\u6280\u80FD</h4>' + skillHtml;
         } else {
-            petPanelSkills.innerHTML = '<h4>技能</h4><p class="pp-no-skill">暂无技能</p>';
+            petPanelSkills.innerHTML = '<h4>\u6280\u80FD</h4><p class="pp-no-skill">\u6682\u65E0\u6280\u80FD</p>';
         }
 
-        /* 渲染食物按钮 (P5) */
         renderFoodGrid();
-
-        /* 渲染蜕变区域 (P6) */
         renderEvolveSection(data);
-
-        /* 渲染跑道区域 (P7) */
         renderTreadmillSection(data.pet);
-
-        /* 渲染售卖区域 (P7) */
         renderSellSection(data.pet);
-
-        /* 渲染繁殖区域 (P8) */
         renderBreedSection(data.pet);
-
-        /* 渲染竞技场区域 (P9) */
         if (typeof Arena !== 'undefined' && Arena.renderArenaSection) {
             Arena.renderArenaSection(data.pet);
-        }
-
-        /* 启动自动同步（每30秒） */
-        startSync(pet.id);
-
-        /* 启动蜥蜴渲染器 (RB-1/RB-3/PF-2) */
-        var gameCanvas = document.getElementById('gameCanvas');
-        if (gameCanvas && typeof LizardRenderer !== 'undefined') {
-            if (!_lizardRenderer) {
-                _lizardRenderer = new LizardRenderer(gameCanvas, { activity: 5 });
-            }
-            if (data.render_params || data.body_seed) {
-                _lizardRenderer.applyRenderParams(data.render_params, data.body_seed);
-            }
-            _lizardRenderer.toggleAI(true);
-            _lizardRenderer.start();
         }
     }
 
@@ -569,6 +638,9 @@ const Egg = (() => {
         const staminaPct = pet.stamina_max > 0 ? (pet.stamina / pet.stamina_max * 100).toFixed(1) : 0;
         const satietyPct = pet.satiety_max > 0 ? (pet.satiety / pet.satiety_max * 100).toFixed(1) : 0;
         const moodPct    = pet.mood;
+        const healthMax  = pet.health_max || 100;
+        const health     = pet.health !== undefined ? pet.health : healthMax;
+        const healthPct  = healthMax > 0 ? (health / healthMax * 100).toFixed(1) : 0;
 
         petPanelBars.innerHTML = `
             <div class="pp-bar-item">
@@ -580,6 +652,11 @@ const Egg = (() => {
                 <span class="pp-bar-label">🍖 饱食</span>
                 <div class="pp-bar-track"><div class="pp-bar-fill pp-bar-satiety" style="width:${satietyPct}%"></div></div>
                 <span class="pp-bar-val">${pet.satiety}/${pet.satiety_max}</span>
+            </div>
+            <div class="pp-bar-item">
+                <span class="pp-bar-label">💚 健康</span>
+                <div class="pp-bar-track"><div class="pp-bar-fill pp-bar-health" style="width:${healthPct}%"></div></div>
+                <span class="pp-bar-val">${health}/${healthMax}</span>
             </div>
             <div class="pp-bar-item">
                 <span class="pp-bar-label">😊 心情</span>
@@ -842,15 +919,18 @@ const Egg = (() => {
         if (res.code !== 0) return;
 
         const d = res.data;
-        renderBars({
+        const petSync = {
             stamina: d.stamina, stamina_max: d.stamina_max,
             satiety: d.satiety, satiety_max: d.satiety_max,
-            mood: d.mood
-        });
+            mood: d.mood,
+            health: d.health, health_max: d.health_max
+        };
+        renderBars(petSync);
+        renderHudBars(petSync);
 
         /* 更新金币 */
         const goldEl = document.getElementById('userGold');
-        if (goldEl) goldEl.textContent = `💰 ${d.gold}`;
+        if (goldEl) goldEl.textContent = `\u{1F4B0} ${d.gold}`;
     }
 
     /* ═══════════════════════════════════════════
@@ -900,6 +980,9 @@ const Egg = (() => {
         if (d.is_running) {
             infoHtml += `<div class="tm-running">⚡ 跑道运行中...</div>`;
             _startTreadmillTimer(d.started_at);
+            if (_lizardRenderer) _lizardRenderer.setTreadmill(true);
+        } else {
+            if (_lizardRenderer) _lizardRenderer.setTreadmill(false);
         }
 
         treadmillInfo.innerHTML = infoHtml;
@@ -969,6 +1052,7 @@ const Egg = (() => {
 
     async function handleTmCollect(petId) {
         if (_treadmillTimer) { clearInterval(_treadmillTimer); _treadmillTimer = null; }
+        if (_lizardRenderer) _lizardRenderer.setTreadmill(false);
         const res = await Api.post('/api/treadmill/collect', { pet_id: petId });
         if (res.code !== 0) {
             treadmillMsg.textContent = res.msg;
@@ -1104,7 +1188,7 @@ const Egg = (() => {
      */
     async function showMarketPanel(myPet) {
         petPanel.style.display = 'none';
-        marketPanel.style.display = 'block';
+        marketPanel.style.display = 'flex';
         await loadMarketListings(0, myPet);
     }
 
@@ -1171,7 +1255,7 @@ const Egg = (() => {
 
     document.getElementById('btnMarketClose').addEventListener('click', () => {
         marketPanel.style.display = 'none';
-        petPanel.style.display = 'block';
+        petPanel.style.display = 'flex';
     });
 
     /**
@@ -1179,7 +1263,7 @@ const Egg = (() => {
      */
     async function showInvitePanel() {
         petPanel.style.display = 'none';
-        invitePanel.style.display = 'block';
+        invitePanel.style.display = 'flex';
 
         const res = await Api.post('/api/breeding/invite/list');
         if (res.code !== 0) {
@@ -1232,7 +1316,7 @@ const Egg = (() => {
 
     document.getElementById('btnInviteClose').addEventListener('click', () => {
         invitePanel.style.display = 'none';
-        petPanel.style.display = 'block';
+        petPanel.style.display = 'flex';
     });
 
     /**
@@ -1242,7 +1326,7 @@ const Egg = (() => {
         petPanel.style.display = 'none';
         invitePanel.style.display = 'none';
         marketPanel.style.display = 'none';
-        cagePanel.style.display = 'block';
+        cagePanel.style.display = 'flex';
 
         const res = await Api.post('/api/breeding/cage/status');
         if (res.code !== 0) {
@@ -1310,8 +1394,256 @@ const Egg = (() => {
     document.getElementById('btnCageClose').addEventListener('click', () => {
         if (_cageTimer) { clearInterval(_cageTimer); _cageTimer = null; }
         cagePanel.style.display = 'none';
-        petPanel.style.display = 'block';
+        petPanel.style.display = 'flex';
     });
+
+    /* ═══════════════════════════════════════════
+     * 菜单 & 侧边按钮事件
+     * ═══════════════════════════════════════════ */
+
+    /* 菜单开关 */
+    if (btnMenu) {
+        btnMenu.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = menuOverlay.style.display === 'flex' ? 'none' : 'flex';
+        });
+    }
+    const menuClose = document.getElementById('menuClose');
+    if (menuClose) {
+        menuClose.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+        });
+    }
+
+    /* 菜单项 */
+    const menuPetDetail = document.getElementById('menuPetDetail');
+    if (menuPetDetail) {
+        menuPetDetail.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+            if (_cachedPetData) {
+                petPanel.style.display = 'flex';
+            } else if (_lastCreatedPetId) {
+                fetchAndShowPetDetail(_lastCreatedPetId);
+            }
+        });
+    }
+
+    const menuSell = document.getElementById('menuSell');
+    if (menuSell) {
+        menuSell.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+            petPanel.style.display = 'flex';
+            if (sellSection) sellSection.scrollIntoView({ behavior: 'smooth' });
+        });
+    }
+
+    const menuBreed = document.getElementById('menuBreed');
+    if (menuBreed) {
+        menuBreed.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+            petPanel.style.display = 'flex';
+            if (breedSection) breedSection.scrollIntoView({ behavior: 'smooth' });
+        });
+    }
+
+    const menuArena = document.getElementById('menuArena');
+    if (menuArena) {
+        menuArena.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+            const arenaPanel = document.getElementById('arenaPanel');
+            if (arenaPanel) {
+                arenaPanel.style.display = 'flex';
+                if (typeof Arena !== 'undefined' && Arena.openArenaPanel) {
+                    Arena.openArenaPanel();
+                }
+            }
+        });
+    }
+
+    const menuHistory = document.getElementById('menuHistory');
+    if (menuHistory) {
+        menuHistory.addEventListener('click', () => {
+            if (menuOverlay) menuOverlay.style.display = 'none';
+            const historyPanel = document.getElementById('historyPanel');
+            if (historyPanel) {
+                historyPanel.style.display = 'flex';
+                if (typeof Arena !== 'undefined' && Arena.loadHistory) {
+                    Arena.loadHistory();
+                }
+            }
+        });
+    }
+
+    /* 打开宠物详情面板（从菜单） */
+    async function fetchAndShowPetDetail(petId) {
+        const res = await Api.post('/api/pet/detail', { pet_id: petId });
+        if (res.code !== 0) return;
+        _cachedPetData = res.data;
+        renderPetPanelContent(res.data);
+        petPanel.style.display = 'flex';
+    }
+
+    /* 侧边按钮 */
+    const btnSideFeed = document.getElementById('btnSideFeed');
+    if (btnSideFeed) {
+        btnSideFeed.addEventListener('click', () => {
+            /* 滚动底部食物栏到可见位置（已经可见） */
+        });
+    }
+
+    const btnSideRest = document.getElementById('btnSideRest');
+    if (btnSideRest) {
+        btnSideRest.addEventListener('click', async () => {
+            if (!_lastCreatedPetId) return;
+            btnSideRest.disabled = true;
+            const res = await Api.post('/api/nurture/rest', { pet_id: _lastCreatedPetId });
+            btnSideRest.disabled = false;
+            if (res.code !== 0) {
+                feedMsg.textContent = res.msg;
+                return;
+            }
+            feedMsg.textContent = `\u4F11\u606F\u6210\u529F\uFF01\u4F53\u529B ${res.data.stamina.before}\u2192${res.data.stamina.after}`;
+            await syncAndUpdateBars();
+        });
+    }
+
+    const btnSideEvolve = document.getElementById('btnSideEvolve');
+    if (btnSideEvolve) {
+        btnSideEvolve.addEventListener('click', () => {
+            petPanel.style.display = 'flex';
+            if (evolveSection) evolveSection.scrollIntoView({ behavior: 'smooth' });
+        });
+    }
+
+    const btnSideAttr = document.getElementById('btnSideAttr');
+    if (btnSideAttr) {
+        btnSideAttr.addEventListener('click', () => {
+            if (_cachedPetData) {
+                showAttrPanel(_cachedPetData);
+            }
+        });
+    }
+
+    /* ═══════════════════════════════════════════
+     * 属性面板 (P10)
+     * ═══════════════════════════════════════════ */
+
+    const attrPanel     = document.getElementById('attrPanel');
+    const attrPanelTitle = document.getElementById('attrPanelTitle');
+    const attrPanelBody = document.getElementById('attrPanelBody');
+    const btnAttrClose  = document.getElementById('btnAttrClose');
+
+    if (btnAttrClose) {
+        btnAttrClose.addEventListener('click', () => {
+            if (attrPanel) attrPanel.style.display = 'none';
+        });
+    }
+
+    function showAttrPanel(data) {
+        if (!attrPanel || !attrPanelBody) return;
+        const pet = data.pet;
+        const color = QUALITY_COLORS[pet.quality] || '#AAAAAA';
+        const qName = pet.quality_name || QUALITY_NAMES[pet.quality] || '未知';
+        const gIcon = GENDER_ICONS[pet.gender] || '';
+        const gColor = GENDER_COLORS[pet.gender] || '#e6edf3';
+
+        const staminaPct = pet.stamina_max > 0 ? (pet.stamina / pet.stamina_max * 100).toFixed(1) : 0;
+        const satietyPct = pet.satiety_max > 0 ? (pet.satiety / pet.satiety_max * 100).toFixed(1) : 0;
+        const moodPct    = pet.mood;
+        const healthMax  = pet.health_max || 100;
+        const health     = pet.health !== undefined ? pet.health : healthMax;
+        const healthPct  = healthMax > 0 ? (health / healthMax * 100).toFixed(1) : 0;
+
+        let html = '';
+
+        /* 身份区 */
+        html += `<div class="attr-identity">
+            <span class="attr-identity-name" style="color:${color}">${pet.name}</span>
+            <span style="color:${gColor};font-size:18px">${gIcon}</span>
+            <div class="attr-identity-info">
+                <span>Lv.${pet.level}</span>
+                <span>EXP ${pet.exp}/${pet.exp_next}</span>
+                <span style="color:${color}">${qName}</span>
+            </div>
+        </div>`;
+
+        /* 状态条 */
+        html += `<div class="attr-bars">
+            <div class="attr-bar-item">
+                <span class="attr-bar-label">⚡ 体力</span>
+                <div class="attr-bar-track"><div class="attr-bar-fill hud-bar-stamina" style="width:${staminaPct}%"></div></div>
+                <span class="attr-bar-val">${pet.stamina}/${pet.stamina_max}</span>
+            </div>
+            <div class="attr-bar-item">
+                <span class="attr-bar-label">🍖 饱食</span>
+                <div class="attr-bar-track"><div class="attr-bar-fill hud-bar-satiety" style="width:${satietyPct}%"></div></div>
+                <span class="attr-bar-val">${pet.satiety}/${pet.satiety_max}</span>
+            </div>
+            <div class="attr-bar-item">
+                <span class="attr-bar-label">💚 健康</span>
+                <div class="attr-bar-track"><div class="attr-bar-fill hud-bar-health" style="width:${healthPct}%"></div></div>
+                <span class="attr-bar-val">${health}/${healthMax}</span>
+            </div>
+            <div class="attr-bar-item">
+                <span class="attr-bar-label">😊 心情</span>
+                <div class="attr-bar-track"><div class="attr-bar-fill hud-bar-mood" style="width:${moodPct}%"></div></div>
+                <span class="attr-bar-val">${moodPct}</span>
+            </div>
+        </div>`;
+
+        /* 操作区 */
+        html += `<div class="attr-actions">
+            <div class="attr-action-row">
+                <div>
+                    <div style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:2px">🏃 宠物箱升级</div>
+                    <span class="attr-action-label">建设跑道，让宠物跑步产金</span>
+                </div>
+                <button class="btn btn-tm" id="btnAttrTreadmill">建设跑道</button>
+            </div>
+            <div class="attr-action-row">
+                <div>
+                    <div style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:2px">💰 出售宠物</div>
+                    <span class="attr-action-label" id="attrSellPrice">估值计算中...</span>
+                </div>
+                <button class="btn btn-sell" id="btnAttrSell">出售宠物</button>
+            </div>
+        </div>`;
+
+        attrPanelBody.innerHTML = html;
+        attrPanel.style.display = 'flex';
+
+        /* 绑定跑道按钮 */
+        const btnAttrTm = document.getElementById('btnAttrTreadmill');
+        if (btnAttrTm) {
+            btnAttrTm.addEventListener('click', () => {
+                attrPanel.style.display = 'none';
+                petPanel.style.display = 'flex';
+                if (treadmillSection) treadmillSection.scrollIntoView({ behavior: 'smooth' });
+            });
+        }
+
+        /* 绑定出售按钮 */
+        const btnAttrSellEl = document.getElementById('btnAttrSell');
+        if (btnAttrSellEl) {
+            btnAttrSellEl.addEventListener('click', () => {
+                attrPanel.style.display = 'none';
+                petPanel.style.display = 'flex';
+                if (sellSection) sellSection.scrollIntoView({ behavior: 'smooth' });
+            });
+        }
+
+        /* 异步获取估值 */
+        if (pet.id) {
+            Api.post('/api/pet/evaluate', { pet_id: pet.id }).then(res => {
+                const priceEl = document.getElementById('attrSellPrice');
+                if (priceEl && res.code === 0) {
+                    priceEl.textContent = `估值：${res.data.sell_price} 金币`;
+                    priceEl.style.color = '#ffaa00';
+                } else if (priceEl) {
+                    priceEl.textContent = '估值获取失败';
+                }
+            });
+        }
+    }
 
     /* ── 公共接口 ── */
     return { init, refreshPetPanel: fetchAndShowPetPanel };

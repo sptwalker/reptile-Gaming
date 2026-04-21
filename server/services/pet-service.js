@@ -22,7 +22,8 @@ function listPets(uid) {
 
     const pets = db.prepare(`
         SELECT id, name, quality, gender, level, exp, stage,
-               stamina, stamina_max, satiety, satiety_max, mood,
+               stamina, stamina_max, satiety, satiety_max,
+               health, health_max, mood,
                is_active, created_at
         FROM pet WHERE user_id = ?
         ORDER BY is_active DESC, created_at DESC
@@ -123,6 +124,8 @@ function getPetDetail(uid, petId) {
                 stamina_max: pet.stamina_max,
                 satiety:     pet.satiety,
                 satiety_max: pet.satiety_max,
+                health:      pet.health !== undefined ? pet.health : 100,
+                health_max:  pet.health_max !== undefined ? pet.health_max : 100,
                 mood:        pet.mood,
                 is_active:   pet.is_active,
                 arena_status: pet.arena_status || 'none',

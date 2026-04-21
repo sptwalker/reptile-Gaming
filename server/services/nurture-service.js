@@ -48,6 +48,17 @@ function applyTimeDecay(pet) {
     let newStamina = Math.min(pet.stamina_max, pet.stamina + staminaRegen);
     staminaRegen = newStamina - oldStamina;
 
+    /* ── 健康衰减（饱食度为0时触发） ── */
+    const healthTicks = Math.floor(elapsed / rules.HEALTH_DECAY_INTERVAL);
+    let healthDecay = 0;
+    if (newSatiety <= 0) {
+        healthDecay = healthTicks * rules.HEALTH_DECAY_AMOUNT;
+    }
+    const oldHealth = pet.health !== undefined ? pet.health : (rules.HEALTH_INIT || 100);
+    const healthMax = pet.health_max !== undefined ? pet.health_max : (rules.HEALTH_MAX_INIT || 100);
+    let newHealth = Math.max(0, Math.min(healthMax, oldHealth - healthDecay));
+    healthDecay = oldHealth - newHealth;
+
     /* ── 心情衰减（饱食度为0时触发） ── */
     let moodDecay = 0;
     if (newSatiety <= 0) {
@@ -68,23 +79,24 @@ function applyTimeDecay(pet) {
     let newMood = Math.max(0, Math.min(100, pet.mood - moodDecay));
     moodDecay = oldMood - newMood;
 
-    const changed = satietyDecay > 0 || staminaRegen > 0 || moodDecay > 0;
+    const changed = satietyDecay > 0 || staminaRegen > 0 || moodDecay > 0 || healthDecay > 0;
 
     if (changed) {
         const db = getDB();
         db.prepare(`
-            UPDATE pet SET satiety = ?, stamina = ?, mood = ?, updated_at = ?
+            UPDATE pet SET satiety = ?, stamina = ?, mood = ?, health = ?, updated_at = ?
             WHERE id = ?
-        `).run(newSatiety, newStamina, newMood, ts, pet.id);
+        `).run(newSatiety, newStamina, newMood, newHealth, ts, pet.id);
 
         /* 更新传入的 pet 对象，后续逻辑可直接使用 */
         pet.satiety    = newSatiety;
         pet.stamina    = newStamina;
         pet.mood       = newMood;
+        pet.health     = newHealth;
         pet.updated_at = ts;
     }
 
-    return { satietyDecay, staminaRegen, moodDecay, changed };
+    return { satietyDecay, staminaRegen, moodDecay, healthDecay, changed };
 }
 
 /* ═══════════════════════════════════════════
@@ -118,6 +130,8 @@ function syncPet(uid, petId) {
             stamina_max: pet.stamina_max,
             satiety:     pet.satiety,
             satiety_max: pet.satiety_max,
+            health:      pet.health !== undefined ? pet.health : 100,
+            health_max:  pet.health_max !== undefined ? pet.health_max : 100,
             mood:        pet.mood,
             exp:         pet.exp,
             level:       pet.level,

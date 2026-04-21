@@ -1,17 +1,289 @@
 /* ═══ 全局样式 ═══ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-body {
+html, body {
+    height: 100vh;
+    overflow: hidden;
     background: #0d1117;
     color: #e6edf3;
     font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* ═══ 登录面板居中 ═══ */
+.auth-panel-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 40px 32px;
+    text-align: center;
+}
+
+/* ═══ 全屏游戏布局 ═══ */
+.game-screen {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ── 顶部 HUD ── */
+.hud-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: rgba(13, 17, 23, 0.92);
+    border-bottom: 1px solid #21262d;
+    flex-shrink: 0;
+    z-index: 10;
+    gap: 12px;
+}
+.hud-left, .hud-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.hud-nick {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e6edf3;
+}
+.hud-center {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+}
+.hud-bar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 120px;
+}
+.hud-bar-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.hud-bar-track {
+    flex: 1;
+    height: 10px;
+    background: #21262d;
+    border-radius: 5px;
+    overflow: hidden;
+    min-width: 60px;
+}
+.hud-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.3s ease;
+}
+.hud-bar-stamina { background: linear-gradient(90deg, #f0883e, #f9d423); }
+.hud-bar-satiety { background: linear-gradient(90deg, #238636, #3fb950); }
+.hud-bar-mood    { background: linear-gradient(90deg, #da3633, #f85149); }
+.hud-bar-health  { background: linear-gradient(90deg, #2ea043, #56d364); }
+.hud-bar-val {
+    font-size: 11px;
+    color: #8b949e;
+    flex-shrink: 0;
+    min-width: 40px;
+    text-align: right;
+}
+.hud-pet-info {
+    font-size: 12px;
+    color: #8b949e;
+}
+
+/* ── 中央饲养区 ── */
+.game-center {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+}
+.terrarium {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: #0a0a10;
+    overflow: hidden;
+}
+.terrarium-label {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: #484f58;
+    pointer-events: none;
+}
+
+/* ── 左侧浮动按钮 ── */
+.side-actions {
+    position: fixed;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 20;
+}
+.side-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid #30363d;
+    background: rgba(22, 27, 34, 0.9);
+    color: #e6edf3;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+    backdrop-filter: blur(4px);
+}
+.side-btn:hover {
+    background: rgba(48, 54, 61, 0.95);
+    border-color: #58a6ff;
+    transform: scale(1.1);
+}
+
+/* ── 底部食物栏 + 菜单 ── */
+.hud-bottom {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    background: rgba(13, 17, 23, 0.92);
+    border-top: 1px solid #21262d;
+    flex-shrink: 0;
+    z-index: 10;
+    gap: 10px;
+}
+.food-bar {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    overflow-x: auto;
+    padding: 4px 0;
+    scrollbar-width: thin;
+    scrollbar-color: #30363d transparent;
+}
+.food-bar::-webkit-scrollbar { height: 4px; }
+.food-bar::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+.menu-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid #30363d;
+    background: rgba(22, 27, 34, 0.9);
+    color: #e6edf3;
+    font-size: 22px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s, border-color 0.2s;
+}
+.menu-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+}
+
+/* ── 覆盖层面板 ── */
+.overlay-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background: rgba(0, 0, 0, 0.7);
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
+    z-index: 100;
+    backdrop-filter: blur(2px);
+}
+.overlay-content {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 520px;
+    max-height: 85vh;
+    position: relative;
+}
+.overlay-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #30363d transparent;
+}
+.overlay-scroll::-webkit-scrollbar { width: 6px; }
+.overlay-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.overlay-close {
+    margin-top: 12px;
 }
 
-/* ═══ 面板 ═══ */
+/* ── 浮动消息 ── */
+.float-msg {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: #3fb950;
+    background: rgba(13, 17, 23, 0.9);
+    padding: 8px 20px;
+    border-radius: 20px;
+    border: 1px solid #21262d;
+    z-index: 30;
+    pointer-events: none;
+    white-space: nowrap;
+    transition: opacity 0.3s;
+}
+.float-msg:empty {
+    display: none;
+}
+
+/* ── 菜单网格 ── */
+.menu-grid {
+    text-align: center;
+}
+.menu-grid h3 {
+    margin-bottom: 16px;
+    font-size: 18px;
+}
+.menu-items {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.menu-item {
+    padding: 14px 10px;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+.menu-item:hover {
+    background: #161b22;
+    border-color: #58a6ff;
+}
+
+/* ═══ 旧面板兼容 ═══ */
 .panel {
     width: 100%;
     max-width: 420px;
@@ -119,21 +391,6 @@ body {
 }
 
 /* ═══ 主界面 ═══ */
-#mainPanel {
-    max-width: 900px;
-}
-
-.user-bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid #21262d;
-    margin-bottom: 20px;
-}
-.user-bar span {
-    font-size: 14px;
-}
 .gold-badge {
     background: rgba(255, 170, 0, 0.15);
     color: #ffaa00;
@@ -143,33 +400,12 @@ body {
     font-weight: 600;
 }
 
-#canvasWrap {
-    width: 100%;
-    aspect-ratio: 16/9;
-    /* Safari <15 fallback */
-    position: relative;
-    padding-top: 56.25%;
-    background: #0a0a10;
-    border: 1px solid #21262d;
-    border-radius: 8px;
-    overflow: hidden;
-}
-@supports (aspect-ratio: 16/9) {
-    #canvasWrap {
-        padding-top: 0;
-        aspect-ratio: 16/9;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-}
 #gameCanvas {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    border-radius: 8px;
     display: block;
 }
 
@@ -181,7 +417,7 @@ body {
 
 /* ═══ 宠物蛋区域 ═══ */
 #eggSection {
-    margin-bottom: 24px;
+    /* overlay-panel 已处理定位 */
 }
 
 /* ── 无蛋状态 ── */
@@ -408,14 +644,6 @@ body {
 }
 
 /* ═══ 宠物信息面板 ═══ */
-.pet-panel {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: 24px;
-    margin-bottom: 24px;
-}
-
 .pet-panel-header {
     display: flex;
     align-items: center;
@@ -485,6 +713,7 @@ body {
 .pp-bar-stamina { background: linear-gradient(90deg, #f0883e, #f9d423); }
 .pp-bar-satiety { background: linear-gradient(90deg, #238636, #3fb950); }
 .pp-bar-mood    { background: linear-gradient(90deg, #da3633, #f85149); }
+.pp-bar-health  { background: linear-gradient(90deg, #2ea043, #56d364); }
 .pp-bar-val {
     width: 72px;
     text-align: right;
@@ -917,11 +1146,6 @@ body {
 .btn-breed:hover { background: rgba(255, 105, 180, 0.2); }
 
 /* 交友市场面板 */
-.market-panel, .invite-panel, .cage-panel {
-    padding: 16px;
-    max-width: 600px;
-    margin: 0 auto;
-}
 .market-header, .invite-header, .cage-header {
     display: flex;
     justify-content: space-between;
@@ -1122,4 +1346,116 @@ body {
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .history-header h3 { margin: 0; color: #ff8c00; }
 .history-card { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; margin-bottom: 6px; font-size: 12px; color: #ccc; }
+
+/* ══════════════════════════════════════════════════
+ * P10 属性面板
+ * ══════════════════════════════════════════════════ */
+
+.attr-panel-content {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+.attr-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    flex-shrink: 0;
+}
+.attr-panel-header h3 {
+    font-size: 18px;
+    margin: 0;
+}
+.attr-panel-body {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* 属性面板 - 身份区 */
+.attr-identity {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #21262d;
+}
+.attr-identity-name {
+    font-size: 18px;
+    font-weight: 700;
+}
+.attr-identity-info {
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+    color: #8b949e;
+}
+
+/* 属性面板 - 状态条 */
+.attr-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #21262d;
+}
+.attr-bar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.attr-bar-label {
+    width: 56px;
+    font-size: 12px;
+    color: #8b949e;
+    flex-shrink: 0;
+}
+.attr-bar-track {
+    flex: 1;
+    height: 8px;
+    background: #21262d;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.attr-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.attr-bar-val {
+    width: 64px;
+    text-align: right;
+    font-size: 11px;
+    color: #8b949e;
+    flex-shrink: 0;
+}
+
+/* 属性面板 - 操作区 */
+.attr-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.attr-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+}
+.attr-action-label {
+    font-size: 13px;
+    color: #8b949e;
+}
+.attr-action-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffaa00;
+}
+
 

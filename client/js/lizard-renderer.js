@@ -77,11 +77,17 @@ class LizardRenderer {
     this.aiLookHoldTimer = 0;
     this.aiAlertTarget = null; this.aiAlertTimer = 0;
     this.activity = opts.activity || 5;
+    /* ── 跑步机状态 ── */
+    this._treadmillActive = false;
+    this._treadmillBeltOffset = 0;
+    this._treadmillZone = null;       // {x, y, w, h} — 在 _applyScale 中计算
+    this._treadmillOnIt = false;      // 蜥蜴是否已到达跑步机上
     this._rafId = null;
     this._boundRender = this._loop.bind(this);
     this._boundVisibility = this._onVisibility.bind(this);
     this._boundResize = this._resize.bind(this);
     this._evH = {};
+    this._evBound = false;
     this._w = 0; this._h = 0;
     this._initCanvas();
     this._initSpine();
@@ -90,8 +96,25 @@ class LizardRenderer {
   }
 
   start() {
+    var self = this;
+    /* 每次 start 都重新测量 canvas 尺寸（stop 会移除 resize 监听） */
+    var prevW = this._w, prevH = this._h;
+    this._resize();
+    /* 父容器尚未布局 → 延迟重试 */
+    if (this._w === 0 || this._h === 0) {
+      requestAnimationFrame(function() { self.start(); });
+      return;
+    }
+    /* 尺寸从 0 恢复、或首次获得有效尺寸 → 重新初始化脊柱和腿 */
+    if (prevW === 0 || prevH === 0) {
+      this._initSpine();
+      this._initLegs();
+    }
+    /* stop() 会移除 canvas 事件，这里重新绑定 */
+    this._ensureCanvasEvents();
     if (!this._rafId) this._rafId = requestAnimationFrame(this._boundRender);
     document.addEventListener("visibilitychange", this._boundVisibility);
+    window.addEventListener("resize", this._boundResize);
   }
 
   stop() {
@@ -101,6 +124,12 @@ class LizardRenderer {
   }
 
   setActivity(v) { this.activity = Math.max(1, Math.min(10, v)); }
+
+  /** 开启/关闭跑步机模式 */
+  setTreadmill(active) {
+    this._treadmillActive = !!active;
+    if (!active) { this._treadmillOnIt = false; this._treadmillBeltOffset = 0; }
+  }
 
   toggleAI(force) {
     this.aiActive = force !== undefined ? !!force : !this.aiActive;
@@ -166,6 +195,18 @@ class LizardRenderer {
     if (h.u) c.removeEventListener("mouseup", h.u);
     if (h.l) c.removeEventListener("mouseleave", h.l);
     window.removeEventListener("resize", this._boundResize);
+    this._evBound = false;
+  }
+
+  /** 确保 canvas 事件已绑定（stop 会移除，start 需要重新绑定） */
+  _ensureCanvasEvents() {
+    if (this._evBound) return;
+    var c = this.canvas, h = this._evH;
+    if (h.m) c.addEventListener("mousemove", h.m);
+    if (h.d) c.addEventListener("mousedown", h.d);
+    if (h.u) c.addEventListener("mouseup", h.u);
+    if (h.l) c.addEventListener("mouseleave", h.l);
+    this._evBound = true;
   }
 
   _initCanvas() {
@@ -206,6 +247,12 @@ class LizardRenderer {
     this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST * s;
     this.COLLISION_MARGIN = this._BASE_COLLISION_MARGIN * s;
     this.LIGHT_DOT_RADIUS = this._BASE_LIGHT_DOT_RADIUS * s;
+    this._treadmillZone = {
+      x: this._w * 0.55,
+      y: this._h * 0.60,
+      w: this._w * 0.32,
+      h: this._h * 0.18
+    };
   }
 
   _initSpine() {
@@ -259,6 +306,7 @@ class LizardRenderer {
     c.addEventListener("mousedown", this._evH.d);
     c.addEventListener("mouseup", this._evH.u);
     c.addEventListener("mouseleave", this._evH.l);
+    this._evBound = true;
   }
 
   _onVisibility() {
@@ -266,7 +314,8 @@ class LizardRenderer {
     else { if (!this._rafId) this._rafId = requestAnimationFrame(this._boundRender); }
   }
 
-  _loop() { this._render(); this._rafId = requestAnimationFrame(this._boundRender); }
+  _loop() { try { this._render(); } catch(e) { console.error('[LizardRenderer]', e); } this._rafId = requestAnimationFrame(this._boundRender); }
+
 
   _lerp(a, b, t) { return a + (b - a) * t; }
 
@@ -470,6 +519,20 @@ class LizardRenderer {
   }
 
   _computeAITarget(head) {
+    /* ── 跑步机模式：引导蜥蜴到跑步机中心并保持 ── */
+    if (this._treadmillActive && this._treadmillZone) {
+      var tz = this._treadmillZone;
+      var cx = tz.x + tz.w / 2, cy = tz.y + tz.h / 2;
+      var dx = cx - head.x, dy = cy - head.y;
+      var dist = Math.hypot(dx, dy);
+      if (dist < 15) {
+        this._treadmillOnIt = true;
+        return {tx: head.x, ty: head.y, speed: 0};
+      }
+      this._treadmillOnIt = false;
+      var spd = Math.min(dist, this.MAX_SPEED * 0.8);
+      return {tx: head.x + (dx / dist) * spd, ty: head.y + (dy / dist) * spd, speed: spd};
+    }
     var activity = this.activity;
     var wanderSpeed = this.MAX_SPEED * (0.15 + activity * 0.06);
     var turnChance = 0.005 + activity * 0.004;
@@ -572,9 +635,13 @@ class LizardRenderer {
       if (dist > 1) { var move = Math.min(dist, this.MAX_SPEED); head.x += av.x * move; head.y += av.y * move; }
     } else if (this.aiActive) {
       var ai = this._computeAITarget(head);
-      var av2 = this._computeAvoidanceDir(head, ai.tx, ai.ty);
-      var dx2 = ai.tx - head.x, dy2 = ai.ty - head.y, dist2 = Math.hypot(dx2, dy2);
-      if (dist2 > 1) { var move2 = Math.min(dist2, ai.speed); head.x += av2.x * move2; head.y += av2.y * move2; }
+      if (this._treadmillActive && this._treadmillOnIt) {
+        this.headSpeed = this.MAX_SPEED * 0.6;
+      } else {
+        var av2 = this._computeAvoidanceDir(head, ai.tx, ai.ty);
+        var dx2 = ai.tx - head.x, dy2 = ai.ty - head.y, dist2 = Math.hypot(dx2, dy2);
+        if (dist2 > 1) { var move2 = Math.min(dist2, ai.speed); head.x += av2.x * move2; head.y += av2.y * move2; }
+      }
     }
     var FENCE = 10, BZ = 40, BF = 2.5, pushX = 0, pushY = 0;
     if (head.x < FENCE + BZ) pushX += Math.pow(1 - Math.max(0, head.x - FENCE) / BZ, 2) * BF;
@@ -788,6 +855,103 @@ class LizardRenderer {
     ctx.restore();
   }
 
+  /** 更新跑步机皮带滚动偏移 */
+  _updateTreadmill() {
+    if (!this._treadmillActive || !this._treadmillOnIt) return;
+    this._treadmillBeltOffset += this.MAX_SPEED * 0.5;
+    var tz = this._treadmillZone;
+    if (tz && this._treadmillBeltOffset > tz.w * 0.15) this._treadmillBeltOffset = 0;
+  }
+
+  /** 绘制跑步机 */
+  _drawTreadmill() {
+    if (!this._treadmillActive || !this._treadmillZone) return;
+    var ctx = this.ctx, tz = this._treadmillZone;
+    var x = tz.x, y = tz.y, w = tz.w, h = tz.h;
+    var sf = this._scaleFactor || 1;
+    var r = 8 * sf;
+
+    /* 跑步机底座阴影 */
+    ctx.save();
+    ctx.shadowColor = "rgba(0,200,255,0.15)";
+    ctx.shadowBlur = 20 * sf;
+    ctx.fillStyle = "#181828";
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    /* 跑步机边框 */
+    ctx.strokeStyle = "rgba(80,180,255,0.35)";
+    ctx.lineWidth = Math.max(1, 2 * sf);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.stroke();
+
+    /* 皮带区域（内缩） */
+    var pad = 6 * sf;
+    var bx = x + pad, by = y + pad, bw = w - pad * 2, bh = h - pad * 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(bx, by, bw, bh);
+    ctx.clip();
+
+    /* 皮带底色 */
+    ctx.fillStyle = "#111120";
+    ctx.fillRect(bx, by, bw, bh);
+
+    /* 皮带条纹（反向滚动） */
+    var stripeW = bw * 0.15;
+    var offset = this._treadmillBeltOffset;
+    ctx.strokeStyle = "rgba(80,180,255,0.12)";
+    ctx.lineWidth = Math.max(1, 2 * sf);
+    for (var sx = -stripeW + (offset % stripeW); sx < bw + stripeW; sx += stripeW) {
+      ctx.beginPath();
+      ctx.moveTo(bx + sx, by);
+      ctx.lineTo(bx + sx - bh * 0.3, by + bh);
+      ctx.stroke();
+    }
+
+    /* 皮带中线 */
+    ctx.strokeStyle = "rgba(80,180,255,0.08)";
+    ctx.lineWidth = Math.max(0.5, 1 * sf);
+    ctx.setLineDash([4 * sf, 6 * sf]);
+    ctx.beginPath();
+    ctx.moveTo(bx, by + bh / 2);
+    ctx.lineTo(bx + bw, by + bh / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.restore();
+
+    /* 运行指示灯 */
+    if (this._treadmillOnIt) {
+      var dotR = 3 * sf;
+      var pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.006);
+      ctx.fillStyle = "rgba(0,255,120," + (0.4 + 0.6 * pulse) + ")";
+      ctx.beginPath();
+      ctx.arc(x + w - 10 * sf, y + 10 * sf, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   _drawVisionCone() {
     if (!(this.aiActive && (this.headSpeed < 0.5 || this.aiAlertTarget))) return;
     var ctx = this.ctx, head = this.spine[0];
@@ -809,6 +973,8 @@ class LizardRenderer {
     var ctx = this.ctx;
     ctx.fillStyle = "#0a0a10";
     ctx.fillRect(0, 0, this._w, this._h);
+    this._updateTreadmill();
+    this._drawTreadmill();
     this._updateLightDots();
     this._updateSpine();
     this._updateLegs();
