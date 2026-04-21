@@ -5,7 +5,14 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "dev": "node --watch server/index.js",
+    "dev:log": "node server/dev.js",
+    "seed": "node server/dev.js seed",
+    "db": "node server/dev.js db",
+    "db:reset": "node server/dev.js reset",
+    "routes": "node server/dev.js routes",
+    "test:api": "node server/dev.js test-api",
+    "token": "node server/dev.js token"
   },
   "keywords": [],
   "author": "",

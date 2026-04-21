@@ -107,15 +107,17 @@ class LizardRenderer {
    */
   applyRenderParams(renderParams, bodySeed) {
     if (!renderParams) return;
+    /* bodyWidth / headScale / colorSaturation 本身就是倍率，直接赋值 */
     if (renderParams.bodyWidth)         this._bodyScale = renderParams.bodyWidth;
     if (renderParams.headScale)         this._headScale = renderParams.headScale;
-    if (renderParams.moveSpeed)         this.MAX_SPEED = renderParams.moveSpeed;
-    if (renderParams.legFrequency)      this.STEP_SPEED = renderParams.legFrequency;
-    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = renderParams.segmentWidth;
-    if (renderParams.fovAngle)          this.FOV_ANGLE = renderParams.fovAngle;
-    if (renderParams.fovDistance)        this.FOV_MAX_DIST = renderParams.fovDistance;
     if (renderParams.colorSaturation)   this._colorSaturation = renderParams.colorSaturation;
     if (renderParams.patternComplexity) this._patternComplexity = renderParams.patternComplexity;
+    /* 以下参数服务端返回的是倍率，需要乘以构造时的默认基准值 */
+    if (renderParams.moveSpeed)         this.MAX_SPEED = 10 * renderParams.moveSpeed;
+    if (renderParams.legFrequency)      this.STEP_SPEED = 0.18 * renderParams.legFrequency;
+    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = 18 * renderParams.segmentWidth;
+    if (renderParams.fovAngle)          this.FOV_ANGLE = 60 * renderParams.fovAngle;
+    if (renderParams.fovDistance)        this.FOV_MAX_DIST = 500 * renderParams.fovDistance;
     if (bodySeed) this._bodySeed = bodySeed;
     this._skinColors = this._generateSkinColors();
   }
