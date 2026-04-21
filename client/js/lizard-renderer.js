@@ -11,20 +11,32 @@ class LizardRenderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.SPINE_NODE_COUNT = 22;
-    this.SEGMENT_LENGTH = opts.segmentLength || 18;
-    this.MAX_SPEED = opts.maxSpeed || 10;
-    this.LEG_LENGTH1 = opts.legLength1 || 38;
-    this.LEG_LENGTH2 = opts.legLength2 || 34;
-    this.STEP_DISTANCE = opts.stepDistance || 50;
+    /* --- 基准参数（基于 1920×1080 全屏原型） --- */
+    this._BASE_REF_W = 1200;
+    this._BASE_SEGMENT_LENGTH = opts.segmentLength || 18;
+    this._BASE_MAX_SPEED = opts.maxSpeed || 10;
+    this._BASE_LEG_LENGTH1 = opts.legLength1 || 38;
+    this._BASE_LEG_LENGTH2 = opts.legLength2 || 34;
+    this._BASE_STEP_DISTANCE = opts.stepDistance || 50;
+    this._BASE_FOV_CLEAR_DIST = opts.fovClearDist || 300;
+    this._BASE_FOV_MAX_DIST = opts.fovMaxDist || 500;
+    this._BASE_COLLISION_MARGIN = 6;
+    this._BASE_LIGHT_DOT_RADIUS = 6;
+    /* 初始值（_applyScale 会根据 Canvas 尺寸覆盖） */
+    this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH;
+    this.MAX_SPEED = this._BASE_MAX_SPEED;
+    this.LEG_LENGTH1 = this._BASE_LEG_LENGTH1;
+    this.LEG_LENGTH2 = this._BASE_LEG_LENGTH2;
+    this.STEP_DISTANCE = this._BASE_STEP_DISTANCE;
     this.STEP_SPEED = opts.stepSpeed || 0.18;
     this.SERPENTINE_AMP = opts.serpentineAmp || 1.5;
     this.SERPENTINE_FREQ = opts.serpentineFreq || 0.3;
     this.SERPENTINE_SPEED = opts.serpentineSpeed || 0.2;
     this.FOV_ANGLE = opts.fovAngle || 60;
-    this.FOV_CLEAR_DIST = opts.fovClearDist || 300;
-    this.FOV_MAX_DIST = opts.fovMaxDist || 500;
+    this.FOV_CLEAR_DIST = this._BASE_FOV_CLEAR_DIST;
+    this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST;
     this.ALERT_SPEED = opts.alertSpeed || 2.5;
-    this.COLLISION_MARGIN = 6;
+    this.COLLISION_MARGIN = this._BASE_COLLISION_MARGIN;
     this.HEAD_SKIP_NODES = 4;
     this.STEER_STRENGTH = 0.85;
     /* render_params from server (RB-1/RB-2/RB-5) */
@@ -33,11 +45,12 @@ class LizardRenderer {
     this._colorSaturation = 1.0;
     this._patternComplexity = 1;
     this._bodySeed = null;
-    this.BEND_NECK = 0.66;
-    this.BEND_SHOULDER = 0.5;
-    this.BEND_TORSO = 0.44;
-    this.BEND_HIP = 0.5;
-    this.BEND_TAIL = 0.85;
+    /* 弯折约束（弧度）— DEVLOG v0.7 原始紧凑值 */
+    this.BEND_NECK = 0.455;
+    this.BEND_SHOULDER = 0.286;
+    this.BEND_TORSO = 0.234;
+    this.BEND_HIP = 0.286;
+    this.BEND_TAIL = 0.52;
     this.MAX_LIGHT_DOTS = 20;
     this.LIGHT_DOT_RADIUS = 6;
     this.LIGHT_DOT_SPEED = 0.4;
@@ -112,12 +125,13 @@ class LizardRenderer {
     if (renderParams.headScale)         this._headScale = renderParams.headScale;
     if (renderParams.colorSaturation)   this._colorSaturation = renderParams.colorSaturation;
     if (renderParams.patternComplexity) this._patternComplexity = renderParams.patternComplexity;
-    /* 以下参数服务端返回的是倍率，需要乘以构造时的默认基准值 */
-    if (renderParams.moveSpeed)         this.MAX_SPEED = 10 * renderParams.moveSpeed;
+    /* 以下参数服务端返回的是倍率，需要乘以基准值再乘以缩放因子 */
+    var sf = this._scaleFactor || 1;
+    if (renderParams.moveSpeed)         this.MAX_SPEED = this._BASE_MAX_SPEED * renderParams.moveSpeed * sf;
     if (renderParams.legFrequency)      this.STEP_SPEED = 0.18 * renderParams.legFrequency;
-    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = 18 * renderParams.segmentWidth;
+    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH * renderParams.segmentWidth * sf;
     if (renderParams.fovAngle)          this.FOV_ANGLE = 60 * renderParams.fovAngle;
-    if (renderParams.fovDistance)        this.FOV_MAX_DIST = 500 * renderParams.fovDistance;
+    if (renderParams.fovDistance)        this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST * renderParams.fovDistance * sf;
     if (bodySeed) this._bodySeed = bodySeed;
     this._skinColors = this._generateSkinColors();
   }
@@ -163,6 +177,7 @@ class LizardRenderer {
     this.canvas.style.height = rect.height + "px";
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this._w = rect.width; this._h = rect.height;
+    this._applyScale();
     window.addEventListener("resize", this._boundResize);
   }
 
@@ -175,6 +190,22 @@ class LizardRenderer {
     this.canvas.style.height = rect.height + "px";
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this._w = rect.width; this._h = rect.height;
+    this._applyScale();
+  }
+
+  /** 根据 Canvas 实际宽度与基准宽度的比值缩放所有像素参数 */
+  _applyScale() {
+    var s = Math.max(0.35, Math.min(1, this._w / this._BASE_REF_W));
+    this._scaleFactor = s;
+    this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH * s;
+    this.MAX_SPEED = this._BASE_MAX_SPEED * s;
+    this.LEG_LENGTH1 = this._BASE_LEG_LENGTH1 * s;
+    this.LEG_LENGTH2 = this._BASE_LEG_LENGTH2 * s;
+    this.STEP_DISTANCE = this._BASE_STEP_DISTANCE * s;
+    this.FOV_CLEAR_DIST = this._BASE_FOV_CLEAR_DIST * s;
+    this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST * s;
+    this.COLLISION_MARGIN = this._BASE_COLLISION_MARGIN * s;
+    this.LIGHT_DOT_RADIUS = this._BASE_LIGHT_DOT_RADIUS * s;
   }
 
   _initSpine() {
@@ -247,7 +278,7 @@ class LizardRenderer {
   }
 
   _bodyWidthAt(i) {
-    var n = this.SPINE_NODE_COUNT - 1, t = i / n, s = this._bodyScale, w;
+    var n = this.SPINE_NODE_COUNT - 1, t = i / n, s = this._bodyScale, sc = this._scaleFactor || 1, w;
     if (t < 0.05) w = this._lerp(10, 14, t / 0.05);
     else if (t < 0.12) w = this._lerp(14, 18, (t - 0.05) / 0.07);
     else if (t < 0.18) w = this._lerp(18, 10, (t - 0.12) / 0.06);
@@ -256,7 +287,7 @@ class LizardRenderer {
     else if (t < 0.50) w = this._lerp(14, 15, (t - 0.38) / 0.12);
     else if (t < 0.60) w = this._lerp(15, 12, (t - 0.50) / 0.10);
     else w = this._lerp(12, 1, (t - 0.60) / 0.40);
-    return w * s;
+    return w * s * sc;
   }
 
   _spineAngleAt(idx) {
@@ -637,7 +668,7 @@ class LizardRenderer {
       if (leg.stepping) {
         leg.stepT += self.STEP_SPEED;
         var t = Math.min(1, leg.stepT);
-        var lift = Math.sin(t * Math.PI) * 14;
+        var lift = Math.sin(t * Math.PI) * 14 * (self._scaleFactor || 1);
         leg.foot.x = self._lerp(leg.startX, leg.endX, t);
         leg.foot.y = self._lerp(leg.startY, leg.endY, t) - lift;
         if (t >= 1) { leg.stepping = false; leg.target.x = leg.endX; leg.target.y = leg.endY; }
@@ -661,7 +692,7 @@ class LizardRenderer {
     var sc = this._skinColors || {bodyTop:"#5a8a3c",bodyMid:"#3d6b2e",bodyBottom:"#2a4d1f",outline:"#2a4d1f",stripe:"rgba(120,180,80,0.25)",dot:"rgba(30,60,20,0.5)"};
     var grad = ctx.createLinearGradient(this.spine[0].x, this.spine[0].y - 20, this.spine[0].x, this.spine[0].y + 20);
     grad.addColorStop(0, sc.bodyTop); grad.addColorStop(0.5, sc.bodyMid); grad.addColorStop(1, sc.bodyBottom);
-    ctx.fillStyle = grad; ctx.strokeStyle = sc.outline; ctx.lineWidth = 2;
+    ctx.fillStyle = grad; ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1));
     ctx.beginPath(); ctx.moveTo(leftPts[0].x, leftPts[0].y);
     for (var i2 = 1; i2 < leftPts.length - 1; i2++) {
       var cx = (leftPts[i2].x + leftPts[i2 + 1].x) / 2, cy = (leftPts[i2].y + leftPts[i2 + 1].y) / 2;
@@ -706,11 +737,11 @@ class LizardRenderer {
     var ctx = this.ctx, head = this.spine[0], neck = this.spine[2];
     var angle = Math.atan2(head.y - neck.y, head.x - neck.x);
     var sc = this._skinColors || {head:"#4a7a30",outline:"#2a4d1f"};
-    var hs = this._headScale;
+    var hs = this._headScale * (this._scaleFactor || 1);
     ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(angle);
     ctx.fillStyle = sc.head;
     ctx.beginPath(); ctx.ellipse(8 * hs, 0, 16 * hs, 12 * hs, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = sc.outline; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1)); ctx.stroke();
     ctx.fillStyle = "#ff8800";
     ctx.beginPath(); ctx.ellipse(12 * hs, -8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(12 * hs, 8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
@@ -726,15 +757,16 @@ class LizardRenderer {
   _drawLegs() {
     var self = this, ctx = this.ctx;
     var sc = this._skinColors || {leg:"#3d6b2e",outline:"#2a4d1f"};
+    var sf = this._scaleFactor || 1;
     this.legs.forEach(function(leg) {
       var hip = self._getHip(leg);
       var knee = self._solveIK(hip, leg.foot, self.LEG_LENGTH1, self.LEG_LENGTH2, -leg.side);
-      ctx.strokeStyle = sc.leg; ctx.lineWidth = 6; ctx.lineCap = "round";
+      ctx.strokeStyle = sc.leg; ctx.lineWidth = Math.max(2, 6 * sf); ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(knee.x, knee.y); ctx.stroke();
-      ctx.lineWidth = 4;
+      ctx.lineWidth = Math.max(1.5, 4 * sf);
       ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(leg.foot.x, leg.foot.y); ctx.stroke();
       ctx.fillStyle = sc.outline;
-      ctx.beginPath(); ctx.arc(knee.x, knee.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(knee.x, knee.y, Math.max(2, 4 * sf), 0, Math.PI * 2); ctx.fill();
       self._drawFoot(leg.foot, hip);
     });
   }
@@ -742,14 +774,16 @@ class LizardRenderer {
   _drawFoot(foot, hip) {
     var ctx = this.ctx;
     var sc = this._skinColors || {leg:"#3d6b2e"};
+    var sf = this._scaleFactor || 1;
     var angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
+    var toeLen = Math.max(4, 10 * sf);
     ctx.save(); ctx.translate(foot.x, foot.y); ctx.rotate(angle);
     ctx.fillStyle = sc.leg;
     for (var t = -2; t <= 2; t++) {
       var spread = t * 0.35;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * 10, Math.sin(spread) * 10);
-      ctx.lineWidth = 2.5; ctx.strokeStyle = sc.leg; ctx.stroke();
-      ctx.beginPath(); ctx.arc(Math.cos(spread) * 10, Math.sin(spread) * 10, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen);
+      ctx.lineWidth = Math.max(1, 2.5 * sf); ctx.strokeStyle = sc.leg; ctx.stroke();
+      ctx.beginPath(); ctx.arc(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen, Math.max(0.8, 1.5 * sf), 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
