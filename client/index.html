@@ -265,6 +265,19 @@
         </div>
     </div>
 
+    <script>
+    /* 全局异常捕获：防止空白页 */
+    window.onerror = function(msg, url, line) {
+        console.error('[GlobalError]', msg, url, line);
+        var el = document.getElementById('authMsg') || document.getElementById('feedMsg');
+        if (el) { el.textContent = '发生异常，请刷新页面重试'; el.className = 'msg error'; }
+        return true;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+        console.error('[UnhandledRejection]', e.reason);
+        e.preventDefault();
+    });
+    </script>
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/lizard-renderer.js"></script>

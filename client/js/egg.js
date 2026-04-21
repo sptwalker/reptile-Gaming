@@ -1310,9 +1310,6 @@ const Egg = (() => {
     document.getElementById('btnCageClose').addEventListener('click', () => {
         if (_cageTimer) { clearInterval(_cageTimer); _cageTimer = null; }
         cagePanel.style.display = 'none';
-        if (document.getElementById('arenaPanel')) document.getElementById('arenaPanel').style.display = 'none';
-        if (document.getElementById('battlePanel')) document.getElementById('battlePanel').style.display = 'none';
-        if (document.getElementById('historyPanel')) document.getElementById('historyPanel').style.display = 'none';
         petPanel.style.display = 'block';
     });
 

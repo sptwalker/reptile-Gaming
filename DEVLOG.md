@@ -278,3 +278,46 @@ reptile-Gaming/
 - 帧率/时长、伤害浮动/暴击/闪避、狂暴系统、恐惧系统、体力惩罚
 - 战斗属性公式系数、结算奖惩值、AI阈值、地图定义、14种技能战斗效果
 
+---
+
+### v1.1 - 全模块联调编码 (2026-04-21)
+
+> 打通 P1-P9 所有业务系统数据互通，修复关键 Bug，统一异常处理
+
+#### 关键修复
+
+1. **战斗结算 winner 值不匹配（严重）**
+   - `battle-engine.js` 返回 `winner: 'left'|'right'|'draw'`
+   - `arena-service.js _settle()` 原先检查 `'attacker'|'defender'` → 所有战斗均按平局结算
+   - 修复：条件改为 `'left'`/`'right'`
+
+2. **pet-service.js getPetDetail 缺失字段**
+   - 前端竞技场模块需要 `arena_status`，繁殖模块需要 `last_breed_at`
+   - 补全两个字段到响应对象
+
+3. **egg.js btnCageClose 误隐藏竞技场面板**
+   - 关闭笼子面板时意外隐藏 arena/battle/history 面板
+   - 移除多余的 3 行代码
+
+4. **arena-service.js 未使用的 secureRandomFloat 导入**
+   - 清理无用引用
+
+#### 统一异常处理
+
+- **服务端**：arena.js 所有路由包裹 `wrap()` try-catch，捕获同步异常返回友好提示
+- **客户端**：index.html 添加 `window.onerror` + `unhandledrejection` 全局捕获，防止空白页
+
+#### 联调验证
+
+- 养成系统 ↔ 战斗系统：体力扣减/金币奖惩/成长值 实时同步 ✓
+- 遗传系统 ↔ 宠物系统：基因/外观/技能 孵化后正确注入 ✓
+- 前端 ↔ 后端：37 个接口全部匹配，无请求失败/数据丢失 ✓
+- 全局异常处理：服务端 try-catch + 客户端 onerror，无空白页 ✓
+
+#### 变更文件
+- `server/services/arena-service.js` — winner 条件修复 + 清理导入
+- `server/routes/arena.js` — wrap() 异常捕获
+- `server/services/pet-service.js` — 补全 arena_status/last_breed_at
+- `client/js/egg.js` — 移除误操作代码
+- `client/index.html` — 全局错误处理脚本
+

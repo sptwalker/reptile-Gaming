@@ -124,7 +124,9 @@ function getPetDetail(uid, petId) {
                 satiety:     pet.satiety,
                 satiety_max: pet.satiety_max,
                 mood:        pet.mood,
-                is_active:   pet.is_active
+                is_active:   pet.is_active,
+                arena_status: pet.arena_status || 'none',
+                last_breed_at: pet.last_breed_at || 0
             },
             attrs,
             derived,

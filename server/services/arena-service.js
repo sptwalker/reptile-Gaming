@@ -8,7 +8,7 @@
 'use strict';
 
 const { getDB, now, writeLog } = require('../db');
-const { secureRandom, secureRandomFloat } = require('../utils/random');
+const { secureRandom } = require('../utils/random');
 const rules = require('../models/game-rules');
 
 /* ═══════════════════════════════════════════
@@ -328,8 +328,8 @@ function _settle(db, challenge, battleResult, ts) {
 
     let reward = {};
 
-    if (battleResult.winner === 'attacker') {
-        // 攻击方胜：+赌注 +5金 -1体力
+    if (battleResult.winner === 'left') {
+        // 攻击方(left)胜：+赌注 +5金 -1体力
         const winGold = bet + rules.ARENA_BATTLE_BONUS;
         db.prepare('UPDATE user SET gold = gold + ?, updated_at = ? WHERE id = ?').run(winGold, ts, atkUid);
         db.prepare('UPDATE pet SET stamina = MAX(0, stamina - ?), updated_at = ? WHERE id = ?').run(rules.ARENA_WIN_STAMINA_COST, ts, atkPetId);
@@ -346,8 +346,8 @@ function _settle(db, challenge, battleResult, ts) {
 
         reward = { attacker: { gold: winGold, stamina: -rules.ARENA_WIN_STAMINA_COST }, defender: { gold: -losePenalty, stamina: -rules.ARENA_LOSE_STAMINA_COST } };
 
-    } else if (battleResult.winner === 'defender') {
-        // 防守方胜
+    } else if (battleResult.winner === 'right') {
+        // 防守方(right)胜
         const winGold = bet + rules.ARENA_BATTLE_BONUS;
         db.prepare('UPDATE user SET gold = gold + ?, updated_at = ? WHERE id = ?').run(winGold, ts, defUid);
         db.prepare('UPDATE pet SET stamina = MAX(0, stamina - ?), updated_at = ? WHERE id = ?').run(rules.ARENA_WIN_STAMINA_COST, ts, defPetId);
