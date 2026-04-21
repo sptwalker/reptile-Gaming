@@ -41,14 +41,18 @@ app.set('trust proxy', 1);
 app.use(cors({
     origin:         config.ALLOWED_ORIGIN,
     methods:        ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Seq']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Seq', 'X-Admin-Key']
 }));
 
 /* JSON 解析，限制请求体大小 (S-F03) */
 app.use(express.json({ limit: config.BODY_LIMIT }));
 
-/* 静态资源：托管 client/ 目录 */
-app.use(express.static(path.join(__dirname, '..', 'client')));
+/* 静态资源：托管 client/ 目录，设置缓存头提升加载速度 */
+app.use(express.static(path.join(__dirname, '..', 'client'), {
+    maxAge: config.NODE_ENV === 'production' ? '7d' : 0,
+    etag: true,
+    lastModified: true,
+}));
 
 /* ── 路由注册 ── */
 
@@ -79,6 +83,10 @@ app.use('/api/breeding', authMiddleware, require('./routes/breeding'));
 /* 竞技场模块（全部需要鉴权） (P9) */
 app.use('/api/arena', authMiddleware, require('./routes/arena'));
 
+/* 管理员后台（独立鉴权，与玩家体系完全隔离） */
+const adminAuth = require('./middleware/admin-auth');
+app.use('/api/admin', adminAuth, require('./routes/admin'));
+
 /* ── 404 处理 ── */
 app.use('/api/{*path}', (_req, res) => {
     res.json({ code: 1001, data: null, msg: '接口不存在' });
@@ -103,3 +111,19 @@ app.listen(config.PORT, () => {
     console.log(`[Server] 运行中 http://localhost:${config.PORT}`);
     console.log(`[Server] 环境: ${config.NODE_ENV}`);
 });
+
+/* ── 定时任务：过期战斗记录清理（每小时执行一次） ── */
+const arenaService = require('./services/arena-service');
+setInterval(() => {
+    try {
+        const result = arenaService.cleanExpiredRecords();
+        if (result.deleted > 0) {
+            console.log(`[Cron] 清理过期战斗记录: ${result.deleted} 条`);
+        }
+    } catch (e) {
+        console.error('[Cron] 清理过期记录失败:', e.message);
+    }
+}, 60 * 60 * 1000);
+
+// 启动时也立即清理一次
+try { arenaService.cleanExpiredRecords(); } catch (_) {}

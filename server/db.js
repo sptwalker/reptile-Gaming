@@ -46,6 +46,11 @@ function initDB() {
     /* 开启 WAL 模式，提升并发读性能 */
     _db.pragma('journal_mode = WAL');
 
+    /* 性能优化 pragma */
+    _db.pragma('cache_size = -8000');       // 8MB 页缓存（默认2MB）
+    _db.pragma('mmap_size = 67108864');     // 64MB 内存映射
+    _db.pragma('synchronous = NORMAL');     // WAL模式下NORMAL足够安全且更快
+
     /* 创建全部数据表 */
     _createTables();
 
@@ -466,6 +471,19 @@ function _migrate() {
         );
     `);
 
+    /* ═══ 性能优化：补充缺失索引 ═══ */
+    _db.exec(`
+        /* 竞技场：按状态查询对手 */
+        CREATE INDEX IF NOT EXISTS idx_arena_status ON arena_pet(status);
+        /* 战斗挑战：防守方查询 */
+        CREATE INDEX IF NOT EXISTS idx_challenge_defender ON battle_challenge(defender_uid, created_at);
+        /* 繁殖邀请：发起方查询 */
+        CREATE INDEX IF NOT EXISTS idx_invite_from ON breeding_invite(from_uid, status);
+        /* 交配笼：按用户查询 */
+        CREATE INDEX IF NOT EXISTS idx_cage_user1 ON breeding_cage(user1_id);
+        CREATE INDEX IF NOT EXISTS idx_cage_user2 ON breeding_cage(user2_id);
+    `);
+
     /* P7: 跑道表 */
     _db.exec(`
         CREATE TABLE IF NOT EXISTS treadmill (
@@ -533,6 +551,7 @@ function _migrate() {
 
 /**
  * 向 log 表写入一条操作日志 (S-E04)
+ * 使用缓存的 prepared statement 避免每次调用都重新编译 SQL
  * @param {number} userId  用户ID
  * @param {string} action  操作类型
  * @param {string} targetType 目标类型
@@ -540,12 +559,16 @@ function _migrate() {
  * @param {object} detail  详情对象（将序列化为JSON）
  * @param {string} ip      请求IP
  */
+let _writeLogStmt = null;
 function writeLog(userId, action, targetType, targetId, detail, ip) {
     const db = getDB();
-    db.prepare(`
-        INSERT INTO log (user_id, action, target_type, target_id, detail, ip, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(userId, action, targetType, targetId, JSON.stringify(detail), ip, now());
+    if (!_writeLogStmt) {
+        _writeLogStmt = db.prepare(`
+            INSERT INTO log (user_id, action, target_type, target_id, detail, ip, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+    }
+    _writeLogStmt.run(userId, action, targetType, targetId, JSON.stringify(detail), ip, now());
 }
 
 module.exports = { initDB, getDB, now, writeLog };

@@ -41,6 +41,8 @@ const Arena = (() => {
     let _replayTimer = null;
     let _replaySpeed = 1;
     let _replaySummary = null;
+    let _offscreenCanvas = null;
+    let _offscreenCtx = null;
 
     /* ── 竞技场区域渲染（宠物详情页内） ── */
     function renderArenaSection(pet) {
@@ -182,14 +184,39 @@ const Arena = (() => {
         }
     }
 
+    /* ── 帧数据解压（增量→完整） ── */
+    function _decompressFrames(compressed) {
+        if (!compressed || compressed.length === 0) return [];
+        const result = [compressed[0]]; // 首帧已完整
+        for (let i = 1; i < compressed.length; i++) {
+            const prev = result[i - 1];
+            const delta = compressed[i];
+            result.push({
+                f: delta.f,
+                a: { ...prev.a, ...(delta.a || {}) },
+                b: { ...prev.b, ...(delta.b || {}) },
+                ev: delta.ev || [],
+            });
+        }
+        return result;
+    }
+
     /* ── 战斗回放 ── */
     function _startReplay(data) {
         _hideAll();
         battlePanel.style.display = '';
-        _replayFrames = data.frames || [];
+        _replayFrames = _decompressFrames(data.frames || []);
         _replaySummary = data.summary || {};
         _replayIdx = 0;
         _replaySpeed = 1;
+
+        // 初始化离屏Canvas
+        if (!_offscreenCanvas) {
+            _offscreenCanvas = document.createElement('canvas');
+            _offscreenCanvas.width = battleCanvas.width;
+            _offscreenCanvas.height = battleCanvas.height;
+            _offscreenCtx = _offscreenCanvas.getContext('2d');
+        }
 
         battleNameA.textContent = _replaySummary.left ? _replaySummary.left.name : 'Pet A';
         battleNameB.textContent = _replaySummary.right ? _replaySummary.right.name : 'Pet B';
@@ -202,35 +229,44 @@ const Arena = (() => {
     }
 
     function _playReplay() {
-        if (_replayTimer) clearInterval(_replayTimer);
-        const interval = Math.floor(100 / _replaySpeed); // ~10fps playback at 1x
-        _replayTimer = setInterval(() => {
-            if (_replayIdx >= _replayFrames.length) {
-                clearInterval(_replayTimer);
-                _replayTimer = null;
-                _showReplayResult();
-                return;
+        if (_replayTimer) { cancelAnimationFrame(_replayTimer); _replayTimer = null; }
+        const msPerFrame = 100 / _replaySpeed;
+        let lastTime = 0;
+
+        function tick(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const elapsed = timestamp - lastTime;
+            if (elapsed >= msPerFrame) {
+                lastTime = timestamp - (elapsed % msPerFrame);
+                if (_replayIdx >= _replayFrames.length) {
+                    _replayTimer = null;
+                    _showReplayResult();
+                    return;
+                }
+                _renderFrame(_replayFrames[_replayIdx]);
+                battleSeek.value = _replayIdx;
+                _replayIdx++;
             }
-            _renderFrame(_replayFrames[_replayIdx]);
-            battleSeek.value = _replayIdx;
-            _replayIdx++;
-        }, interval);
+            _replayTimer = requestAnimationFrame(tick);
+        }
+        _replayTimer = requestAnimationFrame(tick);
     }
 
     function _pauseReplay() {
         if (_replayTimer) {
-            clearInterval(_replayTimer);
+            cancelAnimationFrame(_replayTimer);
             _replayTimer = null;
         }
     }
 
     function _renderFrame(frame) {
         if (!frame) return;
-        const ctx = battleCanvas.getContext('2d');
-        const W = battleCanvas.width;
-        const H = battleCanvas.height;
+        const ctx = _offscreenCtx || battleCanvas.getContext('2d');
+        const target = _offscreenCanvas || battleCanvas;
+        const W = target.width;
+        const H = target.height;
 
-        // 清空
+        // 清空 + 背景
         ctx.fillStyle = '#1a1a2e';
         ctx.fillRect(0, 0, W, H);
 
@@ -238,12 +274,18 @@ const Arena = (() => {
         ctx.fillStyle = '#2d4a3e';
         ctx.fillRect(0, H - 60, W, 60);
 
-        // 绘制单位A
+        // 绘制单位
         const a = frame.a;
         const b = frame.b;
 
         _drawUnit(ctx, a.x, H - 80, '#55ff55', a.st, 'A');
         _drawUnit(ctx, b.x, H - 80, '#ff5555', b.st, 'B');
+
+        // 离屏Canvas → 主Canvas 一次性拷贝
+        if (_offscreenCanvas) {
+            const mainCtx = battleCanvas.getContext('2d');
+            mainCtx.drawImage(_offscreenCanvas, 0, 0);
+        }
 
         // 更新HUD
         const maxHpA = _replaySummary.left ? _replaySummary.left.hpMax : 100;

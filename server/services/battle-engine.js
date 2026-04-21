@@ -376,7 +376,41 @@ function simulate({ pet1, pet2, mapId }) {
         },
     };
 
-    return { winner, frames, summary };
+    // 增量压缩帧数据：首帧存完整状态，后续帧只存变化量
+    const compressed = _compressFrames(frames);
+
+    return { winner, frames: compressed, summary };
+}
+
+/**
+ * 增量压缩帧数据
+ * 首帧(i=0)保持完整，后续帧只记录与前帧的差异字段
+ * 前端解压时逐帧合并还原
+ */
+function _compressFrames(frames) {
+    if (frames.length === 0) return frames;
+    const result = [frames[0]]; // 首帧完整保留
+    for (let i = 1; i < frames.length; i++) {
+        const prev = frames[i - 1];
+        const curr = frames[i];
+        const delta = { f: curr.f };
+        // 压缩 a 字段
+        const da = {};
+        for (const k of Object.keys(curr.a)) {
+            if (curr.a[k] !== prev.a[k]) da[k] = curr.a[k];
+        }
+        if (Object.keys(da).length > 0) delta.a = da;
+        // 压缩 b 字段
+        const db = {};
+        for (const k of Object.keys(curr.b)) {
+            if (curr.b[k] !== prev.b[k]) db[k] = curr.b[k];
+        }
+        if (Object.keys(db).length > 0) delta.b = db;
+        // 事件始终保留（非空时）
+        if (curr.ev && curr.ev.length > 0) delta.ev = curr.ev;
+        result.push(delta);
+    }
+    return result;
 }
 
 /* ═══════════════════════════════════════════

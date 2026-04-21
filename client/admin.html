@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - 爬虫宠物养成</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<!-- ═══ 登录面板 ═══ -->
+<div id="loginPanel">
+    <div class="login-box">
+        <h1>管理后台</h1>
+        <form id="loginForm">
+            <input type="password" id="adminKey" placeholder="管理员密钥" autocomplete="off" required>
+            <button type="submit">进 入</button>
+        </form>
+        <div id="loginErr" class="err"></div>
+    </div>
+</div>
+
+<!-- ═══ 主界面 ═══ -->
+<div id="appPanel">
+    <div class="layout">
+        <!-- 侧边栏 -->
+        <nav class="sidebar">
+            <h2>管理后台</h2>
+            <div class="nav-item active" data-page="dashboard">仪表盘</div>
+            <div class="nav-item" data-page="users">玩家管理</div>
+            <div class="nav-item" data-page="pets">宠物管理</div>
+            <div class="nav-item" data-page="battles">战斗记录</div>
+            <div class="nav-item" data-page="rules">数值调控</div>
+            <div class="nav-item" data-page="test">测试模块</div>
+            <button id="logoutBtn" class="logout-btn">退出登录</button>
+        </nav>
+
+        <!-- 内容区 -->
+        <div class="main">
+
+            <!-- 仪表盘 -->
+            <div id="page-dashboard" class="page active">
+                <h3>仪表盘</h3>
+                <div id="dashCards" class="cards"></div>
+                <div id="dashDist"></div>
+            </div>
+
+            <!-- 玩家管理 -->
+            <div id="page-users" class="page">
+                <h3>玩家管理</h3>
+                <div class="form-row">
+                    <input type="text" id="userSearch" placeholder="用户ID / 用户名 / 昵称" style="width:240px">
+                    <button class="btn btn-primary" onclick="Admin.searchUsers(1)">搜索</button>
+                </div>
+                <div id="userTable" class="tbl-wrap"></div>
+                <div id="userPager" class="pager"></div>
+                <div id="userDetail"></div>
+            </div>
+
+            <!-- 宠物管理 -->
+            <div id="page-pets" class="page">
+                <h3>宠物管理</h3>
+                <div class="form-row">
+                    <label>宠物ID</label>
+                    <input type="number" id="petIdInput" placeholder="输入宠物ID" style="width:120px">
+                    <button class="btn btn-primary" onclick="Admin.viewPet(parseInt(document.getElementById('petIdInput').value))">查看</button>
+                </div>
+                <div id="petDetail"></div>
+            </div>
+
+            <!-- 战斗记录 -->
+            <div id="page-battles" class="page">
+                <h3>战斗记录</h3>
+                <div class="form-row">
+                    <label>用户ID</label>
+                    <input type="number" id="battleUid" placeholder="可选" style="width:100px">
+                    <button class="btn btn-primary" onclick="Admin.loadBattles(1)">查询</button>
+                </div>
+                <div id="battleTable" class="tbl-wrap"></div>
+                <div id="battlePager" class="pager"></div>
+            </div>
+
+            <!-- 数值调控 -->
+            <div id="page-rules" class="page">
+                <h3>数值调控 (game-rules 热更新)</h3>
+                <p style="color:#8b949e;margin-bottom:16px;font-size:13px">修改后立即生效，无需重启服务器。仅显示标量参数，对象/数组参数请通过代码修改。</p>
+                <div id="rulesGrid" class="rules-grid"></div>
+                <div style="margin-top:16px">
+                    <button class="btn btn-success" onclick="Admin.saveRules()">保存修改</button>
+                </div>
+            </div>
+
+            <!-- 测试模块 -->
+            <div id="page-test" class="page">
+                <h3>测试模块</h3>
+
+                <div class="detail-panel">
+                    <h4>快速生成宠物</h4>
+                    <div class="form-row">
+                        <label>用户ID</label><input type="number" id="testUid" style="width:80px">
+                        <label>品质(1-5)</label><input type="number" id="testQuality" min="1" max="5" style="width:60px">
+                        <label>等级</label><input type="number" id="testLevel" value="1" style="width:60px">
+                        <button class="btn btn-success" onclick="Admin.testCreatePet()">生成</button>
+                    </div>
+                </div>
+
+                <div class="detail-panel">
+                    <h4>复制宠物</h4>
+                    <div class="form-row">
+                        <label>源宠物ID</label><input type="number" id="cloneSource" style="width:80px">
+                        <label>目标用户ID</label><input type="number" id="cloneTarget" style="width:80px">
+                        <button class="btn btn-primary" onclick="Admin.testClonePet()">克隆</button>
+                    </div>
+                </div>
+
+                <div class="detail-panel">
+                    <h4>模拟对战</h4>
+                    <div class="form-row">
+                        <label>宠物1 ID</label><input type="number" id="battlePet1" style="width:80px">
+                        <label>宠物2 ID</label><input type="number" id="battlePet2" style="width:80px">
+                        <button class="btn btn-danger" onclick="Admin.testBattle()">开战</button>
+                    </div>
+                </div>
+
+                <div class="detail-panel">
+                    <h4>模拟交配</h4>
+                    <div class="form-row">
+                        <label>宠物1 ID</label><input type="number" id="breedPet1" style="width:80px">
+                        <label>宠物2 ID</label><input type="number" id="breedPet2" style="width:80px">
+                        <button class="btn btn-primary" onclick="Admin.testBreeding()">交配</button>
+                    </div>
+                </div>
+
+                <div class="detail-panel">
+                    <h4>执行结果</h4>
+                    <pre id="testResult" style="color:#8b949e;font-size:12px;white-space:pre-wrap;max-height:400px;overflow:auto">等待操作...</pre>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="js/admin.js"></script>
+</body>
+</html>

@@ -321,3 +321,81 @@ reptile-Gaming/
 - `client/js/egg.js` — 移除误操作代码
 - `client/index.html` — 全局错误处理脚本
 
+### v1.2 - 管理后台系统 (2026-04-21)
+
+> 独立管理员鉴权 + 19个管理API + 6模块前端管理界面 + game-rules热更新
+
+#### 管理员鉴权 (`server/middleware/admin-auth.js`, 29行)
+- 独立于玩家JWT鉴权体系，使用 `X-Admin-Key` 请求头静态密钥
+- 默认开发密钥 `reptile_admin_2026`，支持环境变量 `ADMIN_KEY` 覆盖
+- 与玩家业务完全隔离，`req.isAdmin = true` 标记
+
+#### 管理后台服务 (`server/services/admin-service.js`, 540行, 19个函数)
+
+**统计模块（4个函数）**
+- `getStats()` — 全局概览：注册量/宠物/蛋/日活/周活/新增/战斗/竞技场
+- `getEconomyStats()` — 经济数据：金币总量/均值/极值/跑道产出
+- `getDistributions()` — 分布数据：等级/品质/阶段/性别
+- `getBreedingStats()` — 繁殖统计：市场挂牌/邀请/交配笼/后代
+
+**玩家管理（5个函数）**
+- `searchUsers()` — 支持ID/用户名/昵称模糊搜索，分页
+- `getUserDetail()` — 完整详情（用户+宠物+蛋+近50条日志）
+- `modifyUser()` — 修改金币/钻石/昵称
+- `banUser()` — 封禁（递增token_version使所有Token失效）
+- `unbanUser()` — 解封
+
+**宠物管理（2个函数）**
+- `getPetDetail()` — 完整数据（宠物+属性+技能+竞技场+跑道+繁殖记录）
+- `modifyPet()` — 修改pet表12字段 + pet_attr表12字段
+
+**战斗记录（1个函数）**
+- `getBattleRecords()` — 分页查询，支持按用户/宠物/结果过滤
+
+**数值热更新（2个函数）**
+- `getRules()` — 读取当前 game-rules 全部参数快照
+- `updateRules()` — 在线修改参数，直接修改模块引用，无需重启
+
+**测试模块（5个函数）**
+- `quickCreatePet()` — 快速生成测试宠物（蛋+宠物+属性+技能一步到位）
+- `boostPet()` — 加速成长（直接设置等级/经验/阶段，同步更新基础属性）
+- `clonePet()` — 复制宠物到目标用户（含属性+技能完整副本）
+- `testBattle()` — 模拟对战（不影响正式数据）
+- `testBreeding()` — 模拟交配（不影响正式数据）
+
+#### API路由 (`server/routes/admin.js`, 159行, 20个端点)
+- 路径前缀 `/api/admin`，统一挂载 `adminAuth` 中间件
+- GET: /stats, /stats/economy, /stats/distributions, /stats/breeding, /users, /users/:uid, /pets/:petId, /battles, /rules
+- POST: /users/:uid/modify, /users/:uid/ban, /users/:uid/unban, /pets/:petId/modify, /rules, /test/create-pet, /test/boost-pet, /test/clone-pet, /test/battle, /test/breeding
+
+#### 前端管理界面
+- `client/admin.html` (150行) — 登录面板 + 6模块页面骨架（仪表盘/玩家/宠物/战斗/数值/测试）
+- `client/css/admin.css` (109行) — 暗色主题（GitHub风格配色），侧边栏布局，响应式适配
+- `client/js/admin.js` (392行) — IIFE模块，X-Admin-Key鉴权请求封装，6模块完整交互逻辑
+
+#### 仪表盘
+- 16张统计卡片（用户/宠物/活跃/战斗/经济/繁殖）
+- 品质分布表 + 阶段分布表
+- 4个API并行加载（stats/economy/distributions/breeding）
+
+#### 服务端变更
+- `server/index.js` — CORS增加 `X-Admin-Key` 允许头，注册管理员路由 `/api/admin`
+- `server/db.js` — 数据库兼容迁移（ALTER TABLE）
+- `server/services/arena-service.js` — 管理员测试战斗支持
+- `server/services/battle-engine.js` — 战斗引擎增强
+
+#### 变更文件
+- `server/middleware/admin-auth.js` — **新增** 管理员鉴权中间件
+- `server/services/admin-service.js` — **新增** 540行管理后台业务逻辑
+- `server/routes/admin.js` — **新增** 20个管理API端点
+- `client/admin.html` — **新增** 管理后台HTML
+- `client/css/admin.css` — **新增** 管理后台样式
+- `client/js/admin.js` — **新增** 管理后台前端逻辑
+- `server/index.js` — CORS + 路由注册
+- `server/db.js` — 数据库迁移
+- `client/index.html` — 入口页调整
+- `client/js/arena.js` — 竞技场前端增强
+- `server/services/arena-service.js` — 竞技场服务增强
+- `server/services/battle-engine.js` — 战斗引擎增强
+
+

@@ -12,6 +12,17 @@ const { secureRandom } = require('../utils/random');
 const rules = require('../models/game-rules');
 
 /* ═══════════════════════════════════════════
+ * Prepared Statement 缓存（避免每次调用重新编译SQL）
+ * ═══════════════════════════════════════════ */
+const _stmtCache = {};
+function _stmt(key, sql) {
+    if (!_stmtCache[key]) {
+        _stmtCache[key] = getDB().prepare(sql);
+    }
+    return _stmtCache[key];
+}
+
+/* ═══════════════════════════════════════════
  * 辅助函数
  * ═══════════════════════════════════════════ */
 
@@ -458,7 +469,7 @@ function getLiveBattles() {
 function cleanExpiredRecords() {
     const db = getDB();
     const ts = now();
-    const result = db.prepare('DELETE FROM battle_record WHERE expire_at > 0 AND expire_at < ?').run(ts);
+    const result = _stmt('clean_expired', 'DELETE FROM battle_record WHERE expire_at > 0 AND expire_at < ?').run(ts);
     return { deleted: result.changes };
 }
 
