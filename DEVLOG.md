@@ -450,3 +450,50 @@ reptile-Gaming/
 - `server/models/game-rules.js` — 健康常量
 - `server/services/pet-service.js` — 健康字段返回
 - `server/services/nurture-service.js` — 健康衰减 + 同步
+
+### v1.4 - 表现测试页 + 独立头部运动系统 (2026-04-25)
+
+> 新增蜥蜴组合表现测试入口，重构头部视觉方向为独立状态，修复转向、扫视和鼠标牵引时的头部抖动问题
+
+#### 表现测试模块
+
+- 新增 `client/combinatorial-test.html`，作为独立的蜥蜴外观/动作组合测试页面
+- 新增 `client/css/combinatorial-test.css`，提供测试页面布局、参数面板和控件样式
+- 新增 `client/js/combinatorial-test.js`，集中管理渲染参数、控件绑定、实时预览与技能/隐藏基因测试
+- 默认渲染参数新增 `headRotationLimit`，用于控制头部可旋转范围
+- 参数面板「头部」分组新增「头部可旋转角度」，范围 `0 ~ 300`，语义为头部可在 `±headRotationLimit` 内活动
+
+#### LizardRenderer 头部运动重构
+
+- `client/js/lizard-renderer.js` 支持 `opts.spineNodes`，并扩展外观参数：头型、花纹类型、花纹颜色、头部大小、头部可旋转范围等
+- 新增独立视觉头部角度状态：`_visualHeadAngle` / `_visualHeadAngleReady`
+- `_getVisualHeadAngle()` 不再直接返回身体/颈部角度，而是返回独立视觉角度，避免脊柱节点约束造成头部抖动
+- `_updateHeadTurn(targetAngle, speed, clampToBody)` 统一处理头部转向插值，可按场景选择是否受身体角度夹紧
+- `_headLeadMoveFactor()` 根据头部与目标方向的夹角控制移动倍率，使转向时头部先朝运动方向转动，身体随后跟随
+
+#### 自主运动扫视修复
+
+- 自主暂停扫视时，不再通过 `lookOffsets` 修改 `spine[0..2]` 颈部/前段节点
+- 扫视动作改为只更新独立头部视觉角度，身体节点保持稳定
+- 扫视范围与 `headRotationLimit` 联动：头部可旋转角度越大，自主扫视角度越大
+- 视野锥、视野检测和技能特效方向统一使用 `_getVisualHeadAngle()`
+
+#### 鼠标牵引稳定性修复
+
+- 新增 `_mouseLookAngle` / `_mouseLookAngleReady`，对鼠标牵引视线方向做独立平滑
+- 鼠标牵引时头部朝向鼠标本身，而不是直接使用可能左右跳变的避障移动方向
+- 鼠标牵引模式下每帧只更新一次头部转向，避免重复插值导致颤动
+- 鼠标牵引头部转向调用 `_updateHeadTurn(..., false)`，禁用身体角度夹紧，避免身体/颈部节点变化反向拉扯头部
+
+#### 验证
+
+- `node --check client\js\combinatorial-test.js` 通过
+- `node --check client\js\lizard-renderer.js` 通过
+- `client/js/lizard-renderer.js` / `client/js/combinatorial-test.js` 无诊断错误
+
+#### 变更文件（4个）
+
+- `client/combinatorial-test.html` — 新增表现测试页面
+- `client/css/combinatorial-test.css` — 新增表现测试页面样式
+- `client/js/combinatorial-test.js` — 新增表现测试控制逻辑和参数面板
+- `client/js/lizard-renderer.js` — 渲染参数扩展、独立头部视觉角度、扫视/牵引稳定性修复

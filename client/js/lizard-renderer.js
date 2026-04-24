@@ -10,7 +10,7 @@ class LizardRenderer {
     opts = opts || {};
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
-    this.SPINE_NODE_COUNT = 22;
+    this.SPINE_NODE_COUNT = opts.spineNodes || 22;
     /* --- 基准参数（基于 1920×1080 全屏原型） --- */
     this._BASE_REF_W = 1200;
     this._BASE_SEGMENT_LENGTH = opts.segmentLength || 18;
@@ -42,8 +42,18 @@ class LizardRenderer {
     /* render_params from server (RB-1/RB-2/RB-5) */
     this._bodyScale = 1.0;
     this._headScale = 1.0;
+    this._headShape = "ellipse";
+    this._headRotationLimit = 90;
+    this._headTurnOffset = 0;
+    this._headTurnTarget = 0;
+    this._visualHeadAngle = 0;
+    this._visualHeadAngleReady = false;
+    this._mouseLookAngle = 0;
+    this._mouseLookAngleReady = false;
     this._colorSaturation = 1.0;
     this._patternComplexity = 1;
+    this._patternType = "spots";
+    this._patternColor = "rgba(30,60,20,0.5)";
     this._bodySeed = null;
     /* 弯折约束（弧度）— DEVLOG v0.7 原始紧凑值 */
     this.BEND_NECK = 0.455;
@@ -54,13 +64,25 @@ class LizardRenderer {
     this.MAX_LIGHT_DOTS = 20;
     this.LIGHT_DOT_RADIUS = 6;
     this.LIGHT_DOT_SPEED = 0.4;
-    this.CHASE_SPEED_MULT = 1.8;
+    this.CHASE_SPEED_MULT = opts.chaseSpeedMult || 1.8;
+    this.WANDER_SPEED_BASE = opts.wanderSpeedBase || 0.15;
+    this.WANDER_SPEED_ACTIVITY = opts.wanderSpeedActivity || 0.06;
+    this.TURN_CHANCE_BASE = opts.turnChanceBase || 0.005;
+    this.TURN_CHANCE_ACTIVITY = opts.turnChanceActivity || 0.004;
+    this.PAUSE_CHANCE_BASE = opts.pauseChanceBase || 0.002;
+    this.PAUSE_LOW_ACTIVITY_BONUS = opts.pauseLowActivityBonus || 0.003;
+    this.PAUSE_DURATION_MIN = opts.pauseDurationMin || 80;
+    this.PAUSE_DURATION_MAX = opts.pauseDurationMax || 160;
+    this.PAUSE_DURATION_ACTIVITY_REDUCE = opts.pauseDurationActivityReduce || 12;
+    this.PAUSE_COOLDOWN_BASE = opts.pauseCooldownBase || 150;
+    this.PAUSE_COOLDOWN_ACTIVITY = opts.pauseCooldownActivity || 30;
+    this.PAUSE_LOOK_CHANCE = opts.pauseLookChance || 0.4;
     this.spine = [];
     this.legs = [
-      {spineIndex:5,side:1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:5,side:-1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:11,side:1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:11,side:-1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0}
+      {spineIndex:this._legIndexAt(0.26),side:1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.26),side:-1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.56),side:1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.56),side:-1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0}
     ];
     this.lightDots = [];
     this.mouseX = 0; this.mouseY = 0;
@@ -123,6 +145,20 @@ class LizardRenderer {
     this._removeCanvasEvents();
   }
 
+  _legIndexAt(ratio) {
+    return Math.max(2, Math.min(this.SPINE_NODE_COUNT - 3, Math.round((this.SPINE_NODE_COUNT - 1) * ratio)));
+  }
+
+  _redistributeLegs() {
+    if (!this.legs || this.legs.length < 4) return;
+    var front = this._legIndexAt(0.26);
+    var rear = this._legIndexAt(0.56);
+    this.legs[0].spineIndex = front;
+    this.legs[1].spineIndex = front;
+    this.legs[2].spineIndex = rear;
+    this.legs[3].spineIndex = rear;
+  }
+
   setActivity(v) { this.activity = Math.max(1, Math.min(10, v)); }
 
   /** 开启/关闭跑步机模式 */
@@ -149,18 +185,65 @@ class LizardRenderer {
    */
   applyRenderParams(renderParams, bodySeed) {
     if (!renderParams) return;
+    if (renderParams.spineNodes) {
+      var nodes = Math.max(8, Math.min(40, Math.round(renderParams.spineNodes)));
+      if (nodes !== this.SPINE_NODE_COUNT) {
+        this.SPINE_NODE_COUNT = nodes;
+        this._redistributeLegs();
+        this._initSpine();
+        this._initLegs();
+      }
+    }
+    if (renderParams.legLength1 !== undefined) this._BASE_LEG_LENGTH1 = renderParams.legLength1;
+    if (renderParams.legLength2 !== undefined) this._BASE_LEG_LENGTH2 = renderParams.legLength2;
+    if (renderParams.stepDistance !== undefined) this._BASE_STEP_DISTANCE = renderParams.stepDistance;
+    if (renderParams.stepSpeed !== undefined) this.STEP_SPEED = renderParams.stepSpeed;
+    if (renderParams.serpentineAmp !== undefined) this.SERPENTINE_AMP = renderParams.serpentineAmp;
+    if (renderParams.serpentineFreq !== undefined) this.SERPENTINE_FREQ = renderParams.serpentineFreq;
+    if (renderParams.serpentineSpeed !== undefined) this.SERPENTINE_SPEED = renderParams.serpentineSpeed;
+    if (renderParams.collisionMargin !== undefined) this.COLLISION_MARGIN = renderParams.collisionMargin * (this._scaleFactor || 1);
+    if (renderParams.headSkipNodes !== undefined) this.HEAD_SKIP_NODES = Math.max(1, Math.round(renderParams.headSkipNodes));
+    if (renderParams.steerStrength !== undefined) this.STEER_STRENGTH = renderParams.steerStrength;
+    if (renderParams.bendNeck !== undefined) this.BEND_NECK = renderParams.bendNeck;
+    if (renderParams.bendShoulder !== undefined) this.BEND_SHOULDER = renderParams.bendShoulder;
+    if (renderParams.bendTorso !== undefined) this.BEND_TORSO = renderParams.bendTorso;
+    if (renderParams.bendHip !== undefined) this.BEND_HIP = renderParams.bendHip;
+    if (renderParams.bendTail !== undefined) this.BEND_TAIL = renderParams.bendTail;
+    if (renderParams.fovClearDist !== undefined) this.FOV_CLEAR_DIST = renderParams.fovClearDist * (this._scaleFactor || 1);
+    if (renderParams.fovMaxDist !== undefined) this.FOV_MAX_DIST = renderParams.fovMaxDist * (this._scaleFactor || 1);
+    if (renderParams.alertSpeed !== undefined) this.ALERT_SPEED = renderParams.alertSpeed;
+    if (renderParams.chaseSpeedMult !== undefined) this.CHASE_SPEED_MULT = renderParams.chaseSpeedMult;
+    if (renderParams.wanderSpeedBase !== undefined) this.WANDER_SPEED_BASE = renderParams.wanderSpeedBase;
+    if (renderParams.wanderSpeedActivity !== undefined) this.WANDER_SPEED_ACTIVITY = renderParams.wanderSpeedActivity;
+    if (renderParams.turnChanceBase !== undefined) this.TURN_CHANCE_BASE = renderParams.turnChanceBase;
+    if (renderParams.turnChanceActivity !== undefined) this.TURN_CHANCE_ACTIVITY = renderParams.turnChanceActivity;
+    if (renderParams.pauseChanceBase !== undefined) this.PAUSE_CHANCE_BASE = renderParams.pauseChanceBase;
+    if (renderParams.pauseLowActivityBonus !== undefined) this.PAUSE_LOW_ACTIVITY_BONUS = renderParams.pauseLowActivityBonus;
+    if (renderParams.pauseDurationMin !== undefined) this.PAUSE_DURATION_MIN = renderParams.pauseDurationMin;
+    if (renderParams.pauseDurationMax !== undefined) this.PAUSE_DURATION_MAX = renderParams.pauseDurationMax;
+    if (renderParams.pauseDurationActivityReduce !== undefined) this.PAUSE_DURATION_ACTIVITY_REDUCE = renderParams.pauseDurationActivityReduce;
+    if (renderParams.pauseCooldownBase !== undefined) this.PAUSE_COOLDOWN_BASE = renderParams.pauseCooldownBase;
+    if (renderParams.pauseCooldownActivity !== undefined) this.PAUSE_COOLDOWN_ACTIVITY = renderParams.pauseCooldownActivity;
+    if (renderParams.pauseLookChance !== undefined) this.PAUSE_LOOK_CHANCE = renderParams.pauseLookChance;
     /* bodyWidth / headScale / colorSaturation 本身就是倍率，直接赋值 */
-    if (renderParams.bodyWidth)         this._bodyScale = renderParams.bodyWidth;
-    if (renderParams.headScale)         this._headScale = renderParams.headScale;
-    if (renderParams.colorSaturation)   this._colorSaturation = renderParams.colorSaturation;
-    if (renderParams.patternComplexity) this._patternComplexity = renderParams.patternComplexity;
+    if (renderParams.bodyWidth !== undefined)         this._bodyScale = renderParams.bodyWidth;
+    if (renderParams.headScale !== undefined)         this._headScale = renderParams.headScale;
+    if (renderParams.headShape !== undefined)         this._headShape = renderParams.headShape;
+    if (renderParams.headRotationLimit !== undefined) this._headRotationLimit = Math.max(0, Math.min(300, renderParams.headRotationLimit));
+    if (renderParams.colorSaturation !== undefined)   this._colorSaturation = renderParams.colorSaturation;
+    if (renderParams.patternComplexity !== undefined) this._patternComplexity = renderParams.patternComplexity;
+    if (renderParams.patternType !== undefined)       this._patternType = renderParams.patternType;
+    if (renderParams.patternColor !== undefined)      this._patternColor = renderParams.patternColor;
     /* 以下参数服务端返回的是倍率，需要乘以基准值再乘以缩放因子 */
     var sf = this._scaleFactor || 1;
-    if (renderParams.moveSpeed)         this.MAX_SPEED = this._BASE_MAX_SPEED * renderParams.moveSpeed * sf;
-    if (renderParams.legFrequency)      this.STEP_SPEED = 0.18 * renderParams.legFrequency;
-    if (renderParams.segmentWidth)      this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH * renderParams.segmentWidth * sf;
-    if (renderParams.fovAngle)          this.FOV_ANGLE = 60 * renderParams.fovAngle;
-    if (renderParams.fovDistance)        this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST * renderParams.fovDistance * sf;
+    if (renderParams.moveSpeed !== undefined)         this.MAX_SPEED = this._BASE_MAX_SPEED * renderParams.moveSpeed * sf;
+    if (renderParams.legFrequency !== undefined)      this.STEP_SPEED = 0.18 * renderParams.legFrequency;
+    if (renderParams.segmentWidth !== undefined)      this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH * renderParams.segmentWidth * sf;
+    if (renderParams.legLength1 !== undefined)        this.LEG_LENGTH1 = renderParams.legLength1 * sf;
+    if (renderParams.legLength2 !== undefined)        this.LEG_LENGTH2 = renderParams.legLength2 * sf;
+    if (renderParams.stepDistance !== undefined)      this.STEP_DISTANCE = renderParams.stepDistance * sf;
+    if (renderParams.fovAngle !== undefined)          this.FOV_ANGLE = 60 * renderParams.fovAngle;
+    if (renderParams.fovDistance !== undefined)        this.FOV_MAX_DIST = this._BASE_FOV_MAX_DIST * renderParams.fovDistance * sf;
     if (bodySeed) this._bodySeed = bodySeed;
     this._skinColors = this._generateSkinColors();
   }
@@ -171,15 +254,20 @@ class LizardRenderer {
     var hueBase = seed.hue != null ? seed.hue : 110;
     var sat = Math.min(100, Math.round(35 * this._colorSaturation));
     var light = seed.lightness != null ? seed.lightness : 32;
+    var head = seed.headColor || "hsl(" + hueBase + "," + Math.round(sat * 0.9) + "%," + (light + 4) + "%)";
+    var body = seed.bodyColor || "hsl(" + hueBase + "," + sat + "%," + light + "%)";
+    var tail = seed.tailColor || "hsl(" + hueBase + "," + sat + "%," + (light - 8) + "%)";
+    var pattern = seed.patternColor || this._patternColor;
     return {
-      bodyTop:    "hsl(" + hueBase + "," + sat + "%," + (light + 8) + "%)",
-      bodyMid:    "hsl(" + hueBase + "," + sat + "%," + light + "%)",
-      bodyBottom: "hsl(" + hueBase + "," + sat + "%," + (light - 8) + "%)",
-      head:       "hsl(" + hueBase + "," + Math.round(sat * 0.9) + "%," + (light + 4) + "%)",
-      leg:        "hsl(" + hueBase + "," + sat + "%," + (light - 2) + "%)",
-      outline:    "hsl(" + hueBase + "," + sat + "%," + (light - 12) + "%)",
-      stripe:     "hsla(" + hueBase + "," + Math.round(sat * 0.6) + "%," + (light + 18) + "%,0.25)",
-      dot:        "hsla(" + hueBase + "," + sat + "%," + (light - 14) + "%,0.5)"
+      bodyTop:    seed.bodyColor || "hsl(" + hueBase + "," + sat + "%," + (light + 8) + "%)",
+      bodyMid:    body,
+      bodyBottom: tail,
+      head:       head,
+      leg:        body,
+      outline:    "hsl(" + hueBase + "," + sat + "%," + Math.max(8, light - 12) + "%)",
+      stripe:     pattern,
+      dot:        pattern,
+      pattern:    pattern
     };
   }
 
@@ -262,6 +350,8 @@ class LizardRenderer {
     }
     this.prevHeadX = this.spine[0].x; this.prevHeadY = this.spine[0].y;
     this.mouseX = this._w / 2; this.mouseY = this._h / 2;
+    this._visualHeadAngle = this._getHeadAngle();
+    this._visualHeadAngleReady = true;
   }
 
   _initLegs() {
@@ -355,6 +445,46 @@ class LizardRenderer {
 
   _getHeadAngle() {
     return Math.atan2(this.spine[0].y - this.spine[2].y, this.spine[0].x - this.spine[2].x);
+  }
+
+  _getVisualHeadAngle() {
+    if (!this._visualHeadAngleReady) {
+      this._visualHeadAngle = this._getHeadAngle();
+      this._visualHeadAngleReady = true;
+    }
+    return this._visualHeadAngle;
+  }
+
+  _getHeadRotationLimitRad() {
+    return Math.max(0, Math.min(300, this._headRotationLimit || 0)) * Math.PI / 180;
+  }
+
+  _updateHeadTurn(targetAngle, speed, clampToBody) {
+    var bodyAngle = this._getHeadAngle();
+    if (!this._visualHeadAngleReady) {
+      this._visualHeadAngle = bodyAngle;
+      this._visualHeadAngleReady = true;
+    }
+    var shouldClamp = clampToBody !== false;
+    var maxOffset = this._getHeadRotationLimitRad();
+    var desired = targetAngle;
+    if (shouldClamp) {
+      var desiredOffset = this._angleDiff(bodyAngle, targetAngle);
+      if (desiredOffset > maxOffset) desired = bodyAngle + maxOffset;
+      else if (desiredOffset < -maxOffset) desired = bodyAngle - maxOffset;
+    }
+    this._headTurnTarget = this._angleDiff(bodyAngle, desired);
+    this._visualHeadAngle += this._angleDiff(this._visualHeadAngle, desired) * (speed || 0.24);
+    this._headTurnOffset = this._angleDiff(bodyAngle, this._visualHeadAngle);
+  }
+
+  _headLeadMoveFactor(targetAngle) {
+    var limit = this._getHeadRotationLimitRad();
+    if (limit < 0.01) return 1;
+    var err = Math.abs(this._angleDiff(this._getVisualHeadAngle(), targetAngle));
+    var range = Math.max(0.28, Math.min(limit, Math.PI * 0.75));
+    var ready = Math.max(0, Math.min(1, 1 - err / range));
+    return 0.04 + ready * 0.96;
   }
 
   _maxBendAngleAt(i) {
@@ -492,7 +622,7 @@ class LizardRenderer {
     var dx = dot.x - head.x, dy = dot.y - head.y;
     var dist = Math.hypot(dx, dy);
     if (dist > this.FOV_MAX_DIST) return null;
-    var headAngle = this._getHeadAngle();
+    var headAngle = this._getVisualHeadAngle();
     var dotAngle = Math.atan2(dy, dx);
     var diff = dotAngle - headAngle;
     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -527,15 +657,15 @@ class LizardRenderer {
       var dist = Math.hypot(dx, dy);
       if (dist < 15) {
         this._treadmillOnIt = true;
-        return {tx: head.x, ty: head.y, speed: 0};
+        return {tx: head.x, ty: head.y, speed: 0, lookAngle: this._getVisualHeadAngle()};
       }
       this._treadmillOnIt = false;
       var spd = Math.min(dist, this.MAX_SPEED * 0.8);
       return {tx: head.x + (dx / dist) * spd, ty: head.y + (dy / dist) * spd, speed: spd};
     }
     var activity = this.activity;
-    var wanderSpeed = this.MAX_SPEED * (0.15 + activity * 0.06);
-    var turnChance = 0.005 + activity * 0.004;
+    var wanderSpeed = this.MAX_SPEED * (this.WANDER_SPEED_BASE + activity * this.WANDER_SPEED_ACTIVITY);
+    var turnChance = this.TURN_CHANCE_BASE + activity * this.TURN_CHANCE_ACTIVITY;
     var found = this._findNearestDotInFOV(head);
     if (found && found.zone === "clear") {
       this.aiPauseTimer = 0; this.aiAlertTarget = null; this.aiAlertTimer = 0;
@@ -555,7 +685,7 @@ class LizardRenderer {
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         this.aiWanderAngle += diff * 0.08;
-        return {tx: head.x, ty: head.y, speed: 0};
+        return {tx: head.x, ty: head.y, speed: 0, lookAngle: tAngle};
       }
       var approachSpeed = Math.min(dist2, this.ALERT_SPEED);
       return {tx: head.x + (dx2 / dist2) * approachSpeed, ty: head.y + (dy2 / dist2) * approachSpeed, speed: approachSpeed};
@@ -574,7 +704,8 @@ class LizardRenderer {
         var envelope = fadeIn * fadeOut;
         if (this.aiLookHoldTimer > 0) { this.aiLookHoldTimer--; }
         else {
-          this.aiLookTarget = (Math.random() - 0.5) * 1.4;
+          var maxLook = Math.min(2.6, this._getHeadRotationLimitRad());
+          this.aiLookTarget = (Math.random() - 0.5) * maxLook * 2;
           var rr = Math.random();
           this.aiLookSpeed = rr < 0.6 ? (0.008 + rr * 0.03) : rr < 0.85 ? (0.03 + (rr - 0.6) * 0.2) : (0.1 + (rr - 0.85) * 0.7);
           this.aiLookHoldTimer = Math.floor(10 + Math.random() * 70);
@@ -585,19 +716,19 @@ class LizardRenderer {
         this.aiWanderAngle = this.aiLookBaseAngle + this.aiLookOffset * 2.0;
         this.aiLookOffset = 0; this.aiPauseDone = 0; this.aiSpeedRamp = 0;
       }
-      return {tx: head.x, ty: head.y, speed: 0};
+      return {tx: head.x, ty: head.y, speed: 0, lookAngle: this.aiLookBaseAngle + this.aiLookOffset};
     }
     this.aiLookOffset *= 0.92;
     if (this.aiPauseCooldown <= 0) {
-      var pauseChance = 0.002 + (10 - activity) * 0.003;
+      var pauseChance = this.PAUSE_CHANCE_BASE + (10 - activity) * this.PAUSE_LOW_ACTIVITY_BONUS;
       if (Math.random() < pauseChance) {
-        var duration = Math.floor(80 + Math.random() * (160 - activity * 12));
+        var duration = Math.floor(this.PAUSE_DURATION_MIN + Math.random() * (this.PAUSE_DURATION_MAX - activity * this.PAUSE_DURATION_ACTIVITY_REDUCE));
         this.aiPauseTimer = duration; this.aiPauseDone = duration;
-        this.aiPauseCooldown = 150 + activity * 30;
-        this.aiWillLook = Math.random() < 0.4;
+        this.aiPauseCooldown = this.PAUSE_COOLDOWN_BASE + activity * this.PAUSE_COOLDOWN_ACTIVITY;
+        this.aiWillLook = Math.random() < this.PAUSE_LOOK_CHANCE;
         this.aiLookTarget = 0; this.aiLookHoldTimer = 0;
-        this.aiLookBaseAngle = Math.atan2(this.spine[0].y - this.spine[2].y, this.spine[0].x - this.spine[2].x);
-        return {tx: head.x, ty: head.y, speed: 0};
+        this.aiLookBaseAngle = this._getHeadAngle();
+        return {tx: head.x, ty: head.y, speed: 0, lookAngle: this.aiLookBaseAngle};
       }
     }
     this.aiSpeedRamp = Math.min(1, this.aiSpeedRamp + 0.02);
@@ -626,22 +757,49 @@ class LizardRenderer {
 
   _updateSpine() {
     var head = this.spine[0];
+    var desiredLookAngle = null;
+    var headTurnUpdated = false;
+    var startX = head.x, startY = head.y;
     var hdx = head.x - this.prevHeadX, hdy = head.y - this.prevHeadY;
     this.headSpeed = Math.hypot(hdx, hdy);
     this.prevHeadX = head.x; this.prevHeadY = head.y;
     if (this.mouseDown && this.mouseDragStart && Math.hypot(this.mouseX - this.mouseDragStart.x, this.mouseY - this.mouseDragStart.y) > 8) {
       var av = this._computeAvoidanceDir(head, this.mouseX, this.mouseY);
       var dx = this.mouseX - head.x, dy = this.mouseY - head.y, dist = Math.hypot(dx, dy);
-      if (dist > 1) { var move = Math.min(dist, this.MAX_SPEED); head.x += av.x * move; head.y += av.y * move; }
+      if (dist > 1) {
+        var moveAngle0 = Math.atan2(av.y, av.x);
+        var mouseLookAngle = Math.atan2(dy, dx);
+        if (!this._mouseLookAngleReady) {
+          this._mouseLookAngle = mouseLookAngle;
+          this._mouseLookAngleReady = true;
+        } else {
+          this._mouseLookAngle += this._angleDiff(this._mouseLookAngle, mouseLookAngle) * 0.35;
+        }
+        desiredLookAngle = this._mouseLookAngle;
+        this._updateHeadTurn(desiredLookAngle, 0.42, false);
+        headTurnUpdated = true;
+        var move = Math.min(dist, this.MAX_SPEED) * this._headLeadMoveFactor(desiredLookAngle);
+        head.x += av.x * move; head.y += av.y * move;
+      }
     } else if (this.aiActive) {
+      this._mouseLookAngleReady = false;
       var ai = this._computeAITarget(head);
+      if (ai.lookAngle !== undefined) desiredLookAngle = ai.lookAngle;
       if (this._treadmillActive && this._treadmillOnIt) {
         this.headSpeed = this.MAX_SPEED * 0.6;
       } else {
         var av2 = this._computeAvoidanceDir(head, ai.tx, ai.ty);
         var dx2 = ai.tx - head.x, dy2 = ai.ty - head.y, dist2 = Math.hypot(dx2, dy2);
-        if (dist2 > 1) { var move2 = Math.min(dist2, ai.speed); head.x += av2.x * move2; head.y += av2.y * move2; }
+        if (dist2 > 1) {
+          var moveAngle1 = Math.atan2(av2.y, av2.x);
+          desiredLookAngle = moveAngle1;
+          this._updateHeadTurn(moveAngle1, 0.58);
+          var move2 = Math.min(dist2, ai.speed) * this._headLeadMoveFactor(moveAngle1);
+          head.x += av2.x * move2; head.y += av2.y * move2;
+        }
       }
+    } else {
+      this._mouseLookAngleReady = false;
     }
     var FENCE = 10, BZ = 40, BF = 2.5, pushX = 0, pushY = 0;
     if (head.x < FENCE + BZ) pushX += Math.pow(1 - Math.max(0, head.x - FENCE) / BZ, 2) * BF;
@@ -652,6 +810,8 @@ class LizardRenderer {
     if (this.aiActive && (Math.abs(pushX) > 0.1 || Math.abs(pushY) > 0.1)) this.aiWanderAngle = Math.atan2(pushY, pushX);
     head.x = Math.max(FENCE, Math.min(this._w - FENCE, head.x));
     head.y = Math.max(FENCE, Math.min(this._h - FENCE, head.y));
+    var moved = Math.hypot(head.x - startX, head.y - startY);
+    var moveAngle = moved > 0.08 ? Math.atan2(head.y - startY, head.x - startX) : this._getHeadAngle();
     this.serpentinePhase += this.headSpeed * 0.12;
     for (var i = 1; i < this.spine.length; i++) {
       var prev = this.spine[i - 1], curr = this.spine[i];
@@ -682,23 +842,9 @@ class LizardRenderer {
         c.y = p.y - Math.sin(a) * this.SEGMENT_LENGTH;
       }
     }
+    if (!headTurnUpdated) this._updateHeadTurn(desiredLookAngle !== null ? desiredLookAngle : moveAngle);
     this._resolveBodyCollisions();
     this.lookOffsets.length = 0;
-    if (Math.abs(this.aiLookOffset) > 0.01) {
-      var lookNodes = 3, pivot = this.spine[lookNodes];
-      for (var i4 = 0; i4 < lookNodes; i4++) {
-        var node = this.spine[i4];
-        var ddx = node.x - pivot.x, ddy = node.y - pivot.y;
-        var dd = Math.hypot(ddx, ddy);
-        var baseAngle = Math.atan2(ddy, ddx);
-        var factor = (lookNodes - i4) / lookNodes;
-        var rotAngle = this.aiLookOffset * factor;
-        this.lookOffsets[i4] = {
-          x: pivot.x + Math.cos(baseAngle + rotAngle) * dd - node.x,
-          y: pivot.y + Math.sin(baseAngle + rotAngle) * dd - node.y
-        };
-      }
-    }
     for (var i5 = 0; i5 < this.spine.length; i5++) {
       this.spine[i5].x = Math.max(10, Math.min(this._w - 10, this.spine[i5].x));
       this.spine[i5].y = Math.max(10, Math.min(this._h - 10, this.spine[i5].y));
@@ -745,21 +891,28 @@ class LizardRenderer {
     });
   }
 
-  _drawBody() {
-    var ctx = this.ctx, leftPts = [], rightPts = [];
-    for (var i = 0; i < this.spine.length; i++) {
-      var node = this.spine[i];
-      var next = this.spine[Math.min(i + 1, this.spine.length - 1)];
-      var prev = this.spine[Math.max(0, i - 1)];
-      var angle = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
-      var w = this._bodyWidthAt(i);
-      leftPts.push({x: node.x + Math.cos(angle) * w, y: node.y + Math.sin(angle) * w});
-      rightPts.push({x: node.x - Math.cos(angle) * w, y: node.y - Math.sin(angle) * w});
+  _hash(n) {
+    var x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  _mixColor(a, b, t) {
+    var ca = this._parseColor(a), cb = this._parseColor(b);
+    return "rgb(" + Math.round(this._lerp(ca[0], cb[0], t)) + "," + Math.round(this._lerp(ca[1], cb[1], t)) + "," + Math.round(this._lerp(ca[2], cb[2], t)) + ")";
+  }
+
+  _parseColor(c) {
+    if (!c) return [60, 107, 46];
+    if (c.charAt(0) === "#") {
+      var hex = c.length === 4 ? c.replace(/#(.)(.)(.)/, "#$1$1$2$2$3$3") : c;
+      return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
     }
-    var sc = this._skinColors || {bodyTop:"#5a8a3c",bodyMid:"#3d6b2e",bodyBottom:"#2a4d1f",outline:"#2a4d1f",stripe:"rgba(120,180,80,0.25)",dot:"rgba(30,60,20,0.5)"};
-    var grad = ctx.createLinearGradient(this.spine[0].x, this.spine[0].y - 20, this.spine[0].x, this.spine[0].y + 20);
-    grad.addColorStop(0, sc.bodyTop); grad.addColorStop(0.5, sc.bodyMid); grad.addColorStop(1, sc.bodyBottom);
-    ctx.fillStyle = grad; ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1));
+    var m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [60, 107, 46];
+  }
+
+  _traceBodyPath(leftPts, rightPts) {
+    var ctx = this.ctx;
     ctx.beginPath(); ctx.moveTo(leftPts[0].x, leftPts[0].y);
     for (var i2 = 1; i2 < leftPts.length - 1; i2++) {
       var cx = (leftPts[i2].x + leftPts[i2 + 1].x) / 2, cy = (leftPts[i2].y + leftPts[i2 + 1].y) / 2;
@@ -773,42 +926,164 @@ class LizardRenderer {
       ctx.quadraticCurveTo(rightPts[i3].x, rightPts[i3].y, cx2, cy2);
     }
     ctx.lineTo(rightPts[0].x, rightPts[0].y);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = sc.stripe; ctx.beginPath();
-    for (var i4 = 0; i4 < this.spine.length; i4++) {
-      var n = this.spine[i4];
-      var nx = this.spine[Math.min(i4 + 1, this.spine.length - 1)];
-      var pv = this.spine[Math.max(0, i4 - 1)];
-      var a = Math.atan2(nx.y - pv.y, nx.x - pv.x) + Math.PI / 2;
-      var ww = this._bodyWidthAt(i4) * 0.45;
-      var px = n.x + Math.cos(a) * ww, py = n.y + Math.sin(a) * ww;
-      i4 === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    ctx.closePath();
+  }
+
+  _drawPattern(sc) {
+    var type = this._patternType || "spots";
+    var complexity = Math.max(1, Math.min(6, Math.round(this._patternComplexity || 1)));
+    if (type === "clean" || complexity <= 0) return;
+    var ctx = this.ctx;
+    var color = sc.pattern || sc.dot;
+    var sf = this._scaleFactor || 1;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (var i = 2; i < this.spine.length - 3; i++) {
+      var t = i / (this.spine.length - 1);
+      var node = this.spine[i];
+      var next = this.spine[Math.min(i + 1, this.spine.length - 1)];
+      var prev = this.spine[Math.max(0, i - 1)];
+      var axis = Math.atan2(next.y - prev.y, next.x - prev.x);
+      var perp = axis + Math.PI / 2;
+      var w = this._bodyWidthAt(i);
+      if (type === "spots") {
+        var spotStep = Math.max(1, 4 - Math.floor(complexity / 2));
+        if (i % spotStep === 0) {
+          var spotCount = 1 + Math.floor((complexity + 1) / 3);
+          for (var sp = 0; sp < spotCount; sp++) {
+            var side = (this._hash(i * 3.9 + sp * 11.2) - 0.5) * 1.35;
+            var along = (this._hash(i * 9.1 + sp * 5.3) - 0.5) * this.SEGMENT_LENGTH * 0.9;
+            var radius = Math.max(1.5, w * (0.12 + complexity * 0.018 + this._hash(i + sp * 13) * 0.14));
+            ctx.beginPath();
+            ctx.arc(node.x + Math.cos(perp) * w * side + Math.cos(axis) * along, node.y + Math.sin(perp) * w * side + Math.sin(axis) * along, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      } else if (type === "speckles") {
+        var count = 2 + complexity * 2;
+        for (var k = 0; k < count; k++) {
+          var r1 = this._hash(i * 31 + k * 7);
+          var r2 = this._hash(i * 17 + k * 11);
+          var offset = (r1 - 0.5) * w * 1.65;
+          var along2 = (r2 - 0.5) * this.SEGMENT_LENGTH * 0.8;
+          ctx.beginPath();
+          ctx.arc(node.x + Math.cos(perp) * offset + Math.cos(axis) * along2, node.y + Math.sin(perp) * offset + Math.sin(axis) * along2, Math.max(0.7, (0.8 + this._hash(i + k) * 1.8) * sf), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (type === "horizontal_stripes") {
+        var stripeStep = Math.max(1, 5 - complexity);
+        if (i % stripeStep === 0) {
+          var fade = Math.sin(Math.PI * t);
+          ctx.lineWidth = Math.max(2.5, (2.8 + complexity * 0.55) * sf) * fade;
+          ctx.globalAlpha = 0.3 + 0.5 * fade;
+          ctx.beginPath();
+          ctx.moveTo(node.x + Math.cos(perp) * w * 0.9, node.y + Math.sin(perp) * w * 0.9);
+          ctx.quadraticCurveTo(node.x + Math.cos(axis) * this.SEGMENT_LENGTH * 0.12, node.y + Math.sin(axis) * this.SEGMENT_LENGTH * 0.12, node.x - Math.cos(perp) * w * 0.9, node.y - Math.sin(perp) * w * 0.9);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else if (type === "vertical_stripes") {
+        var lanes = Math.min(6, 2 + complexity);
+        ctx.lineWidth = Math.max(1.3, (1.4 + complexity * 0.22) * sf);
+        for (var ln = 0; ln < lanes; ln++) {
+          if ((i + ln) % 2 !== 0) continue;
+          var pos = lanes === 1 ? 0 : ln / (lanes - 1) - 0.5;
+          var wiggle = Math.sin(t * Math.PI * (4 + complexity) + ln) * w * 0.06;
+          var off = pos * w * 1.45 + wiggle;
+          ctx.globalAlpha = 0.45 + 0.35 * Math.sin(Math.PI * t);
+          ctx.beginPath();
+          ctx.moveTo(node.x + Math.cos(perp) * off, node.y + Math.sin(perp) * off);
+          ctx.lineTo(next.x + Math.cos(perp) * off, next.y + Math.sin(perp) * off);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else if (type === "camo") {
+        var camoStep = Math.max(1, 4 - Math.floor(complexity / 2));
+        if (i % camoStep === 0) {
+          var camoCount = 1 + Math.floor(complexity / 2);
+          for (var c = 0; c < camoCount; c++) {
+            var o = (this._hash(i * 13 + c) - 0.5) * w * 1.35;
+            var a = axis + (this._hash(i * 19 + c) - 0.5) * (0.7 + complexity * 0.08);
+            var rx = w * (0.18 + complexity * 0.025 + this._hash(i + c) * 0.24);
+            var ry = w * (0.10 + this._hash(i * 2 + c) * 0.16);
+            var along3 = (this._hash(i * 23 + c) - 0.5) * this.SEGMENT_LENGTH;
+            ctx.globalAlpha = 0.34 + complexity * 0.035;
+            ctx.beginPath();
+            ctx.ellipse(node.x + Math.cos(perp) * o + Math.cos(axis) * along3, node.y + Math.sin(perp) * o + Math.sin(axis) * along3, rx, ry, a, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
     }
-    for (var i5 = this.spine.length - 1; i5 >= 0; i5--) {
-      var n2 = this.spine[i5];
-      var nx2 = this.spine[Math.min(i5 + 1, this.spine.length - 1)];
-      var pv2 = this.spine[Math.max(0, i5 - 1)];
-      var a2 = Math.atan2(nx2.y - pv2.y, nx2.x - pv2.x) + Math.PI / 2;
-      var ww2 = this._bodyWidthAt(i5) * 0.45;
-      ctx.lineTo(n2.x - Math.cos(a2) * ww2, n2.y - Math.sin(a2) * ww2);
+    ctx.restore();
+  }
+
+  _drawBody() {
+    var ctx = this.ctx, leftPts = [], rightPts = [];
+    for (var i = 0; i < this.spine.length; i++) {
+      var node = this.spine[i];
+      var next = this.spine[Math.min(i + 1, this.spine.length - 1)];
+      var prev = this.spine[Math.max(0, i - 1)];
+      var angle = Math.atan2(next.y - prev.y, next.x - prev.x) + Math.PI / 2;
+      var w = this._bodyWidthAt(i);
+      leftPts.push({x: node.x + Math.cos(angle) * w, y: node.y + Math.sin(angle) * w});
+      rightPts.push({x: node.x - Math.cos(angle) * w, y: node.y - Math.sin(angle) * w});
     }
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = sc.dot;
-    for (var i6 = 2; i6 < this.spine.length - 4; i6 += 2) {
-      var sw = this._bodyWidthAt(i6) * 0.3;
-      if (sw > 2) { ctx.beginPath(); ctx.arc(this.spine[i6].x, this.spine[i6].y, sw, 0, Math.PI * 2); ctx.fill(); }
+    var sc = this._skinColors || {bodyTop:"#5a8a3c",bodyMid:"#3d6b2e",bodyBottom:"#2a4d1f",outline:"#2a4d1f",stripe:"rgba(120,180,80,0.25)",dot:"rgba(30,60,20,0.5)"};
+    ctx.save();
+    this._traceBodyPath(leftPts, rightPts);
+    ctx.clip();
+    for (var s = 0; s < this.spine.length; s++) {
+      var tt = s / (this.spine.length - 1);
+      var base = tt < 0.22 ? this._mixColor(sc.head, sc.bodyMid, tt / 0.22) : this._mixColor(sc.bodyMid, sc.bodyBottom, (tt - 0.22) / 0.78);
+      ctx.fillStyle = base;
+      ctx.beginPath();
+      ctx.arc(this.spine[s].x, this.spine[s].y, this._bodyWidthAt(s) + this.SEGMENT_LENGTH * 0.75, 0, Math.PI * 2);
+      ctx.fill();
     }
+    this._drawPattern(sc);
+    ctx.restore();
+    ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1));
+    this._traceBodyPath(leftPts, rightPts);
+    ctx.stroke();
   }
 
   _drawHead() {
-    var ctx = this.ctx, head = this.spine[0], neck = this.spine[2];
-    var angle = Math.atan2(head.y - neck.y, head.x - neck.x);
+    var ctx = this.ctx, head = this.spine[0];
+    var angle = this._getVisualHeadAngle();
     var sc = this._skinColors || {head:"#4a7a30",outline:"#2a4d1f"};
     var hs = this._headScale * (this._scaleFactor || 1);
+    var shape = this._headShape || "ellipse";
     ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(angle);
     ctx.fillStyle = sc.head;
-    ctx.beginPath(); ctx.ellipse(8 * hs, 0, 16 * hs, 12 * hs, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1)); ctx.stroke();
+    ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1));
+    ctx.beginPath();
+    if (shape === "triangle") {
+      ctx.moveTo(25 * hs, 0); ctx.lineTo(-10 * hs, -14 * hs); ctx.lineTo(-8 * hs, 14 * hs); ctx.closePath();
+    } else if (shape === "inverted_triangle") {
+      ctx.moveTo(-13 * hs, 0); ctx.lineTo(22 * hs, -15 * hs); ctx.lineTo(22 * hs, 15 * hs); ctx.closePath();
+    } else if (shape === "shovel") {
+      ctx.moveTo(22 * hs, -5 * hs); ctx.quadraticCurveTo(18 * hs, -17 * hs, 0, -15 * hs); ctx.lineTo(-12 * hs, -8 * hs); ctx.lineTo(-12 * hs, 8 * hs); ctx.lineTo(0, 15 * hs); ctx.quadraticCurveTo(18 * hs, 17 * hs, 22 * hs, 5 * hs); ctx.closePath();
+    } else if (shape === "crescent") {
+      ctx.arc(7 * hs, 0, 17 * hs, -1.25, 1.25, false); ctx.quadraticCurveTo(-9 * hs, 0, 7 * hs, -16 * hs); ctx.closePath();
+    } else if (shape === "fan") {
+      ctx.moveTo(-13 * hs, 0);
+      ctx.bezierCurveTo(-5 * hs, -18 * hs, 15 * hs, -20 * hs, 26 * hs, -8 * hs);
+      ctx.quadraticCurveTo(31 * hs, 0, 26 * hs, 8 * hs);
+      ctx.bezierCurveTo(15 * hs, 20 * hs, -5 * hs, 18 * hs, -13 * hs, 0);
+      ctx.closePath();
+    } else if (shape === "semicircle") {
+      ctx.arc(4 * hs, 0, 17 * hs, -Math.PI / 2, Math.PI / 2, false); ctx.lineTo(-8 * hs, 12 * hs); ctx.lineTo(-8 * hs, -12 * hs); ctx.closePath();
+    } else if (shape === "diamond") {
+      ctx.moveTo(24 * hs, 0); ctx.lineTo(5 * hs, -15 * hs); ctx.lineTo(-12 * hs, 0); ctx.lineTo(5 * hs, 15 * hs); ctx.closePath();
+    } else {
+      ctx.ellipse(8 * hs, 0, 16 * hs, 12 * hs, 0, 0, Math.PI * 2);
+    }
+    ctx.fill(); ctx.stroke();
     ctx.fillStyle = "#ff8800";
     ctx.beginPath(); ctx.ellipse(12 * hs, -8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(12 * hs, 8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
@@ -955,7 +1230,7 @@ class LizardRenderer {
   _drawVisionCone() {
     if (!(this.aiActive && (this.headSpeed < 0.5 || this.aiAlertTarget))) return;
     var ctx = this.ctx, head = this.spine[0];
-    var headAngle = this._getHeadAngle();
+    var headAngle = this._getVisualHeadAngle();
     var halfFOV = (this.FOV_ANGLE / 2) * Math.PI / 180;
     ctx.save();
     ctx.beginPath(); ctx.moveTo(head.x, head.y);
@@ -969,6 +1244,70 @@ class LizardRenderer {
     ctx.restore();
   }
 
+  _applyTestEffect(effect) {
+    if (!effect || effect.time <= 0) return;
+    var head = this.spine[0];
+    var tail = this.spine[this.spine.length - 1];
+    var ctx = this.ctx;
+    var p = effect.time / effect.duration;
+    ctx.save();
+    if (effect.type === "melee") {
+      ctx.strokeStyle = "rgba(255,210,90," + p + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 42 * (1 - p + 0.2), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (effect.type === "ranged") {
+      ctx.fillStyle = "rgba(90,220,120," + p + ")";
+      ctx.beginPath();
+      ctx.arc(head.x + Math.cos(this._getVisualHeadAngle()) * 70 * (1 - p), head.y + Math.sin(this._getVisualHeadAngle()) * 70 * (1 - p), 7, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (effect.type === "buff") {
+      ctx.strokeStyle = "rgba(80,180,255," + p + ")";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(head.x, head.y, 58 * (1 - p + 0.3), 24 * (1 - p + 0.3), this._getVisualHeadAngle(), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (effect.type === "heal") {
+      ctx.fillStyle = "rgba(80,255,140," + p + ")";
+      ctx.font = "bold 22px sans-serif";
+      ctx.fillText("+", head.x - 7, head.y - 28 * (1 - p));
+    } else if (effect.type === "fear_skill") {
+      ctx.strokeStyle = "rgba(255,80,80," + p + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 80 * (1 - p + 0.1), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (effect.code === "tail_whip") {
+      ctx.strokeStyle = "rgba(255,255,255," + p + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(tail.x, tail.y, 34 * (1 - p + 0.2), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+    effect.time--;
+  }
+
+  triggerSkillTest(code, type) {
+    this._testEffect = { code: code || "skill", type: type || "melee", time: 45, duration: 45 };
+  }
+
+  applyHiddenGene(gene) {
+    var seed = this._bodySeed || {};
+    this._hiddenGene = gene || "";
+    if (gene === "crystal_scale") { seed.hue = 190; seed.lightness = 45; this._colorSaturation = 1.8; this._patternComplexity = 5; }
+    else if (gene === "shadow_veil") { seed.hue = 265; seed.lightness = 20; this._colorSaturation = 1.4; this._patternComplexity = 4; }
+    else if (gene === "flame_heart") { seed.hue = 18; seed.lightness = 36; this._colorSaturation = 2.0; this._patternComplexity = 5; }
+    else if (gene === "storm_wing") { seed.hue = 215; seed.lightness = 38; this._colorSaturation = 1.6; this._patternComplexity = 4; }
+    else if (gene === "ancient_blood") { seed.hue = 48; seed.lightness = 34; this._colorSaturation = 1.9; this._patternComplexity = 6; this._bodyScale = Math.max(this._bodyScale, 1.22); }
+    this._bodySeed = seed;
+    this._skinColors = this._generateSkinColors();
+  }
+
+
+
   _render() {
     var ctx = this.ctx;
     ctx.fillStyle = "#0a0a10";
@@ -978,24 +1317,11 @@ class LizardRenderer {
     this._updateLightDots();
     this._updateSpine();
     this._updateLegs();
-    var saved = [];
-    if (this.lookOffsets.length > 0) {
-      for (var i = 0; i < this.lookOffsets.length; i++) {
-        saved[i] = {x: this.spine[i].x, y: this.spine[i].y};
-        this.spine[i].x += this.lookOffsets[i].x;
-        this.spine[i].y += this.lookOffsets[i].y;
-      }
-    }
     this._drawLightDots();
     this._drawVisionCone();
     this._drawLegs();
     this._drawBody();
     this._drawHead();
-    if (saved.length > 0) {
-      for (var j = 0; j < saved.length; j++) {
-        this.spine[j].x = saved[j].x;
-        this.spine[j].y = saved[j].y;
-      }
-    }
+    this._applyTestEffect(this._testEffect);
   }
 }

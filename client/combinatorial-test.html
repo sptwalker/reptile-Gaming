@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>宠物表现组合测试</title>
+    <link rel="stylesheet" href="css/combinatorial-test.css">
+</head>
+<body>
+    <main class="test-shell">
+        <section class="stage-wrap">
+            <canvas id="testCanvas"></canvas>
+            <div class="stage-hud">
+                <strong>Combinatorial Testing</strong>
+                <span id="modeText">鼠标牵引 / AI自主运动</span>
+            </div>
+        </section>
+        <section class="param-dock">
+            <div class="dock-toolbar">
+                <button id="btnAi" class="btn primary">AI 自主运动</button>
+                <button id="btnReset" class="btn">重置</button>
+                <button id="btnRandomAppearance" class="btn accent">随机外观组合</button>
+                <span class="hint">拖拽画布牵引，点击画布放置光点；参数实时生效。</span>
+            </div>
+            <div id="paramSections" class="param-sections"></div>
+        </section>
+    </main>
+    <script src="js/lizard-renderer.js"></script>
+    <script src="js/combinatorial-test.js"></script>
+</body>
+</html>
