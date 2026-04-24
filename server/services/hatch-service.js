@@ -159,21 +159,19 @@ function getHatchStatus(uid, eggId) {
 }
 
 /**
- * 服务端自动随机分配天赋点 (P4)
- * 算法：将 totalPoints 个点逐一随机分配到6个属性中
- * 保证 sum === totalPoints 且每项 >= 0
+ * 服务端随机生成孵化属性点
+ * 规则：力量/敏捷/体质各固定1点，其余点数随机分配给智力/感知/魅力
  * @param {number} totalPoints 天赋点总量
  * @returns {object} { str, agi, vit, int, per, cha }
  */
 function randomAllocateTalents(totalPoints) {
-    const keys = rules.ATTR_KEYS;
-    const result = {};
-    for (const k of keys) result[k] = 0;
+    const result = { str: 1, agi: 1, vit: 1, int: 0, per: 0, cha: 0 };
+    const randomKeys = ['int', 'per', 'cha'];
+    const remaining = Math.max(0, totalPoints - 3);
 
-    /* 逐点随机分配（均匀分布） */
-    for (let i = 0; i < totalPoints; i++) {
-        const idx = secureRandom(0, keys.length - 1);
-        result[keys[idx]]++;
+    for (let i = 0; i < remaining; i++) {
+        const idx = secureRandom(0, randomKeys.length - 1);
+        result[randomKeys[idx]]++;
     }
 
     return result;
@@ -197,10 +195,8 @@ function calcDerived(a, level) {
 }
 
 /**
- * 完成孵化（天赋分配 + 创建宠物）
- * 支持两种模式：
- *   1. 手动模式：客户端传入 talents 对象，服务端校验
- *   2. 自动模式：talents 为 null/undefined，服务端随机分配
+ * 完成孵化（命名 + 服务端随机生成属性）
+ * 规则：初代蛋忽略客户端 talents，力量/敏捷/体质各固定1点，其余点数随机分配；繁殖蛋仍使用遗传数据覆盖
  * @param {number} uid     用户ID
  * @param {number} eggId   蛋ID
  * @param {string} petName 宠物名称
@@ -247,27 +243,10 @@ function finishHatch(uid, eggId, petName, talents, ip) {
     }
 
     const attrs = rules.ATTR_KEYS;
-    let allocMode = 'manual';
+    let allocMode = 'random';
 
-    /* 判断天赋分配模式 */
-    if (!talents || typeof talents !== 'object') {
-        /* 自动模式：服务端随机分配天赋 */
-        talents = randomAllocateTalents(egg.talent_points);
-        allocMode = 'auto';
-    } else {
-        /* 手动模式：校验天赋分配 */
-        let talentSum = 0;
-        for (const attr of attrs) {
-            const val = talents[attr];
-            if (!Number.isInteger(val) || val < 0) {
-                return { code: 4002, data: null, msg: `天赋分配错误：${attr} 必须为非负整数` };
-            }
-            talentSum += val;
-        }
-        if (talentSum !== egg.talent_points) {
-            return { code: 4002, data: null, msg: `天赋点总和必须为 ${egg.talent_points}，当前为 ${talentSum}` };
-        }
-    }
+    /* 初代蛋属性由服务端随机生成，忽略客户端传入的 talents（S-A01/S-A03） */
+    talents = randomAllocateTalents(egg.talent_points);
 
     /* 计算初始属性 */
     const initBase = rules.INIT_ATTR_BASE;
@@ -277,7 +256,7 @@ function finishHatch(uid, eggId, petName, talents, ip) {
     }
 
     /* 计算衍生属性 (level=1) */
-    const derived = calcDerived(attrTotals, 1);
+    let derived = calcDerived(attrTotals, 1);
 
     /* 解析外观种子 */
     let patternSeed;
@@ -337,6 +316,7 @@ function finishHatch(uid, eggId, petName, talents, ip) {
     for (const attr of attrs) {
         attrTotals[attr] = initBase + talents[attr];
     }
+    derived = calcDerived(attrTotals, 1);
 
     /* 事务：创建宠物 + 创建属性 + 解锁初始技能 */
     const insertPet = db.prepare(`

@@ -595,7 +595,58 @@ html, body {
     margin-bottom: 16px;
 }
 
+/* ── 孵化属性雷达图 ── */
+.attr-radar-card {
+    margin: 4px auto 16px;
+    padding: 12px;
+    background: radial-gradient(circle at center, rgba(88, 166, 255, 0.08), rgba(13, 17, 23, 0.95));
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    max-width: 280px;
+}
+.attr-radar-title {
+    margin-bottom: 6px;
+    color: #8b949e;
+    font-size: 13px;
+    font-weight: 600;
+}
+.attr-radar {
+    width: 240px;
+    height: 240px;
+    max-width: 100%;
+    overflow: visible;
+}
+.radar-grid {
+    fill: none;
+    stroke: rgba(139, 148, 158, 0.25);
+    stroke-width: 1;
+}
+.radar-axis {
+    stroke: rgba(139, 148, 158, 0.2);
+    stroke-width: 1;
+}
+.radar-area {
+    fill: rgba(88, 166, 255, 0.28);
+    stroke: none;
+}
+.radar-line {
+    fill: none;
+    stroke: #58a6ff;
+    stroke-width: 2;
+}
+.radar-label {
+    fill: #c9d1d9;
+    font-size: 11px;
+    font-weight: 600;
+}
+.radar-value {
+    fill: #58a6ff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
 /* ── 六维属性网格 ── */
+
 .attr-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

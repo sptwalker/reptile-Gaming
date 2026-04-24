@@ -1,6 +1,6 @@
 /**
  * 宠物蛋 UI 逻辑
- * - 领蛋 → 展示蛋卡片 → 孵化 → 倒计时 → 天赋分配 → 创建宠物
+ * - 领蛋 → 展示蛋卡片 → 孵化 → 倒计时 → 命名 → 服务端随机生成属性 → 创建宠物
  * - 纯交互层，不做任何数值计算 (S-A01)
  * - 倒计时由服务端返回 remaining_seconds，前端仅做展示倒数 (S-A02)
  */
@@ -214,7 +214,7 @@ const Egg = (() => {
                 const activePet = petRes.data.pets[0];
                 await fetchAndShowPetPanel(activePet.id);
             } else {
-                /* 蛋已孵化但未创建宠物 → 进入天赋分配 */
+                /* 蛋已孵化但未创建宠物 → 进入命名 */
                 _currentEgg = hatched;
                 await pollHatchStatus(hatched.id);
             }
@@ -338,36 +338,33 @@ const Egg = (() => {
         }
     }
 
-    /* ── 天赋分配面板 ── */
+    /* ── 命名面板（属性由服务端随机生成） ── */
     function showTalentAllocation(totalPoints) {
         hideAll();
         eggSection.style.display = 'flex';
         _talentTotal = totalPoints;
         talentPanel.style.display = 'block';
 
-        /* 重置输入 */
-        for (const key of Object.keys(talentInputs)) {
-            talentInputs[key].value = 0;
-            talentInputs[key].max = totalPoints;
+        if (talentRemaining) {
+            talentRemaining.textContent = '孵化属性将由服务端随机生成：力量、敏捷、体质各保底1点，其余随机。';
+            talentRemaining.style.color = '#8b949e';
         }
+        for (const key of Object.keys(talentInputs)) {
+            const row = talentInputs[key].closest('.talent-row');
+            if (row) row.style.display = 'none';
+        }
+        petNameInput.value = '';
         updateTalentRemaining();
     }
 
     function getUsedPoints() {
-        let sum = 0;
-        for (const key of Object.keys(talentInputs)) {
-            sum += parseInt(talentInputs[key].value, 10) || 0;
-        }
-        return sum;
+        return 0;
     }
 
     function updateTalentRemaining() {
-        const used = getUsedPoints();
-        const left = _talentTotal - used;
-        talentRemaining.textContent = `可分配点数: ${left} / ${_talentTotal}`;
-        talentRemaining.style.color = left === 0 ? '#3fb950' : (left < 0 ? '#f85149' : '#e6edf3');
-        btnConfirmTalent.disabled = (left !== 0) || !petNameInput.value.trim();
+        btnConfirmTalent.disabled = !petNameInput.value.trim();
     }
+
 
     /* 监听天赋输入变化 */
     for (const key of Object.keys(talentInputs)) {
@@ -375,36 +372,24 @@ const Egg = (() => {
     }
     petNameInput.addEventListener('input', updateTalentRemaining);
 
-    /* ── 点击"孵化完成"按钮 → 查询状态并进入天赋分配 ── */
+    /* ── 点击"孵化完成"按钮 → 查询状态并进入命名 ── */
     btnFinishHatch.addEventListener('click', async () => {
         if (!_currentEgg) return;
         await pollHatchStatus(_currentEgg.id);
     });
 
-    /* ── 确认天赋分配 ── */
+    /* ── 确认命名 ── */
     btnConfirmTalent.addEventListener('click', async () => {
         const petName = petNameInput.value.trim();
         if (!petName) return;
 
-        const talents = {};
-        for (const key of Object.keys(talentInputs)) {
-            talents[key] = parseInt(talentInputs[key].value, 10) || 0;
-        }
-
-        /* 前端预校验（最终以服务端为准） */
-        const sum = Object.values(talents).reduce((a, b) => a + b, 0);
-        if (sum !== _talentTotal) {
-            showTalentMsg(`天赋点总和须为 ${_talentTotal}`);
-            return;
-        }
-
         btnConfirmTalent.disabled = true;
         const res = await Api.post('/api/hatch/finish', {
             egg_id:   _currentEgg.id,
-            pet_name: petName,
-            talents
+            pet_name: petName
         });
         btnConfirmTalent.disabled = false;
+
 
         if (res.code !== 0) {
             showTalentMsg(res.msg);
@@ -414,7 +399,50 @@ const Egg = (() => {
         showPetCreated(res.data);
     });
 
+    function renderAttrRadar(attrs) {
+        const attrNames = [
+            ['str', '力量'], ['agi', '敏捷'], ['vit', '体质'],
+            ['int', '智力'], ['per', '感知'], ['cha', '魅力']
+        ];
+        const values = attrNames.map(([key]) => (attrs[key] && attrs[key].total) || 0);
+        const maxVal = Math.max(10, ...values);
+        const cx = 120, cy = 120, r = 72;
+        const points = values.map((v, i) => {
+            const angle = -Math.PI / 2 + i * Math.PI * 2 / attrNames.length;
+            const rr = r * (v / maxVal);
+            return `${(cx + Math.cos(angle) * rr).toFixed(1)},${(cy + Math.sin(angle) * rr).toFixed(1)}`;
+        }).join(' ');
+        const grid = [0.33, 0.66, 1].map(scale => {
+            return attrNames.map((_, i) => {
+                const angle = -Math.PI / 2 + i * Math.PI * 2 / attrNames.length;
+                const rr = r * scale;
+                return `${(cx + Math.cos(angle) * rr).toFixed(1)},${(cy + Math.sin(angle) * rr).toFixed(1)}`;
+            }).join(' ');
+        });
+        const axes = attrNames.map(([key, label], i) => {
+            const angle = -Math.PI / 2 + i * Math.PI * 2 / attrNames.length;
+            const x = cx + Math.cos(angle) * r;
+            const y = cy + Math.sin(angle) * r;
+            const lx = cx + Math.cos(angle) * (r + 28);
+            const ly = cy + Math.sin(angle) * (r + 28);
+            const value = (attrs[key] && attrs[key].total) || 0;
+            return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="radar-axis" />
+                <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="radar-label" text-anchor="middle">${label}</text>
+                <text x="${lx.toFixed(1)}" y="${(ly + 14).toFixed(1)}" class="radar-value" text-anchor="middle">${value}</text>`;
+        }).join('');
+        return `<div class="attr-radar-card">
+            <div class="attr-radar-title">孵化属性雷达图</div>
+            <svg class="attr-radar" viewBox="0 0 240 240" role="img" aria-label="宠物属性雷达图">
+                ${grid.map(p => `<polygon points="${p}" class="radar-grid" />`).join('')}
+                ${axes}
+                <polygon points="${points}" class="radar-area" />
+                <polyline points="${points} ${points.split(' ')[0]}" class="radar-line" />
+            </svg>
+        </div>`;
+    }
+
     /* ── 宠物创建成功展示 ── */
+
     function showPetCreated(pet) {
         hideAll();
         eggSection.style.display = 'flex';
@@ -436,7 +464,8 @@ const Egg = (() => {
             attrHtml += `<div class="attr-item"><span class="attr-label">${label}</span><span class="attr-val">${a.total}</span><small>(${a.base}+${a.talent})</small></div>`;
         }
         attrHtml += '</div>';
-        petCreatedAttrs.innerHTML = attrHtml;
+        petCreatedAttrs.innerHTML = renderAttrRadar(pet.attrs) + attrHtml;
+
 
         /* 衍生属性 */
         const d = pet.derived;

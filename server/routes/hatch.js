@@ -2,7 +2,7 @@
  * 孵化路由
  * POST /api/hatch/start  🔒 — 开始孵化
  * POST /api/hatch/status 🔒 — 查询孵化状态
- * POST /api/hatch/finish 🔒 — 完成孵化（天赋分配）
+ * POST /api/hatch/finish 🔒 — 完成孵化（服务端随机生成属性）
  */
 
 'use strict';
@@ -55,7 +55,7 @@ router.post('/status',
 
 /**
  * POST /api/hatch/finish
- * talents 可选：传入则手动分配，不传则服务端自动随机分配
+ * talents 已废弃：孵化属性由服务端随机生成
  */
 router.post('/finish',
     createRateLimiter({ window: 60, max: 30, key: 'uid' }),
@@ -69,7 +69,7 @@ router.post('/finish',
         if (!isValidString(pet_name, 1, 12)) {
             return fail(res, 1001, '宠物名称须为1~12字符');
         }
-        /* talents 可选：null/undefined = 自动模式，object = 手动模式 */
+        /* talents 参数兼容旧客户端，服务端会忽略并随机生成属性 */
         if (talents !== undefined && talents !== null && typeof talents !== 'object') {
             return fail(res, 1001, 'talents 参数错误');
         }
