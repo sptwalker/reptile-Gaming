@@ -497,3 +497,46 @@ reptile-Gaming/
 - `client/css/combinatorial-test.css` — 新增表现测试页面样式
 - `client/js/combinatorial-test.js` — 新增表现测试控制逻辑和参数面板
 - `client/js/lizard-renderer.js` — 渲染参数扩展、独立头部视觉角度、扫视/牵引稳定性修复
+
+### v1.5 - 解剖比例重构 + 四肢步态同步优化 (2026-04-25)
+
+> 按蜥蜴解剖图重构身体比例、脊椎间距和四肢挂载点，并持续修复鼠标牵引、前肢弯曲方向、斜对角步态与脚掌滑动问题
+
+#### 解剖比例与身体结构
+
+- `LizardRenderer` 身体比例改为按解剖分界处理：头部约 `5.2%`，躯干约 `34.8%`，尾部约 `60%`
+- `_bodyWidthAt(i)` 改为分段宽度曲线，匹配头、颈、躯干、尾部的长/宽变化关系
+- `_drawBody()` 改为头色 → 躯干色 → 尾色的三段式渐变
+- `_drawPattern()` 将花纹限制在躯干区域，避免覆盖头尾比例边界
+- 新增 `_segmentLengthAt(i)`，脊椎节点间距不再固定：身体段更长，尾部逐段递减
+- `_initSpine()`、`_updateSpine()`、`_enforceAngleConstraints()` 全部改用变长脊椎段长
+
+#### 四肢挂载与结构
+
+- 前肢挂载点调整到 `t = 0.05`，后肢挂载点调整到 `t = 0.242`，并同步修正 `_redistributeLegs()`
+- 前肢 IK 弯曲方向反转，使第一对前肢关节向后弯曲
+- 后肢保持原方向，并通过 `_clampLegFoot()` 限制绘制长度，避免运动中后肢被过度拉长
+- 表现测试页新增眼睛颜色参数，移除「头部避让」控件
+
+#### 斜对角同步步态
+
+- 四肢新增 `gaitGroup`：左前肢 + 右后肢同组，右前肢 + 左后肢同组
+- `_updateLegs()` 改为全局步态相位驱动，严格保持斜对角同步
+- 鼠标按下但尚未发生真实位移时，不再触发四肢摆动，避免原地颤动
+- 步态节奏改为基于 `headSpeed / strideDistance` 计算，使四肢运动频率与身体实际移动速度关联
+- 支撑期脚点直接按速度匹配目标位置，摆动期提高跟随系数，减少脚掌在地面滑动和拖拽感
+
+#### 鼠标牵引头部稳定性
+
+- 新增 `_mouseTurnBaseAngle` / `_mouseTurnBaseReady`，鼠标牵引期间转向基准随身体角度缓慢更新
+- 修复牵引时头部因基准角滞后导致左右过度扭转的问题
+
+#### 验证
+
+- `node --check client\js\lizard-renderer.js` 通过
+- `client/js/lizard-renderer.js` 无诊断错误
+
+#### 变更文件（2个）
+
+- `client/js/lizard-renderer.js` — 解剖比例、变长脊椎、四肢挂载、前肢反转、斜对角步态、步态速度关联
+- `client/js/combinatorial-test.js` — 眼睛颜色参数、移除头部避让控件
