@@ -116,9 +116,9 @@ router.post('/rules', (req, res) => {
 /* ── 测试模块 ── */
 
 router.post('/test/create-pet', (req, res) => {
-    const { uid, quality, gender, level, stage, name } = req.body;
+    const { uid, quality, gender, level, stage, name, renderParams, bodySeed, hiddenGene, attrBases, skills } = req.body;
     if (!uid) return fail(res, 8010, '需要指定用户ID');
-    const result = admin.quickCreatePet(uid, { quality, gender, level, stage, name });
+    const result = admin.quickCreatePet(uid, { quality, gender, level, stage, name, renderParams, bodySeed, hiddenGene, attrBases, skills });
     if (result.code !== 0) return fail(res, result.code, result.msg);
     ok(res, result.data);
 });

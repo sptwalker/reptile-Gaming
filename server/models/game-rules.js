@@ -45,11 +45,11 @@ module.exports = {
     GROWTH_PER_LEVEL: 2,
     BASE_EXP: 100,
     INIT_ATTR_BASE: 5,
-    LEVEL_CAP: { 0: 10, 1: 25, 2: 50, 3: 100 },
+    LEVEL_CAP: { 0: 10, 1: 20, 2: 30, 3: 50, 4: 100 },
 
     /* ── 蜕变 ── */
-    EVOLVE_LEVEL:       { 1: 10, 2: 25, 3: 50 },
-    EVOLVE_COST:        { 1: 100, 2: 200, 3: 300 },
+    EVOLVE_LEVEL:       { 1: 10, 2: 20, 3: 30, 4: 50 },
+    EVOLVE_COST:        { 1: 100, 2: 200, 3: 300, 4: 500 },
     EVOLVE_STAMINA_REQ: 50,
 
     /** 蜕变属性加成（所有六维 base +N） */
@@ -79,6 +79,11 @@ module.exports = {
             { skill_code: 'dragon_rush',  skill_level: 1 },
             { skill_code: 'regen',        skill_level: 1 },
             { skill_code: 'predator_eye', skill_level: 1 }
+        ],
+        4: [
+            { skill_code: 'dragon_rush',  skill_level: 1 },
+            { skill_code: 'regen',        skill_level: 1 },
+            { skill_code: 'predator_eye', skill_level: 1 }
         ]
     },
 
@@ -87,11 +92,11 @@ module.exports = {
 
     /** 蜕变阶段属性条件 (docs/03-game-rules.md §6) */
     EVOLVE_ATTR_REQ: {
-        2: 30,   // 阶段1→2：任意属性总和≥30
-        3: 60    // 阶段2→3：任意属性总和≥60
+        2: 30,   // 少年→青年：任意属性总和≥30
+        4: 60    // 成年→完全体：任意属性总和≥60
     },
-    /** 阶段2→3 最低品质要求 */
-    EVOLVE_QUALITY_REQ_STAGE3: 2,
+    /** 成年→完全体 最低品质要求 */
+    EVOLVE_QUALITY_REQ_STAGE4: 2,
 
     /* ── 体力 ── */
     STAMINA_REGEN_INTERVAL: 300,
@@ -146,8 +151,8 @@ module.exports = {
      * ══════════════════════════════════════════════════ */
 
     /* ── 竞技场入场 ── */
-    /** 入场最低阶段（成年=2） */
-    ARENA_MIN_STAGE: 2,
+    /** 入场最低阶段（成年=3） */
+    ARENA_MIN_STAGE: 3,
     /** 入场消耗体力 */
     ARENA_ENTRY_STAMINA: 1,
     /** 存钱罐金币累积速率（金/分钟） */
@@ -221,6 +226,35 @@ module.exports = {
     /** 防御减伤公式: 1 - DEF/(DEF+200) */
     BATTLE_DEF_CONSTANT: 200,
 
+    /* ── 身体部位战斗属性 ── */
+    BATTLE_BODY_LEVEL_GROWTH: 0.1,
+    BATTLE_BODY_BASE_REGEN: 1,
+    BATTLE_BODY_PARTS: {
+        head:      { name: '头部',   hp_base: 100, hp_vit: 10, def_base: 50,  def_agi: 50, weight: 0.16, core: true  },
+        torso:     { name: '躯干',   hp_base: 100, hp_vit: 10, def_base: 100, def_agi: 10, weight: 0.28, core: true  },
+        foreLeft:  { name: '左前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
+        foreRight: { name: '右前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
+        hindLeft:  { name: '左后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
+        hindRight: { name: '右后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
+        tail:      { name: '尾部',   hp_base: 30,  hp_vit: 2,  def_base: 30,  def_agi: 2,  weight: 0.12, core: false },
+    },
+    BATTLE_INJURY_HALF: 0.5,
+    BATTLE_INJURY_HEAVY: 0.8,
+    BATTLE_HEAD_VISION_HALF: 0.65,
+    BATTLE_HEAD_VISION_HEAVY: 0.35,
+    BATTLE_HEAD_VISION_DISABLED: 0.1,
+    BATTLE_HEAD_TURN_HEAVY: 0.45,
+    BATTLE_TORSO_STEP_HALF: 0.7,
+    BATTLE_TORSO_STEP_HEAVY: 0.45,
+    BATTLE_TORSO_STEP_DISABLED: 0.1,
+    BATTLE_LIMB_DRAG_SPEED_PENALTY: 0.12,
+    BATTLE_LIMB_DETACH_SPEED_PENALTY: 0.22,
+    BATTLE_LIMB_DETACH_CONTROL_PENALTY: 0.28,
+    BATTLE_LIMB_DETACH_SPIN_CHANCE: 0.18,
+    BATTLE_TAIL_DECOY_FRAMES: 150,
+    BATTLE_TAIL_DECOY_HIT_CHANCE: 0.35,
+    BATTLE_TAIL_DECOY_DODGE_BONUS: 0.2,
+
     /* ── 结算奖惩 ── */
     /** 胜利：+赌注 +5金 -1体力 */
     ARENA_BATTLE_BONUS: 5,
@@ -282,10 +316,10 @@ module.exports = {
     SKILL_SLOTS: { 1: 2, 2: 3, 3: 3, 4: 4, 5: 4 },
 
     /* ── 蜕变阶段上限 ── */
-    MAX_STAGE: { 1: 2, 2: 3, 3: 3, 4: 3, 5: 3 },
+    MAX_STAGE: { 1: 4, 2: 4, 3: 4, 4: 4, 5: 4 },
 
     /* ── 阶段名称 ── */
-    STAGE_NAMES: { 0: '幼体', 1: '少年', 2: '成年', 3: '完全体' },
+    STAGE_NAMES: { 0: '幼体', 1: '少年', 2: '青年', 3: '成年', 4: '完全体' },
 
     /* ── 性别 ── */
     GENDER_MALE:   1,
@@ -306,8 +340,8 @@ module.exports = {
      * ══════════════════════════════════════════════════ */
 
     /* ── 交友市场 ── */
-    /** 繁殖最低阶段要求（成年=2） */
-    BREED_MIN_STAGE: 2,
+    /** 繁殖最低阶段要求（成年=3） */
+    BREED_MIN_STAGE: 3,
     /** 邀请有效期（秒） */
     BREED_INVITE_EXPIRE: 3600,
     /** 交配笼时长（秒） = 4小时 */

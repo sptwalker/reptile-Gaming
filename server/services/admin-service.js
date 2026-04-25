@@ -332,58 +332,102 @@ function quickCreatePet(uid, opts = {}) {
     const user = db.prepare('SELECT * FROM user WHERE id = ?').get(uid);
     if (!user) return { code: 8010, msg: '用户不存在' };
 
-    const quality = opts.quality || Math.ceil(secureRandom() * 5);
-    const gender  = opts.gender  || (secureRandom() < 0.5 ? 1 : 2);
-    const level   = opts.level   || 1;
-    const stage   = opts.stage   || 0;
+    const quality = Number(opts.quality) || secureRandom(1, 5);
+    const gender  = Number(opts.gender)  || secureRandom(1, 2);
+    const level   = Number(opts.level)   || 1;
+    const stage   = Number(opts.stage)   || 0;
 
-    /* 创建蛋记录 */
-    const eggResult = db.prepare(`
-        INSERT INTO pet_egg (user_id, quality, pattern_seed, is_hatched, talent_points, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 0, ?, ?)
-    `).run(uid, quality, `test_${ts}`, ts, ts);
-    const eggId = eggResult.lastInsertRowid;
+    const bodySeedPayload = opts.bodySeed && typeof opts.bodySeed === 'object' ? opts.bodySeed : {};
+    const renderParamsPayload = opts.renderParams && typeof opts.renderParams === 'object' ? opts.renderParams : {};
+    const mergedBodySeed = {
+        ...bodySeedPayload,
+        importedFromCombinatorial: true,
+        renderParams: renderParamsPayload,
+    };
+    if (opts.hiddenGene) mergedBodySeed.hiddenGene = String(opts.hiddenGene);
 
-    /* 创建宠物 */
-    const geneSet = JSON.stringify(geneEngine.generateInitialGeneSet(quality));
-    const appearance = JSON.stringify(geneEngine.generateInitialAppearanceGene());
-    const petResult = db.prepare(`
-        INSERT INTO pet (user_id, egg_id, name, quality, gender, level, exp, stage,
-            stamina, stamina_max, satiety, satiety_max, mood, is_active,
-            body_seed, gene_set, appearance_gene, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, 100, 100, 100, 100, 50, 1, ?, ?, ?, ?, ?)
-    `).run(uid, eggId, opts.name || `测试宠物_${ts}`, quality, gender, level, stage,
-        `test_${ts}`, geneSet, appearance, ts, ts);
-    const petId = Number(petResult.lastInsertRowid);
+    const patternSeed = {
+        bodyHue: Number(bodySeedPayload.hue || 0),
+        bodyLightness: Number(bodySeedPayload.lightness || 50),
+        patternType: 0,
+        patternHue: Number(bodySeedPayload.hue || 0),
+        patternDensity: Math.max(1, Math.min(5, Math.round(Number(renderParamsPayload.patternComplexity || 1)))),
+        eyeColor: Number(bodySeedPayload.hue || 0),
+        tailRatio: 0.35,
+        headShape: 0,
+    };
 
-    /* 创建属性 */
-    const talentRange = rules.TALENT_RANGE[quality] || { min: 6, max: 10 };
-    const base = rules.INIT_ATTR_BASE + (level - 1) * rules.GROWTH_PER_LEVEL;
-    const attrs = {};
-    for (const key of rules.ATTR_KEYS) {
-        attrs[`${key}_base`] = base;
-        attrs[`${key}_talent`] = talentRange.min + Math.floor(secureRandom() * (talentRange.max - talentRange.min + 1));
-    }
-    db.prepare(`
-        INSERT INTO pet_attr (pet_id, str_base, str_talent, agi_base, agi_talent,
-            vit_base, vit_talent, int_base, int_talent, per_base, per_talent,
-            cha_base, cha_talent, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(petId,
-        attrs.str_base, attrs.str_talent, attrs.agi_base, attrs.agi_talent,
-        attrs.vit_base, attrs.vit_talent, attrs.int_base, attrs.int_talent,
-        attrs.per_base, attrs.per_talent, attrs.cha_base, attrs.cha_talent,
-        ts, ts);
+    const createTestPet = db.transaction(() => {
+        /* 创建蛋记录 */
+        const eggResult = db.prepare(`
+            INSERT INTO pet_egg (user_id, quality, pattern_seed, is_hatched, talent_points, created_at, updated_at)
+            VALUES (?, ?, ?, 1, 0, ?, ?)
+        `).run(uid, quality, JSON.stringify(patternSeed), ts, ts);
+        const eggId = eggResult.lastInsertRowid;
 
-    /* 初始技能 */
-    for (const sk of rules.INITIAL_SKILLS) {
+        /* 创建宠物 */
+        const geneSet = JSON.stringify(geneEngine.generateInitialGeneSet(quality));
+        const appearance = JSON.stringify(geneEngine.generateInitialAppearanceGene(patternSeed));
+        const petResult = db.prepare(`
+            INSERT INTO pet (user_id, egg_id, name, quality, gender, level, exp, stage,
+                stamina, stamina_max, satiety, satiety_max, mood, is_active,
+                body_seed, gene_set, appearance_gene, hidden_gene, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, 100, 100, 100, 100, 50, 1, ?, ?, ?, ?, ?, ?)
+        `).run(uid, eggId, opts.name || `测试宠物_${ts}`, quality, gender, level, stage,
+            JSON.stringify(mergedBodySeed), geneSet, appearance, opts.hiddenGene || '', ts, ts);
+        const petId = Number(petResult.lastInsertRowid);
+
+        /* 创建属性 */
+        const talentRange = rules.TALENT_RANGE[quality] || { min: 6, max: 10 };
+        const base = rules.INIT_ATTR_BASE + (level - 1) * rules.GROWTH_PER_LEVEL;
+        const attrs = {};
+        const requestedAttrBases = opts.attrBases && typeof opts.attrBases === 'object' ? opts.attrBases : {};
+        for (const key of rules.ATTR_KEYS) {
+            const requested = Number(requestedAttrBases[key]);
+            attrs[`${key}_base`] = Number.isFinite(requested) ? Math.max(1, Math.min(999, Math.round(requested))) : base;
+            attrs[`${key}_talent`] = secureRandom(talentRange.min, talentRange.max);
+        }
         db.prepare(`
-            INSERT INTO pet_skill (pet_id, skill_code, skill_level, is_equipped, slot_index, unlocked_at, created_at, updated_at)
-            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
-        `).run(petId, sk.skill_code, sk.skill_level, sk.slot_index, ts, ts, ts);
-    }
+            INSERT INTO pet_attr (pet_id, str_base, str_talent, agi_base, agi_talent,
+                vit_base, vit_talent, int_base, int_talent, per_base, per_talent,
+                cha_base, cha_talent, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(petId,
+            attrs.str_base, attrs.str_talent, attrs.agi_base, attrs.agi_talent,
+            attrs.vit_base, attrs.vit_talent, attrs.int_base, attrs.int_talent,
+            attrs.per_base, attrs.per_talent, attrs.cha_base, attrs.cha_talent,
+            ts, ts);
 
-    return { code: 0, data: { petId, eggId, quality, gender, level, stage } };
+        /* 初始技能 */
+        const requestedSkills = Array.isArray(opts.skills) && opts.skills.length > 0
+            ? opts.skills.slice(0, 4).map((code, idx) => ({ skill_code: String(code).split(':')[0], skill_level: 1, slot_index: idx }))
+            : rules.INITIAL_SKILLS;
+        for (const sk of requestedSkills) {
+            db.prepare(`
+                INSERT INTO pet_skill (pet_id, skill_code, skill_level, is_equipped, slot_index, unlocked_at, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+            `).run(petId, sk.skill_code, sk.skill_level || 1, sk.slot_index || 0, ts, ts, ts);
+        }
+
+        return { petId, eggId, skillCount: requestedSkills.length };
+    });
+
+    const created = createTestPet();
+    const hasPet = !!db.prepare('SELECT id FROM pet WHERE id = ?').get(created.petId);
+    const hasAttr = !!db.prepare('SELECT pet_id FROM pet_attr WHERE pet_id = ?').get(created.petId);
+    return {
+        code: 0,
+        data: {
+            ...created,
+            quality,
+            gender,
+            level,
+            stage,
+            imported: !!opts.renderParams,
+            hasPet,
+            hasAttr,
+        }
+    };
 }
 
 /** 加速成长（直接设置等级/经验/阶段） */
@@ -505,7 +549,7 @@ function testBattle(pet1Id, pet2Id) {
     const mapIdx = Math.floor(secureRandom() * rules.ARENA_MAPS.length);
     const map = rules.ARENA_MAPS[mapIdx];
 
-    const result = battleEngine.simulate(fighter1, fighter2, map);
+    const result = battleEngine.simulate({ pet1: fighter1, pet2: fighter2, mapId: map.id });
     return { code: 0, data: result };
 }
 

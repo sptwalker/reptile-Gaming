@@ -13,6 +13,7 @@
             <div class="stage-hud">
                 <strong>Combinatorial Testing</strong>
                 <span id="modeText">鼠标牵引 / AI自主运动</span>
+                <span id="lifeStageText" class="stage-badge">幼体阶段</span>
             </div>
         </section>
         <section class="param-dock">
@@ -20,6 +21,11 @@
                 <button id="btnAi" class="btn primary">AI 自主运动</button>
                 <button id="btnReset" class="btn">重置</button>
                 <button id="btnRandomAppearance" class="btn accent">随机外观组合</button>
+                <button id="btnGenerateJuvenile" class="btn accent">生成幼体</button>
+                <button id="btnEvolve" class="btn evolve">蜕变升级</button>
+                <button id="btnImportBattle" class="btn import">导入战斗测试</button>
+                <a class="btn battle" href="battle-debug.html">实时战斗测试</a>
+                <span id="importStatus" class="import-status"></span>
                 <span class="hint">拖拽画布牵引，点击画布放置光点；参数实时生效。</span>
             </div>
             <div id="paramSections" class="param-sections"></div>

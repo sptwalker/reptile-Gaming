@@ -540,3 +540,78 @@ reptile-Gaming/
 
 - `client/js/lizard-renderer.js` — 解剖比例、变长脊椎、四肢挂载、前肢反转、斜对角步态、步态速度关联
 - `client/js/combinatorial-test.js` — 眼睛颜色参数、移除头部避让控件
+
+### v1.6 - 生物生成蜕变与实时战斗测试联调 (2026-04-26)
+
+> 新增宠物组合测试到数据库的快速导入能力，接入实时战斗测试页，并修复导入宠物启动战斗时的属性与 ID 槽位问题
+
+#### 组合测试导入战斗测试
+
+- `client/combinatorial-test.html` 新增「导入战斗测试」按钮和实时战斗测试入口
+- `client/js/combinatorial-test.js` 将当前表现测试参数导入 `/api/admin/test/create-pet`
+- 导入 payload 包含 `renderParams`、`bodySeed`、`hiddenGene`、`attrBases`、`skills`，将视觉组合映射为可战斗宠物
+- 导入成功后自动维护 `rg_battle_left_pet_id` / `rg_battle_right_pet_id` 槽位，避免右方仍使用默认不存在 ID
+
+#### 管理员快速创建宠物增强
+
+- `server/routes/admin.js` 扩展 `/api/admin/test/create-pet` 入参，支持组合测试导入数据
+- `server/services/admin-service.js` 的 `quickCreatePet()` 支持自定义外观、隐藏基因、属性基础值和技能
+- 修复 `generateInitialAppearanceGene()` 未传 `patternSeed` 导致读取 `bodyHue` 报错
+- 修复误用无参 `secureRandom()` 导致 `pet_attr.str_talent` NOT NULL 约束失败
+- `quickCreatePet()` 改为事务写入，确保 `pet_egg`、`pet`、`pet_attr`、`pet_skill` 要么全部成功，要么全部回滚
+- 导入返回增加 `hasPet`、`hasAttr`、`skillCount` 诊断字段
+
+#### 实时战斗测试系统
+
+- 新增 `client/battle-debug.html`、`client/css/battle-debug.css`、`client/js/battle-debug.js`
+- 新增 `server/routes/battle-debug.js`、`server/services/battle-debug-service.js`
+- 支持后端逐帧模拟、Canvas 实时观测、单帧推进、重置、结束和批量胜率测试
+- `server/index.js` 注册 `/api/battle-debug` 路由
+- `battle-debug.html` 支持 `?left=ID&right=ID`，并兼容旧参数 `?petId=ID`
+- 战斗测试页自动读取最近导入/使用的左右宠物 ID
+
+#### 战斗加载错误诊断
+
+- `_loadFighter()` 不再返回笼统 `null`，改为返回明确错误
+- 启动战斗失败时可区分：
+  - 左方宠物 ID 无效
+  - 左方宠物不存在
+  - 左方宠物属性不存在
+  - 右方宠物 ID 无效
+  - 右方宠物不存在
+  - 右方宠物属性不存在
+- 已验证当前数据库中导入宠物 `11` 与 `12` 可正常创建战斗会话
+
+#### 生物生成与战斗表现增强
+
+- `client/js/lizard-renderer.js` 扩展生命阶段、隐藏基因、技能表现、外观组合渲染参数
+- `server/models/game-rules.js` 扩展战斗身体部位、地图、技能/蜕变相关配置
+- `server/services/battle-engine.js` 增强实时战斗状态、身体部位、防御/再生/恐惧/技能事件等模拟能力
+- `server/services/nurture-service.js`、`server/services/pet-service.js` 同步适配蜕变、隐藏基因和战斗展示字段
+
+#### 验证
+
+- 全项目 `.js` 文件执行 `node --check` 通过
+- `client/` 与 `server/` 目录 lints 均无诊断错误
+- 手动调用 `debug.startBattle({ pet1Id: 11, pet2Id: 12, mapId: 'grassland' })` 返回 `code: 0`
+
+#### 变更文件
+
+- `client/combinatorial-test.html` — 导入按钮和战斗测试入口
+- `client/css/combinatorial-test.css` — 导入按钮与测试页样式增强
+- `client/js/combinatorial-test.js` — 组合参数导入、属性推导、左右战斗槽位维护
+- `client/battle-debug.html` — 新增实时战斗测试页面
+- `client/css/battle-debug.css` — 新增实时战斗测试样式
+- `client/js/battle-debug.js` — 新增战斗测试前端逻辑、URL/本地槽位 ID 填充
+- `server/routes/battle-debug.js` — 新增战斗测试 API 路由
+- `server/services/battle-debug-service.js` — 新增战斗测试会话服务与详细加载诊断
+- `server/routes/admin.js` — 扩展测试宠物创建入参
+- `server/services/admin-service.js` — 组合测试导入、事务写库、导入诊断字段
+- `server/index.js` — 注册战斗测试路由
+- `server/models/game-rules.js` — 战斗/蜕变/技能数值扩展
+- `server/services/battle-engine.js` — 实时战斗模拟增强
+- `server/services/nurture-service.js` — 蜕变与状态同步增强
+- `server/services/pet-service.js` — 宠物详情字段适配
+- `client/js/arena.js` — 竞技场前端适配战斗增强
+- `client/js/lizard-renderer.js` — 生物表现、阶段、隐藏基因和技能渲染增强
+- `docs/07-creature-generation-and-evolution.md` — 生物生成与蜕变设计记录

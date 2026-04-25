@@ -42,6 +42,14 @@ html, body {
     font-size: 12px;
 }
 .stage-hud strong { color: #58a6ff; }
+.stage-badge {
+    padding: 3px 8px;
+    border: 1px solid rgba(63, 185, 80, 0.35);
+    border-radius: 999px;
+    background: rgba(35, 134, 54, 0.18);
+    color: #7ee787;
+    font-weight: 700;
+}
 .param-dock {
     flex: 0 0 34vh;
     min-height: 250px;
@@ -73,6 +81,11 @@ html, body {
 .btn.primary { background: #1f6feb; border-color: #388bfd; }
 .btn.primary.off { background: #3a2020; border-color: #f85149; }
 .btn.accent { background: #238636; border-color: #3fb950; }
+.btn.evolve { background: #8250df; border-color: #a371f7; }
+.btn.import { background: #0f766e; border-color: #2dd4bf; }
+.btn.battle { background: #b45309; border-color: #f59e0b; text-decoration: none; }
+.btn:disabled { cursor: not-allowed; opacity: 0.55; border-color: #30363d; background: #21262d; }
+.import-status { color: #7ee787; font-size: 12px; font-weight: 700; }
 .hint { margin-left: auto; color: #8b949e; font-size: 12px; }
 .param-sections {
     flex: 1;
@@ -114,7 +127,9 @@ html, body {
 }
 .param-group.compact-colors h3 { grid-column: 1 / -1; }
 .param-group.compact-colors .select-row {
-    grid-template-columns: auto 34px;
+    grid-template-columns: 42px 34px;
+    justify-content: start;
+    gap: 4px;
     margin: 2px 0;
 }
 .param-group.compact-colors .field { grid-column: 1 / -1; margin: 3px 0; }

@@ -42,6 +42,8 @@ class LizardRenderer {
     /* render_params from server (RB-1/RB-2/RB-5) */
     this._bodyScale = 1.0;
     this._headScale = 1.0;
+    this._limbThickness = 1.0;
+    this._legGapRatio = 1.0;
     this._headShape = "ellipse";
     this._headRotationLimit = 90;
     this._headTurnOffset = 0;
@@ -56,6 +58,8 @@ class LizardRenderer {
     this._patternComplexity = 1;
     this._patternType = "spots";
     this._patternColor = "rgba(30,60,20,0.5)";
+    this._spineCount = 0;
+    this._spineLength = 0;
     this._bodySeed = null;
     /* 弯折约束（弧度）— DEVLOG v0.7 原始紧凑值 */
     this.BEND_NECK = 0.455;
@@ -157,8 +161,10 @@ class LizardRenderer {
 
   _redistributeLegs() {
     if (!this.legs || this.legs.length < 4) return;
-    var front = this._legIndexAt(0.05);
-    var rear = this._legIndexAt(0.242);
+    var frontRatio = 0.05;
+    var rearRatio = Math.min(0.38, 0.242 * (this._legGapRatio || 1));
+    var front = this._legIndexAt(frontRatio);
+    var rear = Math.max(front + 2, this._legIndexAt(rearRatio));
     this.legs[0].spineIndex = front;
     this.legs[1].spineIndex = front;
     this.legs[2].spineIndex = rear;
@@ -234,12 +240,23 @@ class LizardRenderer {
     /* bodyWidth / headScale / colorSaturation 本身就是倍率，直接赋值 */
     if (renderParams.bodyWidth !== undefined)         this._bodyScale = renderParams.bodyWidth;
     if (renderParams.headScale !== undefined)         this._headScale = renderParams.headScale;
+    if (renderParams.limbThickness !== undefined)     this._limbThickness = Math.max(0.45, Math.min(2.2, renderParams.limbThickness));
+    if (renderParams.legGapRatio !== undefined) {
+      var nextLegGapRatio = Math.max(0.65, Math.min(1.65, renderParams.legGapRatio));
+      if (Math.abs(nextLegGapRatio - this._legGapRatio) > 0.0001) {
+        this._legGapRatio = nextLegGapRatio;
+        this._redistributeLegs();
+        this._initLegs();
+      }
+    }
     if (renderParams.headShape !== undefined)         this._headShape = renderParams.headShape;
-    if (renderParams.headRotationLimit !== undefined) this._headRotationLimit = Math.max(0, Math.min(300, renderParams.headRotationLimit));
+    if (renderParams.headRotationLimit !== undefined) this._headRotationLimit = Math.max(40, Math.min(300, renderParams.headRotationLimit));
     if (renderParams.colorSaturation !== undefined)   this._colorSaturation = renderParams.colorSaturation;
     if (renderParams.patternComplexity !== undefined) this._patternComplexity = renderParams.patternComplexity;
     if (renderParams.patternType !== undefined)       this._patternType = renderParams.patternType;
     if (renderParams.patternColor !== undefined)      this._patternColor = renderParams.patternColor;
+    if (renderParams.spineCount !== undefined)        this._spineCount = Math.max(0, Math.min(80, renderParams.spineCount));
+    if (renderParams.spineLength !== undefined)       this._spineLength = Math.max(0, Math.min(3, renderParams.spineLength));
     /* 以下参数服务端返回的是倍率，需要乘以基准值再乘以缩放因子 */
     var sf = this._scaleFactor || 1;
     if (renderParams.moveSpeed !== undefined)         this.MAX_SPEED = this._BASE_MAX_SPEED * renderParams.moveSpeed * sf;
@@ -265,13 +282,31 @@ class LizardRenderer {
     var tail = seed.tailColor || "hsl(" + hueBase + "," + sat + "%," + (light - 8) + "%)";
     var eye = seed.eyeColor || "#ff8800";
     var pattern = seed.patternColor || this._patternColor;
+    function darkenColor(color, amount) {
+      var hslMatch = String(color || "").match(/hsl\(([-\d.]+),\s*([-\d.]+)%?,\s*([-\d.]+)%?\)/);
+      if (hslMatch) return "hsl(" + hslMatch[1] + "," + hslMatch[2] + "%," + Math.max(6, Number(hslMatch[3]) - amount) + "%)";
+      var hexMatch = String(color || "").match(/^#([0-9a-f]{6})$/i);
+      if (hexMatch) {
+        var n = parseInt(hexMatch[1], 16);
+        var f = Math.max(0.2, 1 - amount / 60);
+        var r = Math.round(((n >> 16) & 255) * f);
+        var g = Math.round(((n >> 8) & 255) * f);
+        var b = Math.round((n & 255) * f);
+        return "#" + [r, g, b].map(function(v) { return v.toString(16).padStart(2, "0"); }).join("");
+      }
+      return color;
+    }
+    var limbBase = "hsl(" + hueBase + "," + sat + "%," + Math.max(10, light - 3) + "%)";
+    var limb = seed.limbColor || limbBase;
+    var limbOutline = darkenColor(limb, 22);
     return {
       bodyTop:    seed.bodyColor || "hsl(" + hueBase + "," + sat + "%," + (light + 8) + "%)",
       bodyMid:    body,
       bodyBottom: tail,
       head:       head,
       eye:        eye,
-      leg:        body,
+      leg:        limb,
+      legOutline: limbOutline,
       outline:    "hsl(" + hueBase + "," + sat + "%," + Math.max(8, light - 12) + "%)",
       stripe:     pattern,
       dot:        pattern,
@@ -1157,6 +1192,132 @@ class LizardRenderer {
     ctx.restore();
   }
 
+  _drawSpike(x, y, angle, len, width, color, outline) {
+    var ctx = this.ctx;
+    var px = Math.cos(angle + Math.PI / 2) * width;
+    var py = Math.sin(angle + Math.PI / 2) * width;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = Math.max(0.6, 1 * (this._scaleFactor || 1));
+    ctx.beginPath();
+    ctx.moveTo(x + px, y + py);
+    ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
+    ctx.lineTo(x - px, y - py);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  _headHalfWidthAt(localX, hs, shape) {
+    var x = localX / Math.max(0.001, hs);
+    var half = 0;
+    if (shape === "triangle") {
+      if (x < -9.5 || x > 19) return 0;
+      half = x < -4 ? this._lerp(9, 12, (x + 9.5) / 5.5) : this._lerp(12, 2, (x + 4) / 23);
+    } else if (shape === "inverted_triangle") {
+      if (x < -8 || x > 22) return 0;
+      half = this._lerp(2.5, 13, (x + 8) / 30);
+    } else if (shape === "shovel") {
+      if (x < -12 || x > 22) return 0;
+      half = x < 0 ? this._lerp(8, 15, (x + 12) / 12) : this._lerp(15, 5, x / 22);
+    } else if (shape === "crescent") {
+      if (x < -8 || x > 24) return 0;
+      half = 16 * Math.sqrt(Math.max(0, 1 - Math.pow((x - 7) / 17, 2)));
+    } else if (shape === "fan") {
+      if (x < -13 || x > 31) return 0;
+      half = x < 15 ? this._lerp(2, 20, (x + 13) / 28) : this._lerp(20, 8, (x - 15) / 16);
+    } else if (shape === "semicircle") {
+      if (x < -8 || x > 21) return 0;
+      half = x < 4 ? 12 : 17 * Math.sqrt(Math.max(0, 1 - Math.pow((x - 4) / 17, 2)));
+    } else if (shape === "diamond") {
+      if (x < -12 || x > 24) return 0;
+      half = x < 5 ? this._lerp(0, 15, (x + 12) / 17) : this._lerp(15, 0, (x - 5) / 19);
+    } else {
+      if (x < -8 || x > 24) return 0;
+      half = 12 * Math.sqrt(Math.max(0, 1 - Math.pow((x - 8) / 16, 2)));
+    }
+    return Math.max(0, half * hs);
+  }
+
+  _headSpineAnchor(h, headCount, hs) {
+    var shape = this._headShape || "ellipse";
+    var side = h % 2 === 0 ? 1 : -1;
+    var pairCount = Math.max(1, Math.ceil(headCount / 2));
+    var row = Math.floor(h / 2);
+    var ranges = {
+      triangle: [-7, 13],
+      inverted_triangle: [-2, 19],
+      shovel: [-8, 16],
+      crescent: [-3, 18],
+      fan: [-7, 23],
+      semicircle: [-5, 16],
+      diamond: [-5, 17],
+      ellipse: [-4, 16]
+    };
+    var range = ranges[shape] || ranges.ellipse;
+    var t = pairCount <= 1 ? 0.45 : row / (pairCount - 1);
+    var jitter = (this._hash(h * 11) - 0.5) * 1.8;
+    var lx = (this._lerp(range[0], range[1], t) + jitter) * hs;
+    var half = this._headHalfWidthAt(lx, hs, shape);
+    if (half < 2 * hs) {
+      lx = this._lerp(range[0], range[1], 0.5) * hs;
+      half = this._headHalfWidthAt(lx, hs, shape);
+    }
+    var inset = Math.max(0.8 * hs, Math.min(2.2 * hs, half * 0.13));
+    var ly = side * Math.max(1.5 * hs, half - inset);
+    return { x: lx, y: ly, side: side };
+  }
+
+  _drawSpines() {
+    var count = Math.round(this._spineCount || 0);
+    if (count <= 0) return;
+    var ctx = this.ctx;
+    var sf = this._scaleFactor || 1;
+    var lenMul = this._spineLength || 1;
+    var sc = this._skinColors || {bodyTop:"#5a8a3c",head:"#4a7a30",leg:"#3d6b2e",outline:"#2a4d1f"};
+    var bodyCount = Math.floor(count * 0.55);
+    var limbCount = Math.floor(count * 0.25);
+    var headCount = count - bodyCount - limbCount;
+    ctx.save();
+    for (var b = 0; b < bodyCount; b++) {
+      var tb = bodyCount <= 1 ? 0.22 : 0.08 + (b / (bodyCount - 1)) * 0.34;
+      var idx = Math.max(1, Math.min(this.spine.length - 2, Math.round(tb * (this.spine.length - 1))));
+      var node = this.spine[idx], prev = this.spine[idx - 1], next = this.spine[idx + 1];
+      var axis = Math.atan2(next.y - prev.y, next.x - prev.x);
+      var side = this._hash(b * 17 + 3) > 0.5 ? 1 : -1;
+      var outward = axis + Math.PI / 2 * side;
+      var w = this._bodyWidthAt(idx) * 0.92;
+      var len = (7 + this._hash(b * 29) * 5) * sf * lenMul;
+      this._drawSpike(node.x + Math.cos(outward) * w, node.y + Math.sin(outward) * w, outward, len, len * 0.34, sc.bodyTop, sc.outline);
+    }
+    for (var h = 0; h < headCount; h++) {
+      var angle = this._getVisualHeadAngle();
+      var hs = this._headScale * sf;
+      var anchor = this._headSpineAnchor(h, headCount, hs);
+      var wx = this.spine[0].x + Math.cos(angle) * anchor.x - Math.sin(angle) * anchor.y;
+      var wy = this.spine[0].y + Math.sin(angle) * anchor.x + Math.cos(angle) * anchor.y;
+      var outH = angle + Math.PI / 2 * anchor.side;
+      var lenH = (6 + this._hash(h * 31) * 4) * sf * lenMul;
+      this._drawSpike(wx, wy, outH, lenH, lenH * 0.32, sc.head, sc.outline);
+    }
+    if (limbCount > 0) {
+      for (var l = 0; l < limbCount; l++) {
+        var leg = this.legs[l % this.legs.length];
+        var hip = this._getHip(leg);
+        var drawFoot = this._clampLegFoot(hip, leg.foot, this.LEG_LENGTH1 + this.LEG_LENGTH2 - 3);
+        var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
+        var knee = this._solveIK(hip, drawFoot, this.LEG_LENGTH1, this.LEG_LENGTH2, bendDir);
+        var t = 0.28 + this._hash(l * 23) * 0.44;
+        var x = this._lerp(hip.x, knee.x, t);
+        var y = this._lerp(hip.y, knee.y, t);
+        var a = Math.atan2(knee.y - hip.y, knee.x - hip.x) + Math.PI / 2 * leg.side;
+        var lenL = (5 + this._hash(l * 37) * 4) * sf * lenMul;
+        this._drawSpike(x, y, a, lenL, lenL * 0.32, sc.leg, sc.outline);
+      }
+    }
+    ctx.restore();
+  }
+
   _drawBody() {
     var ctx = this.ctx, leftPts = [], rightPts = [];
     for (var i = 0; i < this.spine.length; i++) {
@@ -1206,9 +1367,21 @@ class LizardRenderer {
     ctx.strokeStyle = sc.outline; ctx.lineWidth = Math.max(1, 2 * (this._scaleFactor || 1));
     ctx.beginPath();
     if (shape === "triangle") {
-      ctx.moveTo(25 * hs, 0); ctx.lineTo(-10 * hs, -14 * hs); ctx.lineTo(-8 * hs, 14 * hs); ctx.closePath();
+      ctx.moveTo(19 * hs, -2 * hs);
+      ctx.quadraticCurveTo(25 * hs, 0, 19 * hs, 2 * hs);
+      ctx.lineTo(-4 * hs, 12 * hs);
+      ctx.quadraticCurveTo(-8 * hs, 14 * hs, -8.5 * hs, 9 * hs);
+      ctx.lineTo(-9.5 * hs, -9 * hs);
+      ctx.quadraticCurveTo(-10 * hs, -14 * hs, -4 * hs, -12 * hs);
+      ctx.closePath();
     } else if (shape === "inverted_triangle") {
-      ctx.moveTo(-13 * hs, 0); ctx.lineTo(22 * hs, -15 * hs); ctx.lineTo(22 * hs, 15 * hs); ctx.closePath();
+      ctx.moveTo(-8 * hs, -2 * hs);
+      ctx.quadraticCurveTo(-13 * hs, 0, -8 * hs, 2 * hs);
+      ctx.lineTo(17 * hs, 13 * hs);
+      ctx.quadraticCurveTo(22 * hs, 15 * hs, 22 * hs, 9 * hs);
+      ctx.lineTo(22 * hs, -9 * hs);
+      ctx.quadraticCurveTo(22 * hs, -15 * hs, 17 * hs, -13 * hs);
+      ctx.closePath();
     } else if (shape === "shovel") {
       ctx.moveTo(22 * hs, -5 * hs); ctx.quadraticCurveTo(18 * hs, -17 * hs, 0, -15 * hs); ctx.lineTo(-12 * hs, -8 * hs); ctx.lineTo(-12 * hs, 8 * hs); ctx.lineTo(0, 15 * hs); ctx.quadraticCurveTo(18 * hs, 17 * hs, 22 * hs, 5 * hs); ctx.closePath();
     } else if (shape === "crescent") {
@@ -1239,48 +1412,95 @@ class LizardRenderer {
     ctx.restore();
   }
 
+  _drawLegOutline(hip, knee, foot, upperWidth, lowerWidth, color) {
+    var ctx = this.ctx;
+    var a1 = Math.atan2(knee.y - hip.y, knee.x - hip.x);
+    var a2 = Math.atan2(foot.y - knee.y, foot.x - knee.x);
+    var p1 = a1 + Math.PI / 2;
+    var p2 = a2 + Math.PI / 2;
+    var u = upperWidth / 2;
+    var l = lowerWidth / 2;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(hip.x + Math.cos(p1) * u, hip.y + Math.sin(p1) * u);
+    ctx.quadraticCurveTo(knee.x + Math.cos(p1) * u, knee.y + Math.sin(p1) * u, knee.x + Math.cos(p2) * l, knee.y + Math.sin(p2) * l);
+    ctx.lineTo(foot.x + Math.cos(p2) * l, foot.y + Math.sin(p2) * l);
+    ctx.lineTo(foot.x - Math.cos(p2) * l, foot.y - Math.sin(p2) * l);
+    ctx.quadraticCurveTo(knee.x - Math.cos(p2) * l, knee.y - Math.sin(p2) * l, knee.x - Math.cos(p1) * u, knee.y - Math.sin(p1) * u);
+    ctx.lineTo(hip.x - Math.cos(p1) * u, hip.y - Math.sin(p1) * u);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   _drawLegs() {
     var self = this, ctx = this.ctx;
     var sc = this._skinColors || {leg:"#3d6b2e",outline:"#2a4d1f"};
     var sf = this._scaleFactor || 1;
+    var lt = this._limbThickness || 1;
     this.legs.forEach(function(leg) {
       var hip = self._getHip(leg);
       var drawFoot = self._clampLegFoot(hip, leg.foot, self.LEG_LENGTH1 + self.LEG_LENGTH2 - 3);
       /* 前肢(pairId=0)关节向后弯曲，后肢(pairId=1)关节向前弯曲 */
       var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
       var knee = self._solveIK(hip, drawFoot, self.LEG_LENGTH1, self.LEG_LENGTH2, bendDir);
+      /* 先绘制整条四肢的连续外轮廓，避免在肘/膝内部形成暗色分段 */
+      ctx.lineCap = "round";
+      var upperWidth = Math.max(2, 10 * sf * lt);
+      var lowerWidth = Math.max(1.5, 7 * sf * lt);
+      self._drawLegOutline(hip, knee, drawFoot, upperWidth + 3 * sf * lt, lowerWidth + 3 * sf * lt, sc.legOutline || sc.outline || "#1a3010");
       /* 粗壮的上臂/大腿（更丰满的四肢） */
-      ctx.strokeStyle = sc.leg; ctx.lineWidth = Math.max(3, 10 * sf); ctx.lineCap = "round";
+      ctx.strokeStyle = sc.leg; ctx.lineWidth = upperWidth;
       ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(knee.x, knee.y); ctx.stroke();
       /* 略细的小臂/小腿，仍保持粗壮感 */
-      ctx.lineWidth = Math.max(2, 7 * sf);
+      ctx.strokeStyle = sc.leg; ctx.lineWidth = lowerWidth;
       ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
-      /* 膝关节/肘关节突起 */
-      ctx.fillStyle = sc.outline;
-      ctx.beginPath(); ctx.arc(knee.x, knee.y, Math.max(3, 6 * sf), 0, Math.PI * 2); ctx.fill();
-      /* 髋关节/肩关节附着点（与身体平滑衔接） */
-      ctx.beginPath(); ctx.arc(hip.x, hip.y, Math.max(2.5, 5 * sf), 0, Math.PI * 2); ctx.fill();
-      self._drawFoot(drawFoot, hip);
+      self._drawFoot(drawFoot, hip, leg);
     });
   }
 
-  _drawFoot(foot, hip) {
+  _drawFoot(foot, hip, leg) {
     var ctx = this.ctx;
     var sc = this._skinColors || {leg:"#3d6b2e"};
     var sf = this._scaleFactor || 1;
+    var lt = this._limbThickness || 1;
     var angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
-    var toeLen = Math.max(5, 12 * sf);
+    if (leg) {
+      var targetAngle = this._spineAngleAt(leg.spineIndex);
+      var limit = leg.pairId === 0 ? Math.PI / 6 : Math.PI / 4;
+      var diff = this._angleDiff(angle, targetAngle);
+      angle += Math.max(-limit, Math.min(limit, diff));
+      if (leg.footRenderAngle === undefined) leg.footRenderAngle = angle;
+      leg.footRenderAngle += this._angleDiff(leg.footRenderAngle, angle) * 0.35;
+      angle = leg.footRenderAngle;
+    }
+    var toeLen = Math.max(7, 16 * sf);
+    var toeBaseWidth = Math.max(1, 3.5 * sf * lt);
+    var outerToeWidth = Math.max(1.8, 5.5 * sf * lt);
     ctx.save(); ctx.translate(foot.x, foot.y); ctx.rotate(angle);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = sc.legOutline || sc.outline || "#1a3010";
+    ctx.lineWidth = outerToeWidth;
+    /* 爪子整体外轮廓：只沿最外侧两指形成闭合外形，不描绘内部指缝 */
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(-1.5 * 0.55) * toeLen, Math.sin(-1.5 * 0.55) * toeLen);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(Math.cos(1.5 * 0.55) * toeLen, Math.sin(1.5 * 0.55) * toeLen);
+    ctx.stroke();
     ctx.fillStyle = sc.leg;
     /* 粗壮的脚掌基底 */
-    ctx.beginPath(); ctx.arc(0, 0, Math.max(2, 4 * sf), 0, Math.PI * 2); ctx.fill();
-    for (var t = -2; t <= 2; t++) {
-      var spread = t * 0.35;
-      /* 更粗的脚趾线条 */
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen);
-      ctx.lineWidth = Math.max(1.5, 3.5 * sf); ctx.strokeStyle = sc.leg; ctx.stroke();
-      /* 脚趾尖端圆点 */
-      ctx.beginPath(); ctx.arc(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen, Math.max(1.2, 2.2 * sf), 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, Math.max(1.2, 4 * sf * lt), 0, Math.PI * 2); ctx.fill();
+    for (var t = -1.5; t <= 1.5; t++) {
+      var spread = t * 0.55;
+      var tipX = Math.cos(spread) * toeLen;
+      var tipY = Math.sin(spread) * toeLen;
+      /* 更长、更分开的四指爪 */
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(tipX, tipY);
+      ctx.lineWidth = toeBaseWidth; ctx.strokeStyle = sc.leg; ctx.stroke();
+      /* 尖爪 */
+      ctx.strokeStyle = sc.legOutline || sc.outline || "#1a3010";
+      ctx.lineWidth = Math.max(0.9, 2 * sf * lt);
+      ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(Math.cos(spread) * (toeLen + 5 * sf), Math.sin(spread) * (toeLen + 5 * sf)); ctx.stroke();
     }
     ctx.restore();
   }
@@ -1477,6 +1697,7 @@ class LizardRenderer {
     this._drawLegs();
     this._drawBody();
     this._drawHead();
+    this._drawSpines();
     this._applyTestEffect(this._testEffect);
   }
 }

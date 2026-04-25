@@ -278,8 +278,8 @@ const Arena = (() => {
         const a = frame.a;
         const b = frame.b;
 
-        _drawUnit(ctx, a.x, H - 80, '#55ff55', a.st, 'A');
-        _drawUnit(ctx, b.x, H - 80, '#ff5555', b.st, 'B');
+        _drawUnit(ctx, a.x, H - 80, '#55ff55', a.st, 'A', a);
+        _drawUnit(ctx, b.x, H - 80, '#ff5555', b.st, 'B', b);
 
         // 离屏Canvas → 主Canvas 一次性拷贝
         if (_offscreenCanvas) {
@@ -311,34 +311,99 @@ const Arena = (() => {
         }
     }
 
-    function _drawUnit(ctx, x, y, color, state, label) {
+    function _drawUnit(ctx, x, y, color, state, label, unit) {
+        const body = unit?.body || {};
+        const limbDetached = ['foreLeft', 'foreRight', 'hindLeft', 'hindRight'].some(k => body[k]?.detached);
+        const hurt = Object.values(body).some(p => p && p.max && p.hp / p.max < 0.5);
+
         ctx.save();
+        ctx.translate(x, y);
+        if (unit?.spin) ctx.rotate(Math.sin((_replayIdx || 0) * 0.6) * unit.spin);
+
+        if (unit?.decoy) {
+            ctx.strokeStyle = '#ffdd55';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(0, 0, 32, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(x, y, 20, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, 26, 14, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // 状态指示
+        ctx.fillStyle = hurt ? '#ffcc55' : color;
+        ctx.beginPath();
+        ctx.arc(label === 'A' ? 24 : -24, -2, 11, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = limbDetached ? '#777' : color;
+        ctx.lineWidth = 4;
+        for (const [lx, ly, key] of [[-14, 10, 'foreLeft'], [10, 10, 'foreRight'], [-14, -10, 'hindLeft'], [10, -10, 'hindRight']]) {
+            ctx.globalAlpha = body[key]?.detached ? 0.2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(lx, ly);
+            ctx.lineTo(lx + (body[key]?.hp / body[key]?.max < 0.2 ? 4 : 0), ly + 16);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = body.tail?.detached ? 0.25 : 1;
+        ctx.beginPath();
+        ctx.moveTo(label === 'A' ? -26 : 26, 0);
+        ctx.lineTo(label === 'A' ? -44 : 44, 4);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        _drawBodyMiniBars(ctx, body, label === 'A' ? -42 : 14, -46);
+
         ctx.fillStyle = '#fff';
         ctx.font = '10px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(label, x, y - 28);
-        ctx.fillText(state, x, y + 35);
+        ctx.fillText(label, 0, -58);
+        ctx.fillText(state, 0, 36);
+        if (unit?.canSkill === false) ctx.fillText('禁技', 0, 49);
         ctx.restore();
+    }
+
+    function _drawBodyMiniBars(ctx, body, x, y) {
+        const keys = ['head', 'torso', 'foreLeft', 'foreRight', 'hindLeft', 'hindRight', 'tail'];
+        keys.forEach((key, i) => {
+            const p = body[key];
+            if (!p || !p.max) return;
+            const ratio = Math.max(0, Math.min(1, p.hp / p.max));
+            ctx.fillStyle = p.detached ? '#555' : ratio < 0.2 ? '#ff4444' : ratio < 0.5 ? '#ffaa33' : '#66dd66';
+            ctx.fillRect(x, y + i * 4, Math.round(28 * ratio), 2);
+            ctx.strokeStyle = '#222';
+            ctx.strokeRect(x, y + i * 4, 28, 2);
+        });
+    }
+
+    function _partName(code) {
+        const names = {
+            head: '头部', torso: '躯干', foreLeft: '左前肢', foreRight: '右前肢',
+            hindLeft: '左后肢', hindRight: '右后肢', tail: '尾部', tail_decoy: '断尾诱饵',
+        };
+        return names[code] || code || '未知部位';
     }
 
     function _logEvent(ev) {
         let text = '';
         const src = ev.src === 'left' ? '🟢' : '🔴';
+        const part = ev.part ? `（${_partName(ev.part)}）` : '';
         switch (ev.type) {
-            case 'hit':       text = `${src} 攻击 → ${ev.dmg} 伤害`; break;
-            case 'crit':      text = `${src} 暴击！→ ${ev.dmg} 伤害`; break;
-            case 'dodge':     text = `${src} 攻击被闪避`; break;
-            case 'skill_hit': text = `${src} [${ev.skill}] → ${ev.dmg} 伤害${ev.crit ? ' 暴击!' : ''}`; break;
-            case 'heal':      text = `${src} [${ev.skill}] 恢复 ${ev.amt} HP`; break;
-            case 'buff':      text = `${src} [${ev.skill}] 增益 ${ev.effect}`; break;
-            case 'fear':      text = `${src} [${ev.skill}] 恐惧+${ev.fear}`; break;
-            case 'flee':      text = `${src} 恐惧逃跑！`; break;
+            case 'hit':         text = `${src} 攻击${part} → ${ev.dmg} 伤害`; break;
+            case 'crit':        text = `${src} 暴击${part}！→ ${ev.dmg} 伤害`; break;
+            case 'dodge':       text = `${src} 攻击${part}被闪避`; break;
+            case 'skill_hit':   text = `${src} [${ev.skill}] 命中${part} → ${ev.dmg} 伤害${ev.crit ? ' 暴击!' : ''}`; break;
+            case 'heal':        text = `${src} [${ev.skill}] 恢复 ${ev.amt} HP`; break;
+            case 'buff':        text = `${src} [${ev.skill}] 增益 ${ev.effect}`; break;
+            case 'fear':        text = `${src} [${ev.skill}] 恐惧+${ev.fear}`; break;
+            case 'spin':        text = `${src} 肢体损毁，运动失控原地转向`; break;
+            case 'tail_detach': text = `${src} 尾巴主动脱落，形成诱饵干扰`; break;
+            case 'tail_decoy':  text = `${src} 攻击被断尾诱饵干扰`; break;
+            case 'limb_detach': text = `${src} ${_partName(ev.part)}脱离，运动严重受损`; break;
+            case 'flee':        text = `${src} 恐惧逃跑！`; break;
         }
         if (text) {
             const div = document.createElement('div');

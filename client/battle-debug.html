@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时战斗测试</title>
+    <link rel="stylesheet" href="css/battle-debug.css">
+</head>
+<body>
+    <main class="battle-shell">
+        <header class="topbar">
+            <div>
+                <h1>实时战斗测试</h1>
+                <p>后端逐帧模拟 · Canvas 实时观测 · 批量数值验证</p>
+            </div>
+            <a class="back-link" href="combinatorial-test.html">返回组合测试</a>
+        </header>
+
+        <section class="layout">
+            <aside class="panel controls">
+                <h2>控制台</h2>
+                <label>管理员密钥<input id="adminKey" type="password" placeholder="X-Admin-Key"></label>
+                <div class="grid2">
+                    <label>左方宠物ID<input id="pet1Id" type="number" min="1" value="1"></label>
+                    <label>右方宠物ID<input id="pet2Id" type="number" min="1" value="2"></label>
+                </div>
+                <label>地图<select id="mapId"></select></label>
+                <div class="button-row">
+                    <button id="btnStart" class="primary">开始</button>
+                    <button id="btnPause">暂停</button>
+                    <button id="btnStep">单帧</button>
+                    <button id="btnReset">重置</button>
+                    <button id="btnEnd">结束</button>
+                </div>
+                <label>倍速<select id="speed"><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label>
+                <div class="metric-grid" id="battleMetrics"></div>
+
+                <h2>批量测试</h2>
+                <div class="grid2">
+                    <label>场次<input id="batchCount" type="number" min="1" max="200" value="30"></label>
+                    <button id="btnBatch" class="accent">运行批量</button>
+                </div>
+                <div id="batchResult" class="batch-result muted">未运行</div>
+            </aside>
+
+            <section class="stage-card">
+                <canvas id="battleCanvas" width="960" height="560"></canvas>
+                <div id="winnerBadge" class="winner hidden"></div>
+            </section>
+
+            <aside class="panel inspect">
+                <h2>实时状态</h2>
+                <div class="unit-wrap">
+                    <section><h3>左方</h3><div id="leftState"></div></section>
+                    <section><h3>右方</h3><div id="rightState"></div></section>
+                </div>
+                <h2>事件日志</h2>
+                <div id="eventLog" class="event-log"></div>
+            </aside>
+        </section>
+    </main>
+    <script src="js/battle-debug.js"></script>
+</body>
+</html>

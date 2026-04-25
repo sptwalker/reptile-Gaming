@@ -18,6 +18,19 @@ const rules                    = require('../models/game-rules');
 const { calcDerived }          = require('./hatch-service');
 const { secureRandom, secureRandomFloat } = require('../utils/random');
 
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function adjustHslLightness(value, amount) {
+    const match = String(value || '').match(/hsl\(([-\d.]+),\s*([-\d.]+)%?,\s*([-\d.]+)%?\)/);
+    if (!match) return value;
+    const h = Math.round(((Number(match[1]) % 360) + 360) % 360);
+    const s = Math.round(clamp(Number(match[2]), 0, 100));
+    const l = Math.round(clamp(Number(match[3]) + amount, 6, 86));
+    return `hsl(${h},${s}%,${l}%)`;
+}
+
 /* ═══════════════════════════════════════════
  * 时间衰减引擎
  * 根据 pet.updated_at 与当前时间的差值，
@@ -395,7 +408,7 @@ function restPet(uid, petId, ip) {
 
 /**
  * 触发宠物蜕变
- * 校验链：阶段上限 → 等级 → 品质(stage3) → 属性条件 → 体力 → 金币
+ * 校验链：阶段上限 → 等级 → 品质(stage4) → 属性条件 → 体力 → 金币
  * 效果：stage+1, stamina_max+20, satiety_max+10, 六维base+3, 技能解锁
  *
  * @param {number} uid   用户ID
@@ -445,9 +458,9 @@ function evolvePet(uid, petId, ip) {
         if (total > maxAttrTotal) maxAttrTotal = total;
     }
 
-    /* ── 阶段2→3：品质检测 ── */
-    if (targetStage === 3 && pet.quality < rules.EVOLVE_QUALITY_REQ_STAGE3) {
-        return { code: 5003, data: null, msg: `蜕变至完全体需要品质≥${rules.QUALITY_NAMES[rules.EVOLVE_QUALITY_REQ_STAGE3]}` };
+    /* ── 成年→完全体：品质检测 ── */
+    if (targetStage === 4 && pet.quality < rules.EVOLVE_QUALITY_REQ_STAGE4) {
+        return { code: 5003, data: null, msg: `蜕变至完全体需要品质≥${rules.QUALITY_NAMES[rules.EVOLVE_QUALITY_REQ_STAGE4]}` };
     }
 
     /* ── 属性条件检测 ── */
@@ -497,6 +510,42 @@ function evolvePet(uid, petId, ip) {
     const attrBonus     = rules.EVOLVE_ATTR_BONUS;
     const newLevelCap   = rules.LEVEL_CAP[targetStage] || 100;
     const newSkillSlots = rules.SKILL_SLOTS[pet.quality] || 2;
+    let bodySeed;
+    try { bodySeed = JSON.parse(pet.body_seed); }
+    catch { bodySeed = {}; }
+    const existingSpineBonus = Number.isFinite(Number(bodySeed.evolveSpineBonus))
+        ? Number(bodySeed.evolveSpineBonus)
+        : pet.stage * 2;
+    const spineBonusGain = secureRandomFloat() < 0.5 ? 3 : 2;
+    const legGapByStage = { 1: 1.25, 2: 1.12, 3: 1.0, 4: 1.0 };
+    const lightnessGain = secureRandom(1, 4);
+    const currentLightness = Number.isFinite(Number(bodySeed.lightness))
+        ? Number(bodySeed.lightness)
+        : (Number.isFinite(Number(bodySeed.bodyLightness)) ? Number(bodySeed.bodyLightness) : 32);
+    bodySeed.lightness = clamp(currentLightness + lightnessGain, 16, 58);
+    if (Number.isFinite(Number(bodySeed.bodyLightness))) {
+        bodySeed.bodyLightness = clamp(Number(bodySeed.bodyLightness) + lightnessGain, 20, 80);
+    }
+    for (const colorKey of ['headColor', 'bodyColor', 'limbColor', 'tailColor']) {
+        if (bodySeed[colorKey]) bodySeed[colorKey] = adjustHslLightness(bodySeed[colorKey], lightnessGain);
+    }
+    bodySeed.evolveSpineBonus = existingSpineBonus + spineBonusGain;
+    bodySeed.legGapRatio = legGapByStage[targetStage] || 1.0;
+    let spineMutation = null;
+    const currentSpineCount = Number(bodySeed.spineCount) || 0;
+    const currentSpineLength = Number(bodySeed.spineLength) || 0;
+    if (currentSpineCount > 0) {
+        const countGain = secureRandom(2, 6);
+        const lengthGain = secureRandom(8, 28) / 100;
+        bodySeed.spineCount = Math.min(80, currentSpineCount + countGain);
+        bodySeed.spineLength = Math.min(3, Number((Math.max(0.35, currentSpineLength || 0.35) + lengthGain).toFixed(2)));
+        spineMutation = { type: 'grow', count_gain: countGain, length_gain: lengthGain };
+    } else if (secureRandomFloat() < 0.2) {
+        bodySeed.spineCount = secureRandom(4, 10);
+        bodySeed.spineLength = secureRandom(45, 80) / 100;
+        spineMutation = { type: 'new', count_gain: bodySeed.spineCount, length_gain: bodySeed.spineLength };
+    }
+    const bodySeedJson = JSON.stringify(bodySeed);
 
     /* ── 事务执行 ── */
     const txn = db.transaction(() => {
@@ -507,9 +556,9 @@ function evolvePet(uid, petId, ip) {
         /* 更新宠物主表：阶段+1, 体力扣除, 上限提升 */
         db.prepare(`
             UPDATE pet SET stage = ?, stamina = ?, stamina_max = ?,
-                           satiety_max = ?, updated_at = ?
+                           satiety_max = ?, body_seed = ?, updated_at = ?
             WHERE id = ?
-        `).run(targetStage, newStamina, newStaminaMax, newSatietyMax, ts, petId);
+        `).run(targetStage, newStamina, newStaminaMax, newSatietyMax, bodySeedJson, ts, petId);
 
         /* 六维 base 各+3 */
         db.prepare(`
@@ -557,6 +606,14 @@ function evolvePet(uid, petId, ip) {
         gold_cost: goldCost,
         stamina_cost: rules.EVOLVE_STAMINA_REQ,
         attr_bonus: attrBonus,
+        spine_bonus_gain: spineBonusGain,
+        spine_bonus_total: bodySeed.evolveSpineBonus,
+        leg_gap_ratio: bodySeed.legGapRatio,
+        lightness_gain: lightnessGain,
+        lightness_after: bodySeed.lightness,
+        spine_mutation: spineMutation,
+        spine_count: bodySeed.spineCount || 0,
+        spine_length: bodySeed.spineLength || 0,
         skill_unlocked: unlockedSkill ? unlockedSkill.skill_code : null
     }, ip);
 
@@ -574,6 +631,14 @@ function evolvePet(uid, petId, ip) {
             stamina_max_new: newStaminaMax,
             satiety_max_new: newSatietyMax,
             attr_bonus:      attrBonus,
+            spine_bonus_gain: spineBonusGain,
+            spine_bonus_total: bodySeed.evolveSpineBonus,
+            leg_gap_ratio:   bodySeed.legGapRatio,
+            lightness_gain:  lightnessGain,
+            lightness_after: bodySeed.lightness,
+            spine_mutation:  spineMutation,
+            spine_count:     bodySeed.spineCount || 0,
+            spine_length:    bodySeed.spineLength || 0,
             new_skill_slots: newSkillSlots,
             skill_unlocked:  unlockedSkill ? unlockedSkill.skill_code : null
         },

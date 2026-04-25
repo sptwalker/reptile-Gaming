@@ -86,6 +86,7 @@ app.use('/api/arena', authMiddleware, require('./routes/arena'));
 /* 管理员后台（独立鉴权，与玩家体系完全隔离） */
 const adminAuth = require('./middleware/admin-auth');
 app.use('/api/admin', adminAuth, require('./routes/admin'));
+app.use('/api/battle-debug', adminAuth, require('./routes/battle-debug'));
 
 /* ── 404 处理 ── */
 app.use('/api/{*path}', (_req, res) => {

@@ -89,20 +89,30 @@ function getPetDetail(uid, petId) {
     catch { bodySeed = {}; }
 
     /* 计算渲染参数 (docs/03-game-rules.md §3.4)
-     * P6: 阶段倍率 — 每提升1阶段，体型相关参数 ×1.1 */
+     * P6: 阶段倍率 — stage 0→1.0, 1→1.1, 2→1.2, 3→1.3, 4→1.4 */
     const rb = rules.RENDER_BASE;
-    const stageMul = 1 + pet.stage * 0.1;  // stage 0→1.0, 1→1.1, 2→1.2, 3→1.3
+    const stageMul = 1 + pet.stage * 0.1;
+    const evolveSpineBonus = Number.isFinite(Number(bodySeed.evolveSpineBonus))
+        ? Number(bodySeed.evolveSpineBonus)
+        : pet.stage * 2;
+    const legGapByStage = { 0: 1.35, 1: 1.25, 2: 1.12, 3: 1.0, 4: 1.0 };
+    if (Number.isFinite(Number(bodySeed.lightness))) {
+        bodySeed.lightness = Math.max(16, Math.min(58, Number(bodySeed.lightness)));
+    }
     const renderParams = {
         bodyWidth:         +(rb.bodyWidth * (1 + attrTotals.str * 0.01) * stageMul).toFixed(3),
         headScale:         +(rb.headScale * (1 + attrTotals.str * 0.008) * stageMul).toFixed(3),
         moveSpeed:         +(rb.moveSpeed * (1 + attrTotals.agi * 0.015)).toFixed(3),
         legFrequency:      +(rb.legFrequency * (1 + attrTotals.agi * 0.02)).toFixed(3),
-        spineNodes:        rb.spineNodes + Math.floor(attrTotals.vit / 10) + pet.stage * 2,
+        spineNodes:        rb.spineNodes + Math.floor(attrTotals.vit / 10) + evolveSpineBonus,
         segmentWidth:      +(rb.segmentWidth * (1 + attrTotals.vit * 0.005) * stageMul).toFixed(3),
         fovAngle:          +(rb.fovAngle * (1 + attrTotals.int * 0.01)).toFixed(3),
         fovDistance:       +(rb.fovDistance * (1 + attrTotals.per * 0.02)).toFixed(3),
         colorSaturation:   +(rb.colorSaturation * (1 + attrTotals.cha * 0.01) * (1 + pet.stage * 0.05)).toFixed(3),
-        patternComplexity: rb.patternComplexity + Math.floor(attrTotals.cha / 8) + pet.stage
+        patternComplexity: rb.patternComplexity + Math.floor(attrTotals.cha / 8) + pet.stage,
+        legGapRatio:       Number.isFinite(Number(bodySeed.legGapRatio)) ? Number(bodySeed.legGapRatio) : (legGapByStage[pet.stage] || 1.0),
+        spineCount:        Number.isFinite(Number(bodySeed.spineCount)) ? Number(bodySeed.spineCount) : 0,
+        spineLength:       Number.isFinite(Number(bodySeed.spineLength)) ? Number(bodySeed.spineLength) : 1
     };
 
     return {
