@@ -452,32 +452,33 @@ class LizardRenderer {
   }
 
   _bodyWidthAt(i) {
-    /* 基于解剖图比例：Head≈5.2% TL, Trunk≈34.8% TL, Tail≈60% TL */
+    /* 基于解剖图比例：Head≈5.2% TL, Trunk≈34.8% TL, Tail≈60% TL
+     * 参考解剖图优化：宽阔的胸腔/腹腔 + 粗壮的四肢附着点 */
     var n = this.SPINE_NODE_COUNT - 1, t = i / n, s = this._bodyScale, sc = this._scaleFactor || 1, w;
     if (t < 0.052) {
-      /* 头部区域：从吻尖到下颌关节，宽度逐渐增大 */
-      w = this._lerp(8, 14, t / 0.052);
+      /* 头部区域：从吻尖到下颌关节，宽度逐渐增大（更粗壮的头部轮廓） */
+      w = this._lerp(9, 17, t / 0.052);
     } else if (t < 0.10) {
-      /* 颈部过渡：从下颌到前肢附着点，宽度收窄 */
-      w = this._lerp(14, 12, (t - 0.052) / 0.048);
+      /* 颈部过渡：从下颌到前肢附着点，宽度略收窄 */
+      w = this._lerp(17, 14, (t - 0.052) / 0.048);
     } else if (t < 0.18) {
-      /* 躯干前段：前肢附着区域，宽度增大 */
-      w = this._lerp(12, 16, (t - 0.10) / 0.08);
+      /* 躯干前段：前肢附着区域，宽阔胸腔开始 */
+      w = this._lerp(14, 24, (t - 0.10) / 0.08);
     } else if (t < 0.30) {
-      /* 躯干中段：胸腔/腹腔区域，保持较宽 */
-      w = this._lerp(16, 15, (t - 0.18) / 0.12);
+      /* 躯干中段：胸腔/腹腔最宽区域，保持宽阔饱满 */
+      w = this._lerp(24, 22, (t - 0.18) / 0.12);
     } else if (t < 0.40) {
-      /* 躯干后段：到泄殖腔开口，宽度略收窄 */
-      w = this._lerp(15, 12, (t - 0.30) / 0.10);
+      /* 躯干后段：到泄殖腔开口，宽度略收窄但仍保持粗壮 */
+      w = this._lerp(22, 17, (t - 0.30) / 0.10);
     } else if (t < 0.50) {
-      /* 尾根区域：泄殖腔后，尾根较粗 */
-      w = this._lerp(12, 10, (t - 0.40) / 0.10);
+      /* 尾根区域：泄殖腔后，尾根仍较粗 */
+      w = this._lerp(17, 13, (t - 0.40) / 0.10);
     } else if (t < 0.70) {
       /* 尾部中段：逐渐变细 */
-      w = this._lerp(10, 5, (t - 0.50) / 0.20);
+      w = this._lerp(13, 6, (t - 0.50) / 0.20);
     } else {
       /* 尾部末端：急剧变细到尾尖 */
-      w = this._lerp(5, 1, (t - 0.70) / 0.30);
+      w = this._lerp(6, 1, (t - 0.70) / 0.30);
     }
     return w * s * sc;
   }
@@ -1248,12 +1249,17 @@ class LizardRenderer {
       /* 前肢(pairId=0)关节向后弯曲，后肢(pairId=1)关节向前弯曲 */
       var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
       var knee = self._solveIK(hip, drawFoot, self.LEG_LENGTH1, self.LEG_LENGTH2, bendDir);
-      ctx.strokeStyle = sc.leg; ctx.lineWidth = Math.max(2, 6 * sf); ctx.lineCap = "round";
+      /* 粗壮的上臂/大腿（更丰满的四肢） */
+      ctx.strokeStyle = sc.leg; ctx.lineWidth = Math.max(3, 10 * sf); ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(knee.x, knee.y); ctx.stroke();
-      ctx.lineWidth = Math.max(1.5, 4 * sf);
+      /* 略细的小臂/小腿，仍保持粗壮感 */
+      ctx.lineWidth = Math.max(2, 7 * sf);
       ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+      /* 膝关节/肘关节突起 */
       ctx.fillStyle = sc.outline;
-      ctx.beginPath(); ctx.arc(knee.x, knee.y, Math.max(2, 4 * sf), 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(knee.x, knee.y, Math.max(3, 6 * sf), 0, Math.PI * 2); ctx.fill();
+      /* 髋关节/肩关节附着点（与身体平滑衔接） */
+      ctx.beginPath(); ctx.arc(hip.x, hip.y, Math.max(2.5, 5 * sf), 0, Math.PI * 2); ctx.fill();
       self._drawFoot(drawFoot, hip);
     });
   }
@@ -1263,14 +1269,18 @@ class LizardRenderer {
     var sc = this._skinColors || {leg:"#3d6b2e"};
     var sf = this._scaleFactor || 1;
     var angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
-    var toeLen = Math.max(4, 10 * sf);
+    var toeLen = Math.max(5, 12 * sf);
     ctx.save(); ctx.translate(foot.x, foot.y); ctx.rotate(angle);
     ctx.fillStyle = sc.leg;
+    /* 粗壮的脚掌基底 */
+    ctx.beginPath(); ctx.arc(0, 0, Math.max(2, 4 * sf), 0, Math.PI * 2); ctx.fill();
     for (var t = -2; t <= 2; t++) {
       var spread = t * 0.35;
+      /* 更粗的脚趾线条 */
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen);
-      ctx.lineWidth = Math.max(1, 2.5 * sf); ctx.strokeStyle = sc.leg; ctx.stroke();
-      ctx.beginPath(); ctx.arc(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen, Math.max(0.8, 1.5 * sf), 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = Math.max(1.5, 3.5 * sf); ctx.strokeStyle = sc.leg; ctx.stroke();
+      /* 脚趾尖端圆点 */
+      ctx.beginPath(); ctx.arc(Math.cos(spread) * toeLen, Math.sin(spread) * toeLen, Math.max(1.2, 2.2 * sf), 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
