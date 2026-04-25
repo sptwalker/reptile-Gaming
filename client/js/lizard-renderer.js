@@ -50,6 +50,8 @@ class LizardRenderer {
     this._visualHeadAngleReady = false;
     this._mouseLookAngle = 0;
     this._mouseLookAngleReady = false;
+    this._mouseTurnBaseAngle = 0;
+    this._mouseTurnBaseReady = false;
     this._colorSaturation = 1.0;
     this._patternComplexity = 1;
     this._patternType = "spots";
@@ -79,15 +81,19 @@ class LizardRenderer {
     this.PAUSE_LOOK_CHANCE = opts.pauseLookChance || 0.4;
     this.spine = [];
     this.legs = [
-      {spineIndex:this._legIndexAt(0.26),side:1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.26),side:-1,pairId:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.56),side:1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.56),side:-1,pairId:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0}
+      {spineIndex:this._legIndexAt(0.05),side:1,pairId:0,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.05),side:-1,pairId:0,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.242),side:1,pairId:1,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.242),side:-1,pairId:1,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0}
     ];
     this.lightDots = [];
     this.mouseX = 0; this.mouseY = 0;
     this.mouseDown = false; this.mouseDragStart = null;
     this.serpentinePhase = 0; this.headSpeed = 0;
+    this._gaitPhase = 0;
+    this._gaitActiveGroup = 0;
+    this._legsWereMoving = false;
+    this._forceStep = false;
     this.prevHeadX = 0; this.prevHeadY = 0;
     this.lookOffsets = [];
     this.aiActive = false; this.aiWanderAngle = 0;
@@ -151,8 +157,8 @@ class LizardRenderer {
 
   _redistributeLegs() {
     if (!this.legs || this.legs.length < 4) return;
-    var front = this._legIndexAt(0.26);
-    var rear = this._legIndexAt(0.56);
+    var front = this._legIndexAt(0.05);
+    var rear = this._legIndexAt(0.242);
     this.legs[0].spineIndex = front;
     this.legs[1].spineIndex = front;
     this.legs[2].spineIndex = rear;
@@ -257,12 +263,14 @@ class LizardRenderer {
     var head = seed.headColor || "hsl(" + hueBase + "," + Math.round(sat * 0.9) + "%," + (light + 4) + "%)";
     var body = seed.bodyColor || "hsl(" + hueBase + "," + sat + "%," + light + "%)";
     var tail = seed.tailColor || "hsl(" + hueBase + "," + sat + "%," + (light - 8) + "%)";
+    var eye = seed.eyeColor || "#ff8800";
     var pattern = seed.patternColor || this._patternColor;
     return {
       bodyTop:    seed.bodyColor || "hsl(" + hueBase + "," + sat + "%," + (light + 8) + "%)",
       bodyMid:    body,
       bodyBottom: tail,
       head:       head,
+      eye:        eye,
       leg:        body,
       outline:    "hsl(" + hueBase + "," + sat + "%," + Math.max(8, light - 12) + "%)",
       stripe:     pattern,
@@ -345,8 +353,10 @@ class LizardRenderer {
 
   _initSpine() {
     this.spine = [];
+    var x = this._w / 2;
     for (var i = 0; i < this.SPINE_NODE_COUNT; i++) {
-      this.spine.push({x: this._w / 2 - i * this.SEGMENT_LENGTH, y: this._h / 2});
+      this.spine.push({x: x, y: this._h / 2});
+      if (i < this.SPINE_NODE_COUNT - 1) x -= this._segmentLengthAt(i);
     }
     this.prevHeadX = this.spine[0].x; this.prevHeadY = this.spine[0].y;
     this.mouseX = this._w / 2; this.mouseY = this._h / 2;
@@ -409,6 +419,31 @@ class LizardRenderer {
 
   _lerp(a, b, t) { return a + (b - a) * t; }
 
+  /**
+   * 按解剖图比例返回第 i 节脊椎的关节间距
+   * 躯干区域（Head+Trunk≈40% TL）间距较大，尾部（60% TL）间距逐渐减小
+   */
+  _segmentLengthAt(i) {
+    var n = this.SPINE_NODE_COUNT - 1, t = i / n;
+    /* 解剖图比例：Head≈5.2% TL, Trunk≈34.8% TL, Tail≈60% TL */
+    if (t < 0.052) {
+      /* 头部：吻尖到下颌关节，间距中等（颈椎短粗） */
+      return this.SEGMENT_LENGTH * this._lerp(0.85, 1.0, t / 0.052);
+    } else if (t < 0.40) {
+      /* 躯干（不含头）：颈椎后段到泄殖腔前，间距最大（椎骨最长） */
+      return this.SEGMENT_LENGTH * this._lerp(1.05, 0.92, (t - 0.052) / 0.348);
+    } else if (t < 0.60) {
+      /* 尾部前段：泄殖腔到中段，间距快速减小 */
+      return this.SEGMENT_LENGTH * this._lerp(0.92, 0.72, (t - 0.40) / 0.20);
+    } else if (t < 0.80) {
+      /* 尾部中段：间距继续减小 */
+      return this.SEGMENT_LENGTH * this._lerp(0.72, 0.55, (t - 0.60) / 0.20);
+    } else {
+      /* 尾部末端：间距最小，尖锐尾尖 */
+      return this.SEGMENT_LENGTH * this._lerp(0.55, 0.30, (t - 0.80) / 0.20);
+    }
+  }
+
   _angleDiff(a, b) {
     var d = b - a;
     while (d > Math.PI) d -= Math.PI * 2;
@@ -417,15 +452,33 @@ class LizardRenderer {
   }
 
   _bodyWidthAt(i) {
+    /* 基于解剖图比例：Head≈5.2% TL, Trunk≈34.8% TL, Tail≈60% TL */
     var n = this.SPINE_NODE_COUNT - 1, t = i / n, s = this._bodyScale, sc = this._scaleFactor || 1, w;
-    if (t < 0.05) w = this._lerp(10, 14, t / 0.05);
-    else if (t < 0.12) w = this._lerp(14, 18, (t - 0.05) / 0.07);
-    else if (t < 0.18) w = this._lerp(18, 10, (t - 0.12) / 0.06);
-    else if (t < 0.28) w = this._lerp(10, 16, (t - 0.18) / 0.10);
-    else if (t < 0.38) w = this._lerp(16, 14, (t - 0.28) / 0.10);
-    else if (t < 0.50) w = this._lerp(14, 15, (t - 0.38) / 0.12);
-    else if (t < 0.60) w = this._lerp(15, 12, (t - 0.50) / 0.10);
-    else w = this._lerp(12, 1, (t - 0.60) / 0.40);
+    if (t < 0.052) {
+      /* 头部区域：从吻尖到下颌关节，宽度逐渐增大 */
+      w = this._lerp(8, 14, t / 0.052);
+    } else if (t < 0.10) {
+      /* 颈部过渡：从下颌到前肢附着点，宽度收窄 */
+      w = this._lerp(14, 12, (t - 0.052) / 0.048);
+    } else if (t < 0.18) {
+      /* 躯干前段：前肢附着区域，宽度增大 */
+      w = this._lerp(12, 16, (t - 0.10) / 0.08);
+    } else if (t < 0.30) {
+      /* 躯干中段：胸腔/腹腔区域，保持较宽 */
+      w = this._lerp(16, 15, (t - 0.18) / 0.12);
+    } else if (t < 0.40) {
+      /* 躯干后段：到泄殖腔开口，宽度略收窄 */
+      w = this._lerp(15, 12, (t - 0.30) / 0.10);
+    } else if (t < 0.50) {
+      /* 尾根区域：泄殖腔后，尾根较粗 */
+      w = this._lerp(12, 10, (t - 0.40) / 0.10);
+    } else if (t < 0.70) {
+      /* 尾部中段：逐渐变细 */
+      w = this._lerp(10, 5, (t - 0.50) / 0.20);
+    } else {
+      /* 尾部末端：急剧变细到尾尖 */
+      w = this._lerp(5, 1, (t - 0.70) / 0.30);
+    }
     return w * s * sc;
   }
 
@@ -459,19 +512,20 @@ class LizardRenderer {
     return Math.max(0, Math.min(300, this._headRotationLimit || 0)) * Math.PI / 180;
   }
 
-  _updateHeadTurn(targetAngle, speed, clampToBody) {
+  _updateHeadTurn(targetAngle, speed, clampToBody, clampBaseAngle) {
     var bodyAngle = this._getHeadAngle();
     if (!this._visualHeadAngleReady) {
       this._visualHeadAngle = bodyAngle;
       this._visualHeadAngleReady = true;
     }
     var shouldClamp = clampToBody !== false;
+    var baseAngle = clampBaseAngle !== undefined ? clampBaseAngle : bodyAngle;
     var maxOffset = this._getHeadRotationLimitRad();
     var desired = targetAngle;
     if (shouldClamp) {
-      var desiredOffset = this._angleDiff(bodyAngle, targetAngle);
-      if (desiredOffset > maxOffset) desired = bodyAngle + maxOffset;
-      else if (desiredOffset < -maxOffset) desired = bodyAngle - maxOffset;
+      var desiredOffset = this._angleDiff(baseAngle, targetAngle);
+      if (desiredOffset > maxOffset) desired = baseAngle + maxOffset;
+      else if (desiredOffset < -maxOffset) desired = baseAngle - maxOffset;
     }
     this._headTurnTarget = this._angleDiff(bodyAngle, desired);
     this._visualHeadAngle += this._angleDiff(this._visualHeadAngle, desired) * (speed || 0.24);
@@ -572,8 +626,8 @@ class LizardRenderer {
       if (Math.abs(bend) > maxBend) {
         var clampedBend = Math.sign(bend) * maxBend;
         var newAngle = anglePrev + clampedBend;
-        next.x = curr.x + Math.cos(newAngle) * this.SEGMENT_LENGTH;
-        next.y = curr.y + Math.sin(newAngle) * this.SEGMENT_LENGTH;
+        next.x = curr.x + Math.cos(newAngle) * this._segmentLengthAt(i);
+        next.y = curr.y + Math.sin(newAngle) * this._segmentLengthAt(i);
       }
     }
   }
@@ -766,23 +820,41 @@ class LizardRenderer {
     if (this.mouseDown && this.mouseDragStart && Math.hypot(this.mouseX - this.mouseDragStart.x, this.mouseY - this.mouseDragStart.y) > 8) {
       var av = this._computeAvoidanceDir(head, this.mouseX, this.mouseY);
       var dx = this.mouseX - head.x, dy = this.mouseY - head.y, dist = Math.hypot(dx, dy);
-      if (dist > 1) {
+      if (dist > 0.5) {
         var moveAngle0 = Math.atan2(av.y, av.x);
         var mouseLookAngle = Math.atan2(dy, dx);
         if (!this._mouseLookAngleReady) {
           this._mouseLookAngle = mouseLookAngle;
           this._mouseLookAngleReady = true;
         } else {
-          this._mouseLookAngle += this._angleDiff(this._mouseLookAngle, mouseLookAngle) * 0.35;
+          this._mouseLookAngle += this._angleDiff(this._mouseLookAngle, mouseLookAngle) * 0.28;
+        }
+        if (!this._mouseTurnBaseReady) {
+          this._mouseTurnBaseAngle = this._getHeadAngle();
+          this._mouseTurnBaseReady = true;
+        } else {
+          /* 鼠标牵引期间，基准角跟随身体角度缓慢更新（0.08） */
+          this._mouseTurnBaseAngle += this._angleDiff(this._mouseTurnBaseAngle, this._getHeadAngle()) * 0.08;
         }
         desiredLookAngle = this._mouseLookAngle;
-        this._updateHeadTurn(desiredLookAngle, 0.42, false);
+        this._updateHeadTurn(desiredLookAngle, 0.34, true, this._mouseTurnBaseAngle);
         headTurnUpdated = true;
-        var move = Math.min(dist, this.MAX_SPEED) * this._headLeadMoveFactor(desiredLookAngle);
-        head.x += av.x * move; head.y += av.y * move;
+        if (dist > 1) {
+          var move = Math.min(dist, this.MAX_SPEED) * this._headLeadMoveFactor(desiredLookAngle);
+          head.x += av.x * move; head.y += av.y * move;
+        }
+      } else {
+        if (!this._mouseTurnBaseReady) {
+          this._mouseTurnBaseAngle = this._getHeadAngle();
+          this._mouseTurnBaseReady = true;
+        }
+        desiredLookAngle = this._mouseLookAngleReady ? this._mouseLookAngle : this._getVisualHeadAngle();
+        this._updateHeadTurn(desiredLookAngle, 0.18, true, this._mouseTurnBaseAngle);
+        headTurnUpdated = true;
       }
     } else if (this.aiActive) {
       this._mouseLookAngleReady = false;
+      this._mouseTurnBaseReady = false;
       var ai = this._computeAITarget(head);
       if (ai.lookAngle !== undefined) desiredLookAngle = ai.lookAngle;
       if (this._treadmillActive && this._treadmillOnIt) {
@@ -800,6 +872,7 @@ class LizardRenderer {
       }
     } else {
       this._mouseLookAngleReady = false;
+      this._mouseTurnBaseReady = false;
     }
     var FENCE = 10, BZ = 40, BF = 2.5, pushX = 0, pushY = 0;
     if (head.x < FENCE + BZ) pushX += Math.pow(1 - Math.max(0, head.x - FENCE) / BZ, 2) * BF;
@@ -816,8 +889,8 @@ class LizardRenderer {
     for (var i = 1; i < this.spine.length; i++) {
       var prev = this.spine[i - 1], curr = this.spine[i];
       var angle = Math.atan2(prev.y - curr.y, prev.x - curr.x);
-      curr.x = prev.x - Math.cos(angle) * this.SEGMENT_LENGTH;
-      curr.y = prev.y - Math.sin(angle) * this.SEGMENT_LENGTH;
+      curr.x = prev.x - Math.cos(angle) * this._segmentLengthAt(i - 1);
+      curr.y = prev.y - Math.sin(angle) * this._segmentLengthAt(i - 1);
     }
     var moveRatio = Math.min(1, this.headSpeed / (this.MAX_SPEED * 0.3));
     if (moveRatio > 0.01) {
@@ -838,8 +911,8 @@ class LizardRenderer {
       for (var i3 = 1; i3 < this.spine.length; i3++) {
         var p = this.spine[i3 - 1], c = this.spine[i3];
         var a = Math.atan2(p.y - c.y, p.x - c.x);
-        c.x = p.x - Math.cos(a) * this.SEGMENT_LENGTH;
-        c.y = p.y - Math.sin(a) * this.SEGMENT_LENGTH;
+        c.x = p.x - Math.cos(a) * this._segmentLengthAt(i3 - 1);
+        c.y = p.y - Math.sin(a) * this._segmentLengthAt(i3 - 1);
       }
     }
     if (!headTurnUpdated) this._updateHeadTurn(desiredLookAngle !== null ? desiredLookAngle : moveAngle);
@@ -849,6 +922,43 @@ class LizardRenderer {
       this.spine[i5].x = Math.max(10, Math.min(this._w - 10, this.spine[i5].x));
       this.spine[i5].y = Math.max(10, Math.min(this._h - 10, this.spine[i5].y));
     }
+  }
+
+  _legRestPosition(leg) {
+    var hip = this._getHip(leg);
+    var dirAngle = this._spineAngleAt(leg.spineIndex);
+    var perpAngle = dirAngle + Math.PI / 2 * leg.side;
+    var reach = this.LEG_LENGTH1 + this.LEG_LENGTH2 - 15;
+    var forward = leg.pairId === 0 ? 0.62 : -0.42;
+    var lateral = leg.pairId === 0 ? 0.44 : 0.50;
+    return {
+      x: hip.x + Math.cos(perpAngle) * reach * lateral + Math.cos(dirAngle) * reach * forward,
+      y: hip.y + Math.sin(perpAngle) * reach * lateral + Math.sin(dirAngle) * reach * forward
+    };
+  }
+
+  _legStrideTarget(leg, strideSign) {
+    var hip = this._getHip(leg);
+    var dirAngle = this._spineAngleAt(leg.spineIndex);
+    var perpAngle = dirAngle + Math.PI / 2 * leg.side;
+    var reach = this.LEG_LENGTH1 + this.LEG_LENGTH2 - 15;
+    var forwardBase = leg.pairId === 0 ? 0.62 : -0.42;
+    var forwardAmp = leg.pairId === 0 ? 0.42 : 0.34;
+    var lateral = leg.pairId === 0 ? 0.42 : 0.50;
+    var along = forwardBase + forwardAmp * strideSign;
+    return {
+      x: hip.x + Math.cos(perpAngle) * reach * lateral + Math.cos(dirAngle) * reach * along,
+      y: hip.y + Math.sin(perpAngle) * reach * lateral + Math.sin(dirAngle) * reach * along
+    };
+  }
+
+
+
+  _clampLegFoot(hip, foot, maxReach) {
+    var dx = foot.x - hip.x, dy = foot.y - hip.y;
+    var d = Math.hypot(dx, dy);
+    if (d <= maxReach || d < 0.001) return foot;
+    return {x: hip.x + dx / d * maxReach, y: hip.y + dy / d * maxReach};
   }
 
   _solveIK(hip, foot, len1, len2, bendDir) {
@@ -863,32 +973,53 @@ class LizardRenderer {
   }
 
   _updateLegs() {
-    var self = this;
-    this.legs.forEach(function(leg) {
-      var hip = self._getHip(leg);
-      var dirAngle = self._spineAngleAt(leg.spineIndex);
-      var perpAngle = dirAngle + Math.PI / 2 * leg.side;
-      var distToFoot = Math.hypot(hip.x - leg.target.x, hip.y - leg.target.y);
-      var partner = self.legs.find(function(l) { return l.pairId === leg.pairId && l.side !== leg.side; });
-      var canStep = !partner || !partner.stepping;
-      if (!leg.stepping && distToFoot > self.STEP_DISTANCE && canStep) {
-        leg.stepping = true; leg.stepT = 0;
-        leg.startX = leg.target.x; leg.startY = leg.target.y;
-        var reach = self.LEG_LENGTH1 + self.LEG_LENGTH2 - 15;
-        leg.endX = hip.x + Math.cos(perpAngle) * reach * 0.6 + Math.cos(dirAngle) * reach * 0.3;
-        leg.endY = hip.y + Math.sin(perpAngle) * reach * 0.6 + Math.sin(dirAngle) * reach * 0.3;
+    var moving = this.headSpeed > 0.12;
+    if (!moving) {
+      this._forceStep = false;
+      this._legsWereMoving = false;
+      for (var r = 0; r < this.legs.length; r++) {
+        var legRest = this.legs[r];
+        var rest = this._legRestPosition(legRest);
+        legRest.foot.x += (rest.x - legRest.foot.x) * 0.16;
+        legRest.foot.y += (rest.y - legRest.foot.y) * 0.16;
+        legRest.target.x = legRest.foot.x; legRest.target.y = legRest.foot.y;
+        legRest.stepping = false; legRest.stepT = 0;
       }
-      if (leg.stepping) {
-        leg.stepT += self.STEP_SPEED;
-        var t = Math.min(1, leg.stepT);
-        var lift = Math.sin(t * Math.PI) * 14 * (self._scaleFactor || 1);
-        leg.foot.x = self._lerp(leg.startX, leg.endX, t);
-        leg.foot.y = self._lerp(leg.startY, leg.endY, t) - lift;
-        if (t >= 1) { leg.stepping = false; leg.target.x = leg.endX; leg.target.y = leg.endY; }
+      return;
+    }
+
+    var stancePortion = 0.62;
+    var reach = this.LEG_LENGTH1 + this.LEG_LENGTH2 - 15;
+    var rearStrideDistance = reach * 0.34 * 2;
+    var frontStrideDistance = reach * 0.42 * 2;
+    var strideDistance = Math.max(1, Math.min(frontStrideDistance, rearStrideDistance));
+    var frequencyScale = Math.max(0.75, Math.min(1.45, this.STEP_SPEED / 0.18));
+    var phaseDelta = this.headSpeed * stancePortion / strideDistance * frequencyScale;
+    this._gaitPhase = ((this._gaitPhase || 0) + Math.max(0.012, Math.min(0.075, phaseDelta))) % 1;
+    this._legsWereMoving = true;
+
+    for (var i = 0; i < this.legs.length; i++) {
+      var leg = this.legs[i];
+      var phase = (this._gaitPhase + (leg.gaitGroup === 1 ? 0.5 : 0)) % 1;
+      var p;
+      if (phase < stancePortion) {
+        var stanceT = phase / stancePortion;
+        p = this._legStrideTarget(leg, this._lerp(1, -1, stanceT));
+        leg.stepping = false;
+        leg.foot.x = p.x;
+        leg.foot.y = p.y;
       } else {
-        leg.foot.x = leg.target.x; leg.foot.y = leg.target.y;
+        var swingT = (phase - stancePortion) / (1 - stancePortion);
+        var swingEase = swingT * swingT * (3 - 2 * swingT);
+        p = this._legStrideTarget(leg, this._lerp(-1, 1, swingEase));
+        p.y -= Math.sin(swingT * Math.PI) * 20 * (this._scaleFactor || 1);
+        leg.stepping = true;
+        leg.foot.x += (p.x - leg.foot.x) * 0.88;
+        leg.foot.y += (p.y - leg.foot.y) * 0.88;
       }
-    });
+      leg.target.x = leg.foot.x; leg.target.y = leg.foot.y;
+      leg.stepT = phase;
+    }
   }
 
   _hash(n) {
@@ -941,7 +1072,10 @@ class LizardRenderer {
     ctx.fillStyle = color;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (var i = 2; i < this.spine.length - 3; i++) {
+    /* 花纹仅限于躯干区域：t ∈ [0.052, 0.40] */
+    var trunkStart = Math.max(2, Math.floor(0.052 * (this.spine.length - 1)));
+    var trunkEnd = Math.min(this.spine.length - 3, Math.floor(0.40 * (this.spine.length - 1)));
+    for (var i = trunkStart; i <= trunkEnd; i++) {
       var t = i / (this.spine.length - 1);
       var node = this.spine[i];
       var next = this.spine[Math.min(i + 1, this.spine.length - 1)];
@@ -1039,7 +1173,15 @@ class LizardRenderer {
     ctx.clip();
     for (var s = 0; s < this.spine.length; s++) {
       var tt = s / (this.spine.length - 1);
-      var base = tt < 0.22 ? this._mixColor(sc.head, sc.bodyMid, tt / 0.22) : this._mixColor(sc.bodyMid, sc.bodyBottom, (tt - 0.22) / 0.78);
+      /* 三段式渐变：头色→躯干色→尾色，基于解剖图比例 */
+      var base;
+      if (tt < 0.20) {
+        base = this._mixColor(sc.head, sc.bodyMid, tt / 0.20);
+      } else if (tt < 0.40) {
+        base = this._mixColor(sc.bodyMid, sc.bodyBottom, (tt - 0.20) / 0.20);
+      } else {
+        base = sc.bodyBottom;
+      }
       ctx.fillStyle = base;
       ctx.beginPath();
       ctx.arc(this.spine[s].x, this.spine[s].y, this._bodyWidthAt(s) + this.SEGMENT_LENGTH * 0.75, 0, Math.PI * 2);
@@ -1055,7 +1197,7 @@ class LizardRenderer {
   _drawHead() {
     var ctx = this.ctx, head = this.spine[0];
     var angle = this._getVisualHeadAngle();
-    var sc = this._skinColors || {head:"#4a7a30",outline:"#2a4d1f"};
+    var sc = this._skinColors || {head:"#4a7a30",outline:"#2a4d1f",eye:"#ff8800"};
     var hs = this._headScale * (this._scaleFactor || 1);
     var shape = this._headShape || "ellipse";
     ctx.save(); ctx.translate(head.x, head.y); ctx.rotate(angle);
@@ -1084,7 +1226,7 @@ class LizardRenderer {
       ctx.ellipse(8 * hs, 0, 16 * hs, 12 * hs, 0, 0, Math.PI * 2);
     }
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#ff8800";
+    ctx.fillStyle = sc.eye || "#ff8800";
     ctx.beginPath(); ctx.ellipse(12 * hs, -8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(12 * hs, 8 * hs, 5 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#111";
@@ -1102,14 +1244,17 @@ class LizardRenderer {
     var sf = this._scaleFactor || 1;
     this.legs.forEach(function(leg) {
       var hip = self._getHip(leg);
-      var knee = self._solveIK(hip, leg.foot, self.LEG_LENGTH1, self.LEG_LENGTH2, -leg.side);
+      var drawFoot = self._clampLegFoot(hip, leg.foot, self.LEG_LENGTH1 + self.LEG_LENGTH2 - 3);
+      /* 前肢(pairId=0)关节向后弯曲，后肢(pairId=1)关节向前弯曲 */
+      var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
+      var knee = self._solveIK(hip, drawFoot, self.LEG_LENGTH1, self.LEG_LENGTH2, bendDir);
       ctx.strokeStyle = sc.leg; ctx.lineWidth = Math.max(2, 6 * sf); ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(knee.x, knee.y); ctx.stroke();
       ctx.lineWidth = Math.max(1.5, 4 * sf);
-      ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(leg.foot.x, leg.foot.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(knee.x, knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
       ctx.fillStyle = sc.outline;
       ctx.beginPath(); ctx.arc(knee.x, knee.y, Math.max(2, 4 * sf), 0, Math.PI * 2); ctx.fill();
-      self._drawFoot(leg.foot, hip);
+      self._drawFoot(drawFoot, hip);
     });
   }
 

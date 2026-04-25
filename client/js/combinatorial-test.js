@@ -64,6 +64,7 @@
     headColor: "#5f8f3f",
     bodyColor: "#3d6b2e",
     tailColor: "#284d1f",
+    eyeColor: "#ff8800",
     patternColor: "rgba(38,68,28,0.55)"
   };
   var renderParams = copy(DEFAULT_RENDER);
@@ -96,8 +97,7 @@
           ["diamond", "菱形"]
         ], onRenderSelectChange),
         range("头部大小", "headScale", 0.55, 2.2, 0.01),
-        range("头部可旋转角度", "headRotationLimit", 0, 300, 1),
-        range("头部避让", "headSkipNodes", 2, 8, 1)
+        range("头部可旋转角度", "headRotationLimit", 0, 300, 1)
       ])
     ]),
     card("皮肤颜色区", [
@@ -105,6 +105,7 @@
         color("头部", "headColor"),
         color("躯干", "bodyColor"),
         color("尾部", "tailColor"),
+        color("眼睛", "eyeColor"),
         range("色相", "hue", 0, 360, 1, "seed"),
         range("明度", "lightness", 16, 58, 1, "seed"),
         range("饱和倍率", "colorSaturation", 0.45, 2.2, 0.01)
@@ -430,6 +431,7 @@
     bodySeed.headColor = randomColor();
     bodySeed.bodyColor = randomColor();
     bodySeed.tailColor = randomColor();
+    bodySeed.eyeColor = randomColor();
     bodySeed.patternColor = randomColor();
     renderParams.patternColor = bodySeed.patternColor;
     renderParams.patternType = ["spots", "speckles", "horizontal_stripes", "vertical_stripes", "camo", "clean"][Math.floor(Math.random() * 6)];
