@@ -255,6 +255,28 @@ module.exports = {
     BATTLE_TAIL_DECOY_HIT_CHANCE: 0.35,
     BATTLE_TAIL_DECOY_DODGE_BONUS: 0.2,
 
+    /* ── 空间感知/绕后系统 ── */
+    /** 前方视野扇形角度（120°） */
+    BATTLE_VISION_CONE_ANGLE: Math.PI * 2 / 3,
+    /** 后方弱点扇形角度（120°） */
+    BATTLE_REAR_ARC_ANGLE: Math.PI * 2 / 3,
+    /** 绕后伤害加成 */
+    BATTLE_FLANK_DMG_BONUS: 0.3,
+    /** 绕后命中/暴击加成 */
+    BATTLE_FLANK_HIT_BONUS: 0.2,
+    /** 侧方伤害加成 */
+    BATTLE_SIDE_DMG_BONUS: 0.1,
+    /** 侧方命中/暴击加成 */
+    BATTLE_SIDE_HIT_BONUS: 0.1,
+    /** 基础转身速度 rad/帧 */
+    BATTLE_TURN_SPEED_BASE: 0.03,
+    /** 机动性转身速度加成 */
+    BATTLE_TURN_SPEED_MOBILITY_BONUS: 0.04,
+    /** 超出该距离不主动发起绕后 */
+    BATTLE_FLANK_MAX_DIST: 250,
+    /** 绕后目标距离 = 近战距离 × 该系数 */
+    BATTLE_FLANK_TARGET_DIST_MULT: 1.2,
+
     /* ── 脚步-声音-听力-感知系统 ── */
     /** 单帧移动速度达到该值视为快速移动，会产生可传播脚步声 */
     BATTLE_FAST_MOVE_SPEED: 3,

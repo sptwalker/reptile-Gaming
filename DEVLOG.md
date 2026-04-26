@@ -98,7 +98,24 @@ reptile-Gaming/
 - **活跃度**: 1-10，控制游走速度和转向频率
 - **参数调节**: 页面底部面板实时调整所有动画参数
 
-## 2026-04-26 - 战斗测试页前后端二维平面表现一致性改造
+## 2026-04-27 - 实时战斗卡死定位修复与调试输出清理
+- 定位 `左方18 / 右方16 / 草原` 组合战斗中途停滞问题：通过前端步进、绘制链路和服务端结算状态排查，确认最终生效问题来自旧 Node 进程仍占用 `3000` 端口，浏览器请求未更新的后端服务。
+- `server/services/battle-engine.js` 修复战斗结束原因返回：会话初始化 `finishReason`，`getBattleState()` 与结算摘要优先使用已保存的结束原因，避免已结束状态被重新推断为 `unknown`。
+- `client/js/battle-debug.js` 保留稳定性保护：`/step` 请求硬超时、主循环步进看门狗、连续返回同一帧的异常保护、正式渲染耗时/异常降级，避免再次出现无提示停滞。
+- 清理临时调试输出：移除战斗页 `debugProbe` 浮层、`.debug-probe` 样式、`setDebugPhase()`、`window.__RG_BATTLE_PROBE`、渲染适配器 `probe(...)` 打点和请求阶段探针文本。
+- 明确“捕获”点位含义：`perception` 事件显示的是听觉估算位置，蓝色“捕获”为真实声音方向估计，紫色“误判”为假声诱导结果，不等同于目标真实坐标。
+- 检查：`node --check client/js/battle-debug.js`、`node --check client/js/lizard-battle-adapter.js` 通过；相关前端文件 lint 无新增错误。
+
+## 2026-04-26 - P9 战斗系统空间方位感知与绕后策略
+- `server/models/game-rules.js` 新增空间感知/绕后规则常量：前方视野扇形、后方弱点扇形、侧方/后方伤害与命中加成、转身速度和绕后目标距离等数值集中配置。
+- `server/services/battle-engine.js` 为战斗单位新增 `facing/angularVelocity/aiSubState/flankTarget/protectTarget/weakExposure`，并实现每帧平滑转向、前/侧/后区域判断、绕后评分、薄弱部位暴露检测和攻击角度加成。
+- AI 决策接入空间策略：高狡猾/高机动单位会尝试绕开敌方正面视野并进入 `flanking/flank_attack`，弱点暴露时进入 `protecting`，风筝移动改为二维斜向撤离。
+- 目标部位选择升级为角度感知加权：后方更偏向头/躯干，正面更偏向前肢，侧方更偏向四肢，同时叠加部位脆弱度与低防御收益。
+- 普攻和攻击型技能的伤害、暴击和闪避计算接入 `angleAttackBonus`，战斗事件与动画协议透传 `attackZone/flankScore/flankAngle/angleBonus`。
+- `server/services/battle-debug-service.js` 和批量报告新增前/侧/后攻击次数、平均绕后评分与后方伤害统计，便于验证绕后策略收益。
+- `client/js/battle-debug.js` 新增朝向、角速度、AI 子状态、绕后目标、保护目标、弱点暴露和角度事件展示；Canvas 调试层绘制朝向箭头、前方视野扇形、后方弱点扇形、绕后/保护目标点。
+- 验证计划：执行 JS 语法检查、lint、`git diff --check`，并启动服务端战斗 smoke/batch 测试确认 `attackZone`、`flankScore`、`aiSubState` 和角度统计正常输出。
+
 - `server/services/battle-engine.js` 输出 `mapConfig`，把当前战斗地图 `id/name/width/height/margin/terrain/soundSurface` 随状态返回给前端，避免测试页继续依赖固定 `800×600` 或旧基准线假设。
 - `client/js/battle-debug.js` 新增地图配置缓存、Canvas 地图矩形投影、边界/网格绘制和二维事件提示；`draw()` 移除旧 `h * .72` 地面线，预览、正式身体、fallback 身体和 visual_fx 均传入同一份服务器地图配置。
 - `client/js/lizard-battle-adapter.js` 的正式 `LizardRenderer` 合成坐标改为按 `map.width/height/margin` 投影，战斗前预览、运动采样和轨迹调试使用同一二维地图坐标系。

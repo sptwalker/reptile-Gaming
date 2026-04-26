@@ -48,7 +48,7 @@
                     <button id="btnEnd">结束</button>
                 </div>
                 <label>倍速<select id="speed"><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label>
-                <label class="inline-toggle"><input id="toggleMotionDebug" type="checkbox" checked> 显示 root motion 足迹 / 动作轨迹</label>
+                <label class="inline-toggle"><input id="toggleMotionDebug" type="checkbox"> 显示 root motion 足迹 / 动作轨迹</label>
                 <section class="audio-panel">
                     <h2>真实音效</h2>
                     <label class="inline-toggle"><input id="audioEnabled" type="checkbox"> 启用战斗音效</label>
@@ -73,6 +73,19 @@
             </aside>
 
             <section class="stage-card">
+                <div id="battleTopHud" class="battle-top-hud hidden" aria-label="双方血量与恐惧值">
+                    <div class="hud-side hud-left">
+                        <div class="hud-head"><span id="hudLeftName">左方</span><strong id="hudLeftHpText">0 / 0</strong></div>
+                        <div class="hud-hp"><i id="hudLeftHpBar"></i></div>
+                        <div class="hud-fear"><span>恐惧</span><strong id="hudLeftFearText">0</strong><div><i id="hudLeftFearBar"></i></div></div>
+                    </div>
+                    <div class="hud-vs">VS</div>
+                    <div class="hud-side hud-right">
+                        <div class="hud-head"><span id="hudRightName">右方</span><strong id="hudRightHpText">0 / 0</strong></div>
+                        <div class="hud-hp"><i id="hudRightHpBar"></i></div>
+                        <div class="hud-fear"><span>恐惧</span><strong id="hudRightFearText">0</strong><div><i id="hudRightFearBar"></i></div></div>
+                    </div>
+                </div>
                 <canvas id="battleCanvas" width="960" height="560"></canvas>
                 <div id="winnerBadge" class="winner hidden"></div>
                 <section class="battle-log-dock" aria-label="战斗文字信息">
@@ -97,7 +110,6 @@
     <script src="js/battle-animator.js"></script>
     <script src="js/lizard-renderer.js"></script>
     <script src="js/lizard-battle-adapter.js"></script>
-    <script src="js/lizard-battle-renderer.js"></script>
     <script src="js/battle-debug.js"></script>
 </body>
 </html>

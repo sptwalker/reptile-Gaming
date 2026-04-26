@@ -87,6 +87,35 @@ function _addTrace(sum, trace) {
     for (const key of rules.AI_STATES) sum[key] = (sum[key] || 0) + (trace && trace[key] || 0);
 }
 
+function _emptyAngleStats() {
+    return { front: 0, side: 0, rear: 0, total: 0, flankScoreSum: 0, rearDamage: 0 };
+}
+
+function _addAngleStats(sum, angle) {
+    if (!angle) return;
+    sum.front += angle.front || 0;
+    sum.side += angle.side || 0;
+    sum.rear += angle.rear || 0;
+    sum.total += angle.total || 0;
+    sum.flankScoreSum += angle.flankScoreSum || 0;
+    sum.rearDamage += angle.rearDamage || 0;
+}
+
+function _angleReport(angle) {
+    const total = Math.max(1, angle && angle.total || 0);
+    return {
+        front: angle.front || 0,
+        side: angle.side || 0,
+        rear: angle.rear || 0,
+        total: angle.total || 0,
+        frontRate: _rate(angle.front || 0, total),
+        sideRate: _rate(angle.side || 0, total),
+        rearRate: _rate(angle.rear || 0, total),
+        avgFlankScore: Number(((angle.flankScoreSum || 0) / total).toFixed(3)),
+        rearDamage: angle.rearDamage || 0
+    };
+}
+
 function _rate(v, total) {
     return Number((v / Math.max(1, total) * 100).toFixed(1));
 }
@@ -99,7 +128,8 @@ function _sideReport(side, total) {
         avgDodges: Number((side.dodges / total).toFixed(1)),
         avgSkills: Number((side.skills / total).toFixed(1)),
         avgHpLeft: Number((side.hpLeft / total).toFixed(1)),
-        aiTraceAvg: _avgTrace(side.trace, total)
+        aiTraceAvg: _avgTrace(side.trace, total),
+        angle: _angleReport(side.angle)
     };
 }
 
@@ -174,8 +204,8 @@ function batchTest({ pet1Id, pet2Id, mapId, count, leftPersonality, rightPersona
         leftPersonality: fixedLeftAi || { code: 'random', name: '随机性格' },
         rightPersonality: fixedRightAi || { code: 'random', name: '随机性格' },
         detail: {
-            left: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {} },
-            right: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {} },
+            left: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, angle: _emptyAngleStats() },
+            right: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, angle: _emptyAngleStats() },
             samples: []
         }
     };
@@ -204,6 +234,8 @@ function batchTest({ pet1Id, pet2Id, mapId, count, leftPersonality, rightPersona
         stat.detail.right.hpLeft += result.summary.right.hpRemaining;
         _addTrace(stat.detail.left.trace, result.summary.left.personalityTrace);
         _addTrace(stat.detail.right.trace, result.summary.right.personalityTrace);
+        _addAngleStats(stat.detail.left.angle, result.summary.left.angle);
+        _addAngleStats(stat.detail.right.angle, result.summary.right.angle);
         if (stat.detail.samples.length < 8) {
             stat.detail.samples.push({ index: i + 1, winner: result.winner, duration: result.summary.duration, leftDamage: result.summary.left.totalDamage, rightDamage: result.summary.right.totalDamage, leftAi: leftAi.name, rightAi: rightAi.name });
         }

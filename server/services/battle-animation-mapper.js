@@ -56,6 +56,10 @@ function mapAttackAction({ actor, target, frame, result, targetPart, actionId = 
             damage: Math.max(0, Number(result.damage || 0)),
             part: result.part || targetPart,
             decoy: !!result.decoy,
+            attackZone: result.attackZone || (result.angleBonus && result.angleBonus.zone) || null,
+            flankScore: result.flankScore != null ? result.flankScore : result.angleBonus && result.angleBonus.flankScore,
+            flankAngle: result.flankAngle != null ? result.flankAngle : result.angleBonus && result.angleBonus.angle,
+            angleBonus: result.angleBonus || null,
         },
         motion: {
             actorFrom: _point(actor),
@@ -96,6 +100,10 @@ function mapSkillAction({ actor, target, frame, skillCode, effect, result, targe
             part: result && result.part ? result.part : targetPart || null,
             effect: effect ? effect.effect || effect.type : null,
             decoy: !!(result && result.decoy),
+            attackZone: result && (result.attackZone || result.angleBonus && result.angleBonus.zone) || null,
+            flankScore: result && (result.flankScore != null ? result.flankScore : result.angleBonus && result.angleBonus.flankScore),
+            flankAngle: result && (result.flankAngle != null ? result.flankAngle : result.angleBonus && result.angleBonus.angle),
+            angleBonus: result && result.angleBonus || null,
         },
         motion: {
             actorFrom: _point(actor),

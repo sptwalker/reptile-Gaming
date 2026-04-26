@@ -17,23 +17,6 @@
         return Math.max(min, Math.min(max, v));
     }
 
-    function makeStage(width, height) {
-        var holder = document.createElement('div');
-        holder.style.position = 'fixed';
-        holder.style.left = '-10000px';
-        holder.style.top = '-10000px';
-        holder.style.width = width + 'px';
-        holder.style.height = height + 'px';
-        holder.style.overflow = 'hidden';
-        holder.setAttribute('aria-hidden', 'true');
-        var canvas = document.createElement('canvas');
-        canvas.style.width = width + 'px';
-        canvas.style.height = height + 'px';
-        holder.appendChild(canvas);
-        document.body.appendChild(holder);
-        return { holder: holder, canvas: canvas };
-    }
-
     function resolveMap(map) {
         map = map || {};
         return {
@@ -82,10 +65,6 @@
         };
     }
 
-    function mapUnitPoint(unit, width, height, side, map) {
-        return worldToCanvas(unit || spawnPoint(side, map), width, height, map);
-    }
-
     function makePreviewUnit(side, frame, slot, map) {
         var m = resolveMap(map);
         var t = frame / 60 + (side === 'left' ? 0 : Math.PI);
@@ -101,7 +80,7 @@
             pose: 'walk',
             actionId: 'free_roam',
             actionProgress: (frame % 60) / 60,
-            footPhase: (frame % 30) / 30,
+            facing: side === 'left' ? 0 : Math.PI,
             _preview: true,
             _slot: slot || side
         };
@@ -111,16 +90,14 @@
         options = options || {};
         this.stageCanvas = stageCanvas;
         this.animator = options.animator || null;
-        this.unitWidth = options.unitWidth || 360;
-        this.unitHeight = options.unitHeight || 240;
         this.appearance = { left: null, right: null };
         this.renderers = { left: null, right: null };
-        this.stages = { left: null, right: null };
         this.tracks = { left: [], right: [] };
         this.unitHistory = { left: null, right: null };
         this.maxTrackPoints = options.maxTrackPoints || 90;
+        this.renderScale = finite(options.renderScale, 0.68);
         this.lastAnchors = { left: null, right: null };
-        this.ready = !!(root.LizardRenderer || (typeof LizardRenderer !== 'undefined' && LizardRenderer));
+        this.ready = !!this._RendererClass();
         if (this.ready) {
             this._createRenderer('left');
             this._createRenderer('right');
@@ -138,13 +115,10 @@
     LizardBattleAdapter.prototype._createRenderer = function (side) {
         var Renderer = this._RendererClass();
         if (!Renderer) return;
-        var stage = makeStage(this.unitWidth, this.unitHeight);
-        var renderer = new Renderer(stage.canvas, { activity: 8 });
+        var renderer = new Renderer(this.stageCanvas, { activity: 8, embedded: true, bindEvents: false, autoResize: false, fixedScale: this.renderScale });
         renderer.toggleAI(false);
         if (renderer.stop) renderer.stop();
-        renderer.mouseDown = true;
-        renderer.mouseDragStart = { x: this.unitWidth / 2, y: this.unitHeight / 2, time: Date.now() };
-        this.stages[side] = stage;
+        renderer.clearExternalMoveTarget && renderer.clearExternalMoveTarget();
         this.renderers[side] = renderer;
         this._seedPose(side, side === 'left' ? 1 : -1);
     };
@@ -152,10 +126,13 @@
     LizardBattleAdapter.prototype._seedPose = function (side, dir) {
         var r = this.renderers[side];
         if (!r || !r.spine || !r.spine.length) return;
-        var headX = this.unitWidth * 0.5 + dir * 38;
-        var headY = this.unitHeight * 0.48;
-        r._w = this.unitWidth;
-        r._h = this.unitHeight;
+        var w = this.stageCanvas.clientWidth || 960;
+        var h = this.stageCanvas.clientHeight || 560;
+        r._w = w;
+        r._h = h;
+        if (r._applyScale) r._applyScale();
+        var headX = side === 'left' ? w * 0.34 : w * 0.66;
+        var headY = h * 0.54;
         for (var i = 0; i < r.spine.length; i++) {
             var len = r._segmentLengthAt ? r._segmentLengthAt(Math.max(0, i - 1)) : 14;
             r.spine[i].x = headX - dir * i * len;
@@ -163,8 +140,6 @@
         }
         r.prevHeadX = r.spine[0].x;
         r.prevHeadY = r.spine[0].y;
-        r.mouseX = headX + dir * 80;
-        r.mouseY = headY;
         if (r._initLegs) r._initLegs();
     };
 
@@ -180,10 +155,7 @@
         ['left', 'right'].forEach(function (side) {
             var r = this.renderers[side];
             if (r && r.destroy) r.destroy();
-            var s = this.stages[side];
-            if (s && s.holder && s.holder.parentNode) s.holder.parentNode.removeChild(s.holder);
             this.renderers[side] = null;
-            this.stages[side] = null;
         }, this);
     };
 
@@ -203,10 +175,6 @@
         this._seedPose(side, side === 'left' ? 1 : -1);
     };
 
-    LizardBattleAdapter.prototype._unitPoint = function (unit, width, height, side, map) {
-        return mapUnitPoint(unit, width, height, side, map);
-    };
-
     LizardBattleAdapter.prototype._motionSample = function (side, unit, map) {
         var key = unit && unit._slot || side;
         var last = this.unitHistory[key];
@@ -216,8 +184,7 @@
         var dx = last ? x - last.x : 0;
         var dy = last ? y - last.y : 0;
         this.unitHistory[key] = { x: x, y: y };
-        var facing = dx ? (dx > 0 ? 1 : -1) : (side === 'left' ? 1 : -1);
-        return { dx: dx, dy: dy, speed: Math.hypot(dx, dy), facing: facing };
+        return { dx: dx, dy: dy, speed: Math.hypot(dx, dy) };
     };
 
     LizardBattleAdapter.prototype._contractFor = function (actionId) {
@@ -238,59 +205,17 @@
             type: type,
             progress: progress,
             pulse: pulse,
-            reach: 72,
-            lift: 0,
-            lateral: clamp(motion.dy * 0.12, -18, 18),
-            bodyScale: 1,
+            speedScale: 1,
             effectType: ''
         };
-        if (pose === 'run' || actionId === 'fast_move' || actionId === 'flee') {
-            profile.reach += 30 + clamp(motion.speed * 6, 0, 52);
-            profile.lift += Math.sin((unit && unit.footPhase || 0) * Math.PI) * 8;
-        } else if (pose === 'walk' || actionId === 'move') {
-            profile.reach += clamp(motion.speed * 4, 0, 32);
-        }
-        if (pose === 'bite' || actionId === 'bite') {
-            profile.reach += 34 * pulse;
-            profile.lift -= 5 * pulse;
-            profile.effectType = 'melee';
-        } else if (pose === 'claw' || actionId === 'scratch') {
-            profile.reach += 24 * pulse;
-            profile.lateral += 13 * Math.sin(progress * Math.PI * 2);
-            profile.effectType = 'melee';
-        } else if (pose === 'tail_swing' || actionId === 'tail_whip') {
-            profile.reach -= 18 * pulse;
-            profile.lateral += 22 * Math.sin(progress * Math.PI * 2);
-            profile.effectType = 'melee';
-        } else if (pose === 'spit' || actionId === 'venom_spit' || pose === 'breath' || actionId === 'flame_breath' || actionId === 'gale_slash') {
-            profile.reach += 28 * pulse;
-            profile.lift -= 16 * pulse;
-            profile.effectType = 'ranged';
-        } else if (pose === 'rush' || actionId === 'dragon_rush' || actionId === 'shadow_step') {
-            profile.reach += 50 * pulse;
-            profile.bodyScale += 0.08 * pulse;
-            profile.effectType = 'melee';
-        } else if (pose === 'heal' || actionId === 'regen' || actionId === 'heal') {
-            profile.lift -= 22 * pulse;
-            profile.reach -= 10 * pulse;
-            profile.effectType = 'heal';
-        } else if (pose === 'buff' || pose === 'camouflage' || pose === 'brace' || pose === 'focus' || actionId === 'predator_eye' || actionId === 'iron_hide' || actionId === 'camouflage' || actionId === 'buff') {
-            profile.lift -= 18 * pulse;
-            profile.effectType = actionId === 'predator_eye' ? 'fear_skill' : 'buff';
-        } else if (pose === 'listen' || pose === 'search' || pose === 'alert' || actionId === 'listen_alert' || actionId === 'search_sound') {
-            profile.lift -= 24 + 8 * pulse;
-            profile.lateral += 16 * Math.sin(progress * Math.PI * 2);
-            profile.effectType = 'buff';
-        } else if (pose === 'dodge' || actionId === 'dodge') {
-            profile.reach -= 46;
-            profile.lateral += 30 * (progress < 0.5 ? 1 : -1);
-        } else if (pose === 'flinch' || actionId === 'hit_react' || unit && unit.impact) {
-            profile.reach -= 34 * (1 - progress * 0.4);
-            profile.lift += 12 * pulse;
-        } else if (pose === 'dead' || actionId === 'dead') {
-            profile.reach -= 70;
-            profile.lift += 36;
-        }
+        if (pose === 'run' || actionId === 'fast_move' || actionId === 'flee' || pose === 'rush' || actionId === 'dragon_rush' || actionId === 'shadow_step') profile.speedScale = 1.7;
+        else if (pose === 'dodge' || actionId === 'dodge') profile.speedScale = 1.45;
+        else if (pose === 'dead' || actionId === 'dead') profile.speedScale = 0.2;
+        else if (motion && motion.speed > 8) profile.speedScale = 1.25;
+        if (pose === 'bite' || actionId === 'bite' || pose === 'claw' || actionId === 'scratch' || pose === 'tail_swing' || actionId === 'tail_whip' || pose === 'rush' || actionId === 'dragon_rush') profile.effectType = 'melee';
+        else if (pose === 'spit' || actionId === 'venom_spit' || pose === 'breath' || actionId === 'flame_breath' || actionId === 'gale_slash') profile.effectType = 'ranged';
+        else if (pose === 'heal' || actionId === 'regen' || actionId === 'heal') profile.effectType = 'heal';
+        else if (pose === 'buff' || pose === 'camouflage' || pose === 'brace' || pose === 'focus' || actionId === 'predator_eye' || actionId === 'iron_hide' || actionId === 'camouflage' || actionId === 'buff') profile.effectType = actionId === 'predator_eye' ? 'fear_skill' : 'buff';
         return profile;
     };
 
@@ -314,66 +239,69 @@
         this.tracks[side] = list;
     };
 
-    LizardBattleAdapter.prototype._prepareRenderer = function (side, unit, map) {
-        var r = this.renderers[side];
-        if (!r) return null;
-        var motion = this._motionSample(side, unit, map);
-        var dir = motion.facing || (side === 'left' ? 1 : -1);
-        var profile = this._actionProfile(unit, motion);
-        var speedPush = clamp(motion.speed * 5, 0, 46);
-        var targetX = this.unitWidth * 0.5 + dir * (profile.reach + speedPush + profile.pulse * 12);
-        var targetY = this.unitHeight * 0.48 + profile.lateral + profile.lift;
-        r.mouseDown = true;
-        r.mouseDragStart = r.mouseDragStart || { x: r.spine[0].x, y: r.spine[0].y, time: Date.now() };
-        r.mouseX = targetX;
-        r.mouseY = targetY + clamp(motion.dy * 0.22, -34, 34);
-        r._battleActionProfile = profile;
-        this._syncActionEffect(r, profile, unit);
-        return r;
+    LizardBattleAdapter.prototype._syncRendererCanvas = function (renderer, width, height) {
+        if (!renderer) return;
+        if (renderer._w !== width || renderer._h !== height) {
+            renderer._w = width;
+            renderer._h = height;
+            if (renderer._applyScale) renderer._applyScale();
+        }
     };
 
-    LizardBattleAdapter.prototype._renderUnitFrame = function (side, unit, map) {
-        var r = this._prepareRenderer(side, unit, map);
-        if (!r) return null;
-        if (r.renderBattleFrame) r.renderBattleFrame({ clear: true, transparent: true });
-        else if (r._render) r._render({ clear: true, transparent: true, skipTreadmill: true, skipLightDots: true, skipVision: true });
-        return this.stages[side] && this.stages[side].canvas;
+    LizardBattleAdapter.prototype._renderUnit = function (ctx, side, unit, options) {
+        var r = this.renderers[side];
+        if (!r || !unit) return;
+        var width = options.width || 960;
+        var height = options.height || 560;
+        var map = options.map || null;
+        this._syncRendererCanvas(r, width, height);
+        var p = worldToCanvas(unit, width, height, map);
+        var motion = this._motionSample(side, unit, map);
+        var profile = this._actionProfile(unit, motion);
+        var facing = Number.isFinite(Number(unit.facing)) ? Number(unit.facing) : null;
+        var current = r.getHeadAnchor ? r.getHeadAnchor() : null;
+        var dxCanvas = current ? p.x - current.x : 0;
+        var dyCanvas = current ? p.y - current.y : 0;
+        var distCanvas = Math.hypot(dxCanvas, dyCanvas);
+        var maxSpeed = Math.max(1, Number(r.MAX_SPEED) || 1);
+        var speedScale = Math.max(profile.speedScale || 1, Math.min(1.25, 0.75 + distCanvas / Math.max(1, maxSpeed * 9)));
+        if (unit.motionProgress != null) speedScale = Math.max(speedScale, 1.05);
+        if (distCanvas > maxSpeed * 20 && r.spine && r.spine.length) {
+            for (var i = 0; i < r.spine.length; i++) {
+                r.spine[i].x += dxCanvas;
+                r.spine[i].y += dyCanvas;
+            }
+            r.prevHeadX = r.spine[0].x;
+            r.prevHeadY = r.spine[0].y;
+            if (r._initLegs) r._initLegs();
+            speedScale = profile.speedScale || 1;
+        }
+        if (r.setExternalMoveTarget) {
+            r.setExternalMoveTarget({
+                x: p.x,
+                y: p.y,
+                facing: facing,
+                speedScale: speedScale,
+                action: { id: profile.actionId, pose: profile.pose, progress: profile.progress }
+            });
+        }
+        this._syncActionEffect(r, profile, unit);
+        ctx.save();
+        ctx.globalAlpha = unit.hp <= 0 ? 0.35 : 1;
+        if (r.stepBattleFrame) r.stepBattleFrame({ clear: false, transparent: true, skipTreadmill: true, skipLightDots: true, skipVision: true });
+        else if (r.renderBattleFrame) r.renderBattleFrame({ clear: false, transparent: true, skipTreadmill: true, skipLightDots: true, skipVision: true });
+        ctx.restore();
+        var anchor = r.getHeadAnchor ? r.getHeadAnchor() : p;
+        this._drawTracks(side, anchor || p);
+        this.lastAnchors[side] = { head: anchor || p, unit: unit };
+        this._drawHud(ctx, unit, anchor || p, side);
     };
 
     LizardBattleAdapter.prototype.render = function (ctx, units, options) {
         options = options || {};
         if (!this.ready) return false;
-        var w = options.width || 960;
-        var h = options.height || 560;
-        var map = options.map || null;
-        var self = this;
-        ['left', 'right'].forEach(function (side) {
-            var unit = units && units[side];
-            if (!unit) return;
-            var image = self._renderUnitFrame(side, unit, map);
-            if (!image) return;
-            var p = self._unitPoint(unit, w, h, side, map);
-            var scale = clamp(w / 1200, 0.62, 1.05);
-            var drawW = self.unitWidth * scale;
-            var drawH = self.unitHeight * scale;
-            ctx.save();
-            ctx.globalAlpha = unit.hp <= 0 ? 0.35 : 1;
-            if (unit.pose === 'dead' || unit.actionId === 'dead') {
-                ctx.translate(p.x, p.y - drawH * 0.22);
-                ctx.rotate(side === 'left' ? 0.22 : -0.22);
-                ctx.drawImage(image, -drawW / 2, -drawH * 0.5, drawW, drawH);
-            } else {
-                var profile = self.renderers[side] && self.renderers[side]._battleActionProfile || {};
-                var squash = clamp(profile.bodyScale || 1, 0.88, 1.12);
-                ctx.translate(p.x, p.y - drawH * 0.72);
-                ctx.scale(squash, 1 / Math.sqrt(squash));
-                ctx.drawImage(image, -drawW / 2, 0, drawW, drawH);
-            }
-            ctx.restore();
-            self._drawTracks(side, p);
-            self.lastAnchors[side] = { head: { x: p.x, y: p.y - drawH * 0.36 }, unit: unit };
-            self._drawHud(ctx, unit, p, side);
-        });
+        this._renderUnit(ctx, 'left', units && units.left, options);
+        this._renderUnit(ctx, 'right', units && units.right, options);
         return true;
     };
 

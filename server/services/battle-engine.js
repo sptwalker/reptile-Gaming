@@ -19,6 +19,22 @@ function _clamp01(v, fallback = 0.5) {
     return Math.max(0, Math.min(1, n));
 }
 
+function _emptyAngleStats() {
+    return { front: 0, side: 0, rear: 0, total: 0, flankScoreSum: 0, rearDamage: 0 };
+}
+
+function _trackAngleStats(statTracker, result) {
+    if (!statTracker || !result) return;
+    if (!statTracker.angle) statTracker.angle = _emptyAngleStats();
+    const zone = result.attackZone || result.angleBonus && result.angleBonus.zone || 'front';
+    if (zone === 'rear') statTracker.angle.rear++;
+    else if (zone === 'side') statTracker.angle.side++;
+    else statTracker.angle.front++;
+    statTracker.angle.total++;
+    statTracker.angle.flankScoreSum += Number(result.flankScore || result.angleBonus && result.angleBonus.flankScore || 0);
+    if (zone === 'rear' && !result.dodged) statTracker.angle.rearDamage += Number(result.damage || 0);
+}
+
 function normalizePersonality(input) {
     const presets = rules.BATTLE_PERSONALITY_PRESETS || {};
     let base = presets.balanced || {};
@@ -148,10 +164,111 @@ function _partLossRatio(part) {
     return Math.max(0, Math.min(1, 1 - Math.max(0, part.hp) / part.maxHp));
 }
 
-function _pickTargetPart(unit) {
+function normalizeAngle(a) {
+    const tau = Math.PI * 2;
+    let n = Number(a) % tau;
+    if (!Number.isFinite(n)) n = 0;
+    if (n < 0) n += tau;
+    return n;
+}
+
+function _shortestAngleDiff(from, to) {
+    let diff = normalizeAngle(to) - normalizeAngle(from);
+    if (diff > Math.PI) diff -= Math.PI * 2;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    return diff;
+}
+
+function _angleTo(from, to) {
+    return normalizeAngle(Math.atan2(to.y - from.y, to.x - from.x));
+}
+
+function getForwardCone(unit, angle = rules.BATTLE_VISION_CONE_ANGLE) {
+    const half = angle / 2;
+    return { center: normalizeAngle(unit.facing), left: normalizeAngle(unit.facing - half), right: normalizeAngle(unit.facing + half), half };
+}
+
+function getRearArc(unit, angle = rules.BATTLE_REAR_ARC_ANGLE) {
+    const center = normalizeAngle(unit.facing + Math.PI);
+    const half = angle / 2;
+    return { center, left: normalizeAngle(center - half), right: normalizeAngle(center + half), half };
+}
+
+function isAngleInArc(angle, arc) {
+    return Math.abs(_shortestAngleDiff(arc.center, angle)) <= arc.half;
+}
+
+function isInFrontArc(attacker, defender) {
+    return isAngleInArc(_angleTo(defender, attacker), getForwardCone(defender));
+}
+
+function isInRearArc(attacker, defender) {
+    return isAngleInArc(_angleTo(defender, attacker), getRearArc(defender));
+}
+
+function flankScore(attacker, defender) {
+    const rearCenter = normalizeAngle(defender.facing + Math.PI);
+    const angle = _angleTo(defender, attacker);
+    const diff = Math.abs(_shortestAngleDiff(rearCenter, angle));
+    return Math.max(0, Math.min(1, 1 - diff / Math.PI));
+}
+
+function angleAttackBonus(attacker, defender, partKey) {
+    const score = flankScore(attacker, defender);
+    let zone = 'front';
+    let dmgBonus = 1;
+    let hitBonus = 0;
+    if (score >= 2 / 3 || isInRearArc(attacker, defender)) {
+        zone = 'rear';
+        dmgBonus += rules.BATTLE_FLANK_DMG_BONUS;
+        hitBonus = rules.BATTLE_FLANK_HIT_BONUS;
+    } else if (score >= 1 / 3 || !isInFrontArc(attacker, defender)) {
+        zone = 'side';
+        dmgBonus += rules.BATTLE_SIDE_DMG_BONUS;
+        hitBonus = rules.BATTLE_SIDE_HIT_BONUS;
+    }
+    return {
+        zone,
+        flankScore: Number(score.toFixed(3)),
+        dmgBonus,
+        hitBonus,
+        angle: Number(_angleTo(defender, attacker).toFixed(3)),
+        part: partKey,
+    };
+}
+
+function weakPointExposure(unit, attacker) {
+    let weakKey = 'torso';
+    let weakRatio = 1;
+    for (const [key, part] of Object.entries(unit.bodyParts)) {
+        if (part.detached || part.hp <= 0) continue;
+        const ratio = Math.max(0, part.hp) / Math.max(1, part.maxHp);
+        if (ratio < weakRatio) {
+            weakRatio = ratio;
+            weakKey = key;
+        }
+    }
+    const exposure = flankScore(attacker, unit);
+    return { part: weakKey, exposure: Number(exposure.toFixed(3)), hpRatio: Number(weakRatio.toFixed(3)) };
+}
+
+function _pickTargetPart(defender, attacker) {
+    const flank = attacker ? flankScore(attacker, defender) : 0;
     const candidates = Object.entries(rules.BATTLE_BODY_PARTS)
-        .map(([key, cfg]) => [key, cfg.weight])
-        .filter(([key]) => !unit.bodyParts[key].detached && unit.bodyParts[key].hp > 0);
+        .map(([key, cfg]) => {
+            const part = defender.bodyParts[key];
+            if (!part || part.detached || part.hp <= 0) return null;
+            let weight = cfg.weight;
+            if (flank > 0.7 && (key === 'head' || key === 'torso')) weight *= 1.5;
+            if (flank < 0.3 && (key === 'foreLeft' || key === 'foreRight')) weight *= 1.3;
+            if (flank >= 0.35 && flank <= 0.75 && (key === 'foreLeft' || key === 'foreRight' || key === 'hindLeft' || key === 'hindRight')) weight *= 1.18;
+            const hpRatio = Math.max(0, part.hp) / Math.max(1, part.maxHp);
+            const vulnerabilityBonus = Math.min(0.9, Math.max(0, 1 - hpRatio) * 0.85);
+            const lowDefBonus = Math.max(0, 1 - part.def / Math.max(1, defender.def + part.def));
+            weight *= 1 + vulnerabilityBonus + lowDefBonus * 0.35;
+            return [key, Math.max(0.001, weight)];
+        })
+        .filter(Boolean);
     const total = candidates.reduce((sum, item) => sum + item[1], 0);
     let roll = secureRandomFloat() * total;
     for (const item of candidates) {
@@ -278,6 +395,10 @@ function _createUnit(fighter, side, map) {
         // 原始六维
         attr: fighter.attr,
         fear: 0,
+        fleePressure: 0,
+        stuckFrames: 0,
+        lastMoveX: spawn.x,
+        lastMoveY: spawn.y,
         aiState: 'aggressive',
         skills: skillList,
         buffs: [],
@@ -285,6 +406,12 @@ function _createUnit(fighter, side, map) {
         // 二维地图坐标
         x: spawn.x,
         y: spawn.y,
+        facing: side === 'left' ? 0 : Math.PI,
+        angularVelocity: 0,
+        aiSubState: null,
+        flankTarget: null,
+        protectTarget: null,
+        weakExposure: null,
 
         // 攻击冷却（基于速度）
         attackCooldown: 0,
@@ -347,6 +474,34 @@ function _clampPoint(map, point) {
     };
 }
 
+function _unstuckPoint(unit, opponent, map) {
+    const b = _arenaBounds(map);
+    const center = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+    const dx = unit.x - opponent.x;
+    const dy = unit.y - opponent.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    let vx = dx / len;
+    let vy = dy / len;
+    const nearX = unit.x <= b.minX + 2 || unit.x >= b.maxX - 2;
+    const nearY = unit.y <= b.minY + 2 || unit.y >= b.maxY - 2;
+    if (nearX || nearY) {
+        vx = center.x - unit.x;
+        vy = center.y - unit.y;
+        const centerLen = Math.sqrt(vx * vx + vy * vy) || 1;
+        vx /= centerLen;
+        vy /= centerLen;
+    }
+    const side = unit.side === 'left' ? 1 : -1;
+    const sideX = -vy * side;
+    const sideY = vx * side;
+    const step = 80 + (unit.personality && unit.personality.mobility || 0.5) * 90;
+    return _clampPoint(map, {
+        x: unit.x + vx * step + sideX * step * 0.45,
+        y: unit.y + vy * step + sideY * step * 0.45,
+    });
+}
+
+
 function _spawnPoint(map, side) {
     const b = _arenaBounds(map);
     const usableW = b.maxX - b.minX;
@@ -355,6 +510,47 @@ function _spawnPoint(map, side) {
         x: side === 'left' ? b.minX + usableW * 0.12 : b.maxX - usableW * 0.12,
         y: b.minY + usableH * 0.5,
     };
+}
+
+function _calcFlankPosition(unit, opponent, map, meleeRange) {
+    const rearDir = normalizeAngle(opponent.facing + Math.PI);
+    const dist = Math.max(72, meleeRange * rules.BATTLE_FLANK_TARGET_DIST_MULT);
+    const sideBias = unit.side === 'left' ? -0.35 : 0.35;
+    const dir = normalizeAngle(rearDir + sideBias * (0.7 + unit.personality.cunning * 0.35));
+    return _clampPoint(map, {
+        x: opponent.x + Math.cos(dir) * dist,
+        y: opponent.y + Math.sin(dir) * dist,
+    });
+}
+
+function _calcProtectPosition(unit, opponent, map) {
+    const frontDir = normalizeAngle(opponent.facing);
+    const sideDir = normalizeAngle(frontDir + (unit.side === 'left' ? -1 : 1) * Math.PI / 2);
+    const dist = 120 + unit.personality.caution * 80 + unit.personality.mobility * 45;
+    return _clampPoint(map, {
+        x: unit.x + Math.cos(sideDir) * dist - Math.cos(frontDir) * dist * 0.35,
+        y: unit.y + Math.sin(sideDir) * dist - Math.sin(frontDir) * dist * 0.35,
+    });
+}
+
+function _calcKitePosition(unit, opponent, map) {
+    const rearDir = normalizeAngle(opponent.facing + Math.PI);
+    const sideDir = normalizeAngle(rearDir + (unit.side === 'left' ? -1 : 1) * Math.PI / 3);
+    const retreatStep = 120 + unit.personality.caution * 70 + unit.personality.mobility * 65;
+    return _clampPoint(map, {
+        x: unit.x + Math.cos(sideDir) * retreatStep,
+        y: unit.y + Math.sin(sideDir) * retreatStep,
+    });
+}
+
+function _updateFacing(unit, opponent) {
+    if (!unit || !opponent || unit.headCanMove === false) return;
+    const targetFacing = Math.atan2(opponent.y - unit.y, opponent.x - unit.x);
+    const turnSpeed = Math.max(0.005, (rules.BATTLE_TURN_SPEED_BASE + unit.personality.mobility * rules.BATTLE_TURN_SPEED_MOBILITY_BONUS) * Math.max(0.1, unit.headTurnMult || 1));
+    const diff = _shortestAngleDiff(unit.facing, targetFacing);
+    const delta = Math.abs(diff) > turnSpeed ? Math.sign(diff) * turnSpeed : diff;
+    unit.angularVelocity = Number(delta.toFixed(4));
+    unit.facing = normalizeAngle(unit.facing + delta);
 }
 
 function _knownTargetDecision(unit, toward) {
@@ -388,10 +584,12 @@ function _targetPointFor(unit, opponent, decision, map) {
 
     if (decision.toward === false) {
         const retreat = 120 + (p.caution || 0.5) * 70 + (p.mobility || 0.5) * 55;
-        return _clampPoint(map, {
+        const target = _clampPoint(map, {
             x: unit.x - nx * retreat + lx * wave * 0.45,
             y: unit.y - ny * retreat + ly * wave * 0.45,
         });
+        if (_battleDist(unit, target) < 8) return _unstuckPoint(unit, opponent, map);
+        return target;
     }
 
     const closeOffset = 34 + (p.caution || 0.5) * 18;
@@ -413,44 +611,109 @@ function _directionFromVector(dx, dy) {
     return 'northwest';
 }
 
-function _aiDecide(unit, opponent, frame, map) {
+function _shouldPanicMove(unit) {
     const p = unit.personality;
-    if (unit.fear >= rules.BATTLE_FEAR_ESCAPE * (0.82 + p.risk * 0.32 + p.ferocity * 0.12)) {
-        return { action: 'flee' };
+    const hpRatio = unit.hp / Math.max(1, unit.maxHp);
+    const escapeFear = rules.BATTLE_FEAR_ESCAPE * (0.82 + p.risk * 0.32 + p.ferocity * 0.12);
+    if (unit.fear < escapeFear) {
+        unit.fleePressure = 0;
+        return false;
+    }
+    unit.fleePressure = (unit.fleePressure || 0) + 1;
+    const criticalFear = unit.fear >= rules.BATTLE_FEAR_ESCAPE * 1.45;
+    const wounded = hpRatio <= 0.35 + p.caution * 0.15 - p.risk * 0.08;
+    const sustainedPanic = unit.fleePressure >= rules.BATTLE_FPS * 3 && hpRatio <= 0.68;
+    return criticalFear || wounded || sustainedPanic;
+}
+
+function _aiDecide(unit, opponent, frame, map) {
+    if (_shouldPanicMove(unit)) {
+        unit.aiSubState = null;
+        unit.flankTarget = null;
+        unit.protectTarget = null;
+        return { action: 'move', toward: false, panic: true };
     }
 
+    const p = unit.personality;
     const dist = _battleDist(unit, opponent);
     const meleeRange = 68 + p.aggression * 34 + p.risk * 18;
     const kiteRange = 115 + p.caution * 80 + p.mobility * 45;
+    const exposure = weakPointExposure(unit, opponent);
+    unit.weakExposure = exposure;
+
+    if ((unit.aiState === 'aggressive' || unit.aiState === 'kiting') && exposure.exposure > 0.7 && p.caution > 0.4 && unit.hp / Math.max(1, unit.maxHp) < 0.85) {
+        unit.aiSubState = 'protecting';
+        unit.protectTarget = _calcProtectPosition(unit, opponent, map);
+        unit.flankTarget = null;
+    } else if (unit.aiSubState === 'protecting' && exposure.exposure < 0.45) {
+        unit.aiSubState = null;
+        unit.protectTarget = null;
+    }
+
+    if (unit.aiSubState === 'protecting' && unit.protectTarget) {
+        return { action: 'move', toward: false, targetX: unit.protectTarget.x, targetY: unit.protectTarget.y };
+    }
+
+    const score = flankScore(unit, opponent);
+    if ((unit.aiState === 'aggressive' || unit.aiState === 'kiting') && dist <= rules.BATTLE_FLANK_MAX_DIST && p.cunning > 0.55 && p.mobility > 0.5 && score < 0.6) {
+        if (unit.aiSubState !== 'flanking') {
+            unit.flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
+        }
+        unit.aiSubState = 'flanking';
+    }
+
+    if (unit.aiSubState === 'flanking') {
+        if (!unit.flankTarget) unit.flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
+        const targetDist = _battleDist(unit, unit.flankTarget);
+        if (targetDist <= 24 || score >= 0.72) {
+            unit.aiSubState = 'flank_attack';
+        } else {
+            return { action: 'move', toward: true, targetX: unit.flankTarget.x, targetY: unit.flankTarget.y };
+        }
+    }
+
     const readySkill = _pickSkill(unit, opponent, dist);
-    if (readySkill) return { action: 'skill', skill: readySkill };
+    if (readySkill && unit.aiSubState !== 'flanking') return { action: 'skill', skill: readySkill };
 
     switch (unit.aiState) {
         case 'aggressive':
+            if (unit.aiSubState === 'flank_attack' && unit.attackCooldown <= 0 && dist <= meleeRange + 35) return { action: 'attack' };
+            if (isInFrontArc(unit, opponent) && dist > meleeRange * 0.8 && p.cunning > 0.4 && p.mobility > 0.4) {
+                const flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
+                unit.flankTarget = flankTarget;
+                unit.aiSubState = 'flanking';
+                return { action: 'move', toward: true, targetX: flankTarget.x, targetY: flankTarget.y };
+            }
             if (dist > meleeRange) return { action: 'move', toward: true };
             if (unit.attackCooldown <= 0) return { action: 'attack' };
             if (p.ferocity > 0.82 && dist < 140) return { action: 'move', toward: true };
             return { action: 'idle' };
 
         case 'kiting': {
-            if (dist < kiteRange) return { action: 'move', toward: false };
+            if (dist < kiteRange) {
+                const kite = _calcKitePosition(unit, opponent, map);
+                return { action: 'move', toward: false, targetX: kite.x, targetY: kite.y };
+            }
             if (unit.attackCooldown <= 0 && dist < kiteRange + 55) return { action: 'attack' };
             const known = _knownTargetDecision(unit, true);
             return p.cunning > 0.68 && known ? known : { action: 'idle' };
         }
 
         case 'defensive':
+            unit.aiSubState = null;
             if (dist < 95 + p.caution * 45) return { action: 'move', toward: false };
             if (dist > 105 + p.aggression * 35) return { action: 'move', toward: true };
             if (unit.attackCooldown <= 0 && p.risk > 0.28) return { action: 'attack' };
             return { action: 'idle' };
 
         case 'alert': {
+            unit.aiSubState = null;
             if (dist <= 95 + p.aggression * 35 && unit.attackCooldown <= 0) return { action: 'attack' };
             return _knownTargetDecision(unit, true) || { action: 'move', toward: true };
         }
 
         case 'searching': {
+            unit.aiSubState = null;
             const known = _knownTargetDecision(unit, p.cunning < 0.25);
             if (!known) return { action: 'idle' };
             if (p.cunning >= 0.25) {
@@ -461,6 +724,7 @@ function _aiDecide(unit, opponent, frame, map) {
         }
 
         case 'fear':
+            unit.aiSubState = null;
             return { action: 'move', toward: false };
 
         default:
@@ -492,12 +756,13 @@ function _pickSkill(unit, opponent, dist) {
  * ═══════════════════════════════════════════ */
 
 function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey) {
+    const angleBonus = angleAttackBonus(attacker, defender, targetPartKey);
     if (defender.tailDecoyFrames > 0 && secureRandomFloat() < rules.BATTLE_TAIL_DECOY_HIT_CHANCE) {
-        return { damage: 0, dodged: true, crit: false, part: 'tail_decoy', decoy: true };
+        return { damage: 0, dodged: true, crit: false, part: 'tail_decoy', decoy: true, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
     }
 
     const part = defender.bodyParts[targetPartKey] || defender.bodyParts.torso;
-    const baseAtk = attacker.atk * skillMulti;
+    const baseAtk = attacker.atk * skillMulti * angleBonus.dmgBonus;
 
     // 部位防御减伤
     const totalDef = defender.def + part.def;
@@ -515,19 +780,20 @@ function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey) {
     // 暴击
     let critMulti = 1;
     let isCrit = false;
-    if (secureRandomFloat() < attacker.crit * headPenalty) {
+    if (secureRandomFloat() < attacker.crit * headPenalty * (1 + angleBonus.hitBonus)) {
         critMulti = rules.BATTLE_CRIT_MULTI;
         isCrit = true;
     }
 
     // 闪避
     const decoyBonus = defender.tailDecoyFrames > 0 ? rules.BATTLE_TAIL_DECOY_DODGE_BONUS : 0;
-    if (secureRandomFloat() < (defender.dodge + decoyBonus) * Math.max(0.15, defender.moveControl)) {
-        return { damage: 0, dodged: true, crit: false, part: targetPartKey };
+    const dodgeChance = (defender.dodge + decoyBonus) * Math.max(0.15, defender.moveControl) / (1 + angleBonus.hitBonus);
+    if (secureRandomFloat() < dodgeChance) {
+        return { damage: 0, dodged: true, crit: false, part: targetPartKey, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
     }
 
     const damage = Math.max(1, Math.floor(baseAtk * defReduction * float * rageMulti * staPenalty * critMulti));
-    return { damage, dodged: false, crit: isCrit, part: targetPartKey };
+    return { damage, dodged: false, crit: isCrit, part: targetPartKey, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
 }
 
 function _applyPartDamage(defender, partKey, damage) {
@@ -739,10 +1005,11 @@ function createBattle({ pet1, pet2, mapId, leftPersonality, rightPersonality }) 
         unitB,
         finished: false,
         winner: null,
+        finishReason: null,
         frames: [],
         stats: {
-            left:  { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0 },
-            right: { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0 },
+            left:  { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, angle: _emptyAngleStats() },
+            right: { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, angle: _emptyAngleStats() },
         },
     };
 }
@@ -769,6 +1036,12 @@ function _snapshotUnit(unit) {
     return {
         x: unit.x,
         y: unit.y,
+        facing: Number(normalizeAngle(unit.facing).toFixed(3)),
+        angularVelocity: unit.angularVelocity,
+        aiSubState: unit.aiSubState,
+        flankTarget: unit.flankTarget ? { x: Math.round(unit.flankTarget.x), y: Math.round(unit.flankTarget.y) } : null,
+        protectTarget: unit.protectTarget ? { x: Math.round(unit.protectTarget.x), y: Math.round(unit.protectTarget.y) } : null,
+        weakExposure: unit.weakExposure,
         hp: unit.hp,
         maxHp: unit.maxHp,
         fear: unit.fear,
@@ -812,10 +1085,31 @@ function _snapshotFrame(session, events) {
     };
 }
 
+function _resolveLegalFinish(session) {
+    const unitA = session.unitA;
+    const unitB = session.unitB;
+    if (unitA.hp <= 0 && unitB.hp <= 0) return { winner: 'draw', reason: 'both_dead' };
+    if (unitA.hp <= 0) return { winner: 'right', reason: 'left_dead' };
+    if (unitB.hp <= 0) return { winner: 'left', reason: 'right_dead' };
+    if (session.frame >= rules.BATTLE_MAX_FRAMES) {
+        const ratioA = unitA.hp / unitA.maxHp;
+        const ratioB = unitB.hp / unitB.maxHp;
+        return { winner: ratioA > ratioB ? 'left' : ratioB > ratioA ? 'right' : 'draw', reason: 'time_limit' };
+    }
+    return null;
+}
+
+function _inferFinishReason(session) {
+    const legal = _resolveLegalFinish(session);
+    if (legal) return legal.reason;
+    return 'unknown';
+}
+
 function _buildSummary(session) {
     const unitA = session.unitA;
     const unitB = session.unitB;
     return {
+        reason: session.finishReason || _inferFinishReason(session),
         winner: session.winner,
         map: session.map.id,
         mapConfig: _snapshotMap(session.map),
@@ -860,9 +1154,10 @@ function _buildSummary(session) {
     };
 }
 
-function _finishBattle(session, winner) {
+function _finishBattle(session, winner, reason) {
     session.finished = true;
     session.winner = winner;
+    session.finishReason = reason || 'unknown';
     return getBattleState(session);
 }
 
@@ -894,6 +1189,8 @@ function stepBattle(session, frameCount = 1, options = {}) {
         if (unitB.tailDecoyFrames > 0) unitB.tailDecoyFrames--;
         _updateBodyImpairments(unitA);
         _updateBodyImpairments(unitB);
+        _updateFacing(unitA, unitB);
+        _updateFacing(unitB, unitA);
 
         _tickBuffs(unitA);
         _tickBuffs(unitB);
@@ -918,18 +1215,13 @@ function stepBattle(session, frameCount = 1, options = {}) {
 
         session.frame++;
 
-        if (unitA.hp <= 0 && unitB.hp <= 0) return _finishBattle(session, 'draw');
-        if (unitA.hp <= 0) return _finishBattle(session, 'right');
-        if (unitB.hp <= 0) return _finishBattle(session, 'left');
-        if (decA.action === 'flee') return _finishBattle(session, 'right');
-        if (decB.action === 'flee') return _finishBattle(session, 'left');
-        if (session.frame >= maxFrames) {
-            const ratioA = unitA.hp / unitA.maxHp;
-            const ratioB = unitB.hp / unitB.maxHp;
-            return _finishBattle(session, ratioA > ratioB ? 'left' : ratioB > ratioA ? 'right' : 'draw');
-        }
+        const legalFinish = _resolveLegalFinish(session);
+        if (legalFinish) return _finishBattle(session, legalFinish.winner, legalFinish.reason);
     }
 
+    session.finished = false;
+    session.winner = null;
+    session.finishReason = null;
     return getBattleState(session, lastEvents);
 }
 
@@ -937,7 +1229,9 @@ function getBattleState(session, events = []) {
     return {
         frame: session.frame,
         fps: rules.BATTLE_FPS,
+        maxFrames: rules.BATTLE_MAX_FRAMES,
         finished: session.finished,
+        reason: session.finishReason || _inferFinishReason(session),
         winner: session.winner,
         map: session.map.id,
         mapConfig: _snapshotMap(session.map),
@@ -962,6 +1256,7 @@ function simulate({ pet1, pet2, mapId, leftPersonality, rightPersonality }) {
         stepBattle(session, 1, { recordFrames: true });
     }
     return {
+        reason: session.finishReason || _inferFinishReason(session),
         winner: session.winner,
         frames: _compressFrames(session.frames),
         summary: _buildSummary(session),
@@ -1017,25 +1312,56 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                     x: unit.x + (secureRandomFloat() * 2 - 1) * 18,
                     y: unit.y + (secureRandomFloat() * 2 - 1) * 18,
                 });
+                const actualMove = _battleDist(unit, spinPoint);
                 unit.x = spinPoint.x;
                 unit.y = spinPoint.y;
-                moved = true;
-                events.push({ type: 'spin', src: unit.side });
-                events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed, { soundType: 'scramble' }));
+                moved = actualMove >= 0.5;
+                if (moved) {
+                    unit.stuckFrames = 0;
+                    unit.lastMoveX = unit.x;
+                    unit.lastMoveY = unit.y;
+                    events.push({ type: 'spin', src: unit.side });
+                    events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed, { soundType: 'scramble' }));
+                } else {
+                    unit.stuckFrames = (unit.stuckFrames || 0) + 1;
+                }
             } else {
-                const target = _targetPointFor(unit, opponent, decision, map);
-                const dx = target.x - unit.x;
-                const dy = target.y - unit.y;
-                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                let target = _targetPointFor(unit, opponent, decision, map);
+                let dx = target.x - unit.x;
+                let dy = target.y - unit.y;
+                let len = Math.sqrt(dx * dx + dy * dy) || 1;
                 moveSpeed = Math.max(1, Math.floor(unit.effectiveSpd / 10));
-                const next = _clampPoint(map, {
+                let next = _clampPoint(map, {
                     x: unit.x + dx / len * moveSpeed,
                     y: unit.y + dy / len * moveSpeed,
                 });
-                unit.x = next.x;
-                unit.y = next.y;
-                moved = from.x !== Math.round(unit.x) || from.y !== Math.round(unit.y);
-                if (_isFastMove(moveSpeed)) events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed));
+                let actualMove = _battleDist(unit, next);
+                if ((actualMove < 0.5 && decision.toward === false) || (unit.stuckFrames || 0) >= 12) {
+                    target = _unstuckPoint(unit, opponent, map);
+                    dx = target.x - unit.x;
+                    dy = target.y - unit.y;
+                    len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    next = _clampPoint(map, {
+                        x: unit.x + dx / len * Math.max(moveSpeed, 3),
+                        y: unit.y + dy / len * Math.max(moveSpeed, 3),
+                    });
+                    actualMove = _battleDist(unit, next);
+                    unit.aiSubState = null;
+                    unit.flankTarget = null;
+                    unit.protectTarget = null;
+                }
+                if (actualMove >= 0.5) {
+                    unit.x = next.x;
+                    unit.y = next.y;
+                    moved = from.x !== Math.round(unit.x) || from.y !== Math.round(unit.y);
+                    unit.stuckFrames = 0;
+                    unit.lastMoveX = unit.x;
+                    unit.lastMoveY = unit.y;
+                } else {
+                    unit.stuckFrames = (unit.stuckFrames || 0) + 1;
+                    moved = false;
+                }
+                if (moved && _isFastMove(moveSpeed)) events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed));
             }
             if (moved) {
                 events.push(animationMapper.mapMovementAction({
@@ -1055,14 +1381,15 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
             const dist = _battleDist(unit, opponent);
             if (dist > 100 * Math.max(0.1, unit.visionMult)) break;
 
-            const targetPart = _pickTargetPart(opponent);
+            const targetPart = _pickTargetPart(opponent, unit);
             const result = _calcDamage(unit, opponent, rageMulti, 1.0, targetPart);
+            _trackAngleStats(statTracker, result);
             unit.attackCooldown = Math.max(10, 30 - Math.floor(unit.effectiveSpd / 5));
             unit.battleStamina -= rules.BATTLE_STA_PER_ATK;
 
             if (result.dodged) {
                 statTracker.dodges++;
-                events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, part: result.part });
+                events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, part: result.part, attackZone: result.attackZone, flankScore: result.flankScore });
             } else {
                 events.push(..._applyPartDamage(opponent, targetPart, result.damage));
                 opponent.fear += rules.BATTLE_FEAR_PER_HIT;
@@ -1075,7 +1402,14 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                     tgt: opponent.side,
                     dmg: result.damage,
                     part: targetPart,
+                    attackZone: result.attackZone,
+                    flankScore: result.flankScore,
+                    angleBonus: result.angleBonus,
                 });
+            }
+            if (unit.aiSubState === 'flank_attack') {
+                unit.aiSubState = null;
+                unit.flankTarget = null;
             }
             events.push(animationMapper.mapAttackAction({
                 actor: unit,
@@ -1134,13 +1468,14 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                 const maxRange = (effect.type === 'ranged' ? 300 : 100) * Math.max(0.1, unit.visionMult);
                 if (dist > maxRange) break;
 
-                const targetPart = _pickTargetPart(opponent);
+                const targetPart = _pickTargetPart(opponent, unit);
                 const result = _calcDamage(unit, opponent, rageMulti, effect.dmg_multi, targetPart);
+                _trackAngleStats(statTracker, result);
                 unit.battleStamina -= rules.BATTLE_STA_PER_ATK * 2;
 
                 if (result.dodged) {
                     statTracker.dodges++;
-                    events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, skill: sk.code, part: result.part });
+                    events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, skill: sk.code, part: result.part, attackZone: result.attackZone, flankScore: result.flankScore });
                 } else {
                     events.push(..._applyPartDamage(opponent, targetPart, result.damage));
                     opponent.fear += effect.fear;
@@ -1155,7 +1490,14 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                         dmg: result.damage,
                         crit: result.crit,
                         part: targetPart,
+                        attackZone: result.attackZone,
+                        flankScore: result.flankScore,
+                        angleBonus: result.angleBonus,
                     });
+                }
+                if (unit.aiSubState === 'flank_attack') {
+                    unit.aiSubState = null;
+                    unit.flankTarget = null;
                 }
                 events.push(animationMapper.mapSkillAction({
                     actor: unit,

@@ -108,6 +108,11 @@ class LizardRenderer {
     this.aiLookTarget = 0; this.aiLookSpeed = 0;
     this.aiLookHoldTimer = 0;
     this.aiAlertTarget = null; this.aiAlertTimer = 0;
+    this.externalMoveTarget = null;
+    this.externalMoveActive = false;
+    this.externalMoveSpeed = 1;
+    this.externalLookAngle = null;
+    this.externalAction = null;
     this.activity = opts.activity || 5;
     /* ── 跑步机状态 ── */
     this._treadmillActive = false;
@@ -121,10 +126,15 @@ class LizardRenderer {
     this._evH = {};
     this._evBound = false;
     this._w = 0; this._h = 0;
+    this._embedded = !!opts.embedded;
+    this._autoResize = opts.autoResize !== false;
+    this._bindCanvasEvents = opts.bindEvents !== false;
+    this._scaleBasisWidth = Number.isFinite(Number(opts.scaleBasisWidth)) ? Number(opts.scaleBasisWidth) : 0;
+    this._fixedScale = Number.isFinite(Number(opts.fixedScale)) ? Number(opts.fixedScale) : 0;
     this._initCanvas();
     this._initSpine();
     this._initLegs();
-    this._bindEvents();
+    if (this._bindCanvasEvents) this._bindEvents();
   }
 
   start() {
@@ -143,10 +153,10 @@ class LizardRenderer {
       this._initLegs();
     }
     /* stop() 会移除 canvas 事件，这里重新绑定 */
-    this._ensureCanvasEvents();
+    if (this._bindCanvasEvents) this._ensureCanvasEvents();
     if (!this._rafId) this._rafId = requestAnimationFrame(this._boundRender);
     document.addEventListener("visibilitychange", this._boundVisibility);
-    window.addEventListener("resize", this._boundResize);
+    if (this._autoResize) window.addEventListener("resize", this._boundResize);
   }
 
   stop() {
@@ -172,6 +182,43 @@ class LizardRenderer {
   }
 
   setActivity(v) { this.activity = Math.max(1, Math.min(10, v)); }
+
+  setExternalMoveTarget(target) {
+    if (!target) {
+      this.externalMoveTarget = null;
+      this.externalMoveActive = false;
+      this.externalLookAngle = null;
+      this.externalAction = null;
+      return;
+    }
+    var x = Number(target.x);
+    var y = Number(target.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.externalMoveTarget = {
+      x: Math.max(10, Math.min(this._w - 10, x)),
+      y: Math.max(10, Math.min(this._h - 10, y))
+    };
+    this.externalMoveSpeed = Number.isFinite(Number(target.speedScale)) ? Math.max(0.2, Math.min(3, Number(target.speedScale))) : 1;
+    this.externalLookAngle = Number.isFinite(Number(target.facing)) ? Number(target.facing) : null;
+    this.externalAction = target.action || null;
+    this.externalMoveActive = true;
+    this.aiActive = false;
+    this.mouseDown = false;
+    this.mouseDragStart = null;
+  }
+
+  clearExternalMoveTarget() {
+    this.setExternalMoveTarget(null);
+  }
+
+  getHeadAnchor() {
+    if (!this.spine || !this.spine.length) return null;
+    return { x: this.spine[0].x, y: this.spine[0].y };
+  }
+
+  stepBattleFrame(options) {
+    this._render(options || { clear: false, transparent: true, skipTreadmill: true, skipLightDots: true, skipVision: true });
+  }
 
   /** 开启/关闭跑步机模式 */
   setTreadmill(active) {
@@ -343,31 +390,36 @@ class LizardRenderer {
   _initCanvas() {
     var dpr = window.devicePixelRatio || 1;
     var rect = this.canvas.parentElement.getBoundingClientRect();
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.canvas.style.width = rect.width + "px";
-    this.canvas.style.height = rect.height + "px";
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this._w = rect.width; this._h = rect.height;
+    if (!this._embedded) {
+      this.canvas.width = rect.width * dpr;
+      this.canvas.height = rect.height * dpr;
+      this.canvas.style.width = rect.width + "px";
+      this.canvas.style.height = rect.height + "px";
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
     this._applyScale();
-    window.addEventListener("resize", this._boundResize);
+    if (this._autoResize) window.addEventListener("resize", this._boundResize);
   }
 
   _resize() {
     var dpr = window.devicePixelRatio || 1;
     var rect = this.canvas.parentElement.getBoundingClientRect();
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.canvas.style.width = rect.width + "px";
-    this.canvas.style.height = rect.height + "px";
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this._w = rect.width; this._h = rect.height;
+    if (!this._embedded) {
+      this.canvas.width = rect.width * dpr;
+      this.canvas.height = rect.height * dpr;
+      this.canvas.style.width = rect.width + "px";
+      this.canvas.style.height = rect.height + "px";
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
     this._applyScale();
   }
 
   /** 根据 Canvas 实际宽度与基准宽度的比值缩放所有像素参数 */
   _applyScale() {
-    var s = Math.max(0.35, Math.min(1, this._w / this._BASE_REF_W));
+    var basis = this._scaleBasisWidth > 0 ? this._scaleBasisWidth : this._w;
+    var s = this._fixedScale > 0 ? this._fixedScale : Math.max(0.35, Math.min(1, basis / this._BASE_REF_W));
     this._scaleFactor = s;
     this.SEGMENT_LENGTH = this._BASE_SEGMENT_LENGTH * s;
     this.MAX_SPEED = this._BASE_MAX_SPEED * s;
@@ -481,9 +533,8 @@ class LizardRenderer {
 
   _angleDiff(a, b) {
     var d = b - a;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return d;
+    if (!Number.isFinite(d)) return 0;
+    return Math.atan2(Math.sin(d), Math.cos(d));
   }
 
   _bodyWidthAt(i) {
@@ -714,9 +765,7 @@ class LizardRenderer {
     if (dist > this.FOV_MAX_DIST) return null;
     var headAngle = this._getVisualHeadAngle();
     var dotAngle = Math.atan2(dy, dx);
-    var diff = dotAngle - headAngle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
+    var diff = this._angleDiff(headAngle, dotAngle);
     var halfFOV = (this.FOV_ANGLE / 2) * Math.PI / 180;
     if (Math.abs(diff) > halfFOV) return null;
     return dist <= this.FOV_CLEAR_DIST ? "clear" : "alert";
@@ -771,9 +820,7 @@ class LizardRenderer {
       this.aiAlertTimer++;
       if (this.aiAlertTimer < 30) {
         var tAngle = Math.atan2(dy2, dx2);
-        var diff = tAngle - this.aiWanderAngle;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
+        var diff = this._angleDiff(this.aiWanderAngle, tAngle);
         this.aiWanderAngle += diff * 0.08;
         return {tx: head.x, ty: head.y, speed: 0, lookAngle: tAngle};
       }
@@ -836,9 +883,7 @@ class LizardRenderer {
     if (bLen > 0.01) {
       var tA = Math.atan2(by, bx);
       var bf = Math.min(1, bLen * 0.6);
-      var dd = tA - this.aiWanderAngle;
-      while (dd > Math.PI) dd -= Math.PI * 2;
-      while (dd < -Math.PI) dd += Math.PI * 2;
+      var dd = this._angleDiff(this.aiWanderAngle, tA);
       this.aiWanderAngle += dd * bf;
     }
     var rampedSpeed = wanderSpeed * this.aiSpeedRamp;
@@ -850,10 +895,21 @@ class LizardRenderer {
     var desiredLookAngle = null;
     var headTurnUpdated = false;
     var startX = head.x, startY = head.y;
-    var hdx = head.x - this.prevHeadX, hdy = head.y - this.prevHeadY;
-    this.headSpeed = Math.hypot(hdx, hdy);
-    this.prevHeadX = head.x; this.prevHeadY = head.y;
-    if (this.mouseDown && this.mouseDragStart && Math.hypot(this.mouseX - this.mouseDragStart.x, this.mouseY - this.mouseDragStart.y) > 8) {
+    if (this.externalMoveActive && this.externalMoveTarget) {
+      this._mouseLookAngleReady = false;
+      this._mouseTurnBaseReady = false;
+      var ex = this.externalMoveTarget.x - head.x, ey = this.externalMoveTarget.y - head.y;
+      var ed = Math.hypot(ex, ey);
+      var targetLook = this.externalLookAngle !== null ? this.externalLookAngle : (ed > 0.5 ? Math.atan2(ey, ex) : this._getVisualHeadAngle());
+      desiredLookAngle = targetLook;
+      this._updateHeadTurn(targetLook, 0.44, true);
+      headTurnUpdated = true;
+      if (ed > 1.5) {
+        var avExt = this._computeAvoidanceDir(head, this.externalMoveTarget.x, this.externalMoveTarget.y);
+        var moveExt = Math.min(ed, this.MAX_SPEED * this.externalMoveSpeed) * this._headLeadMoveFactor(targetLook);
+        head.x += avExt.x * moveExt; head.y += avExt.y * moveExt;
+      }
+    } else if (this.mouseDown && this.mouseDragStart && Math.hypot(this.mouseX - this.mouseDragStart.x, this.mouseY - this.mouseDragStart.y) > 8) {
       var av = this._computeAvoidanceDir(head, this.mouseX, this.mouseY);
       var dx = this.mouseX - head.x, dy = this.mouseY - head.y, dist = Math.hypot(dx, dy);
       if (dist > 0.5) {
@@ -920,6 +976,8 @@ class LizardRenderer {
     head.x = Math.max(FENCE, Math.min(this._w - FENCE, head.x));
     head.y = Math.max(FENCE, Math.min(this._h - FENCE, head.y));
     var moved = Math.hypot(head.x - startX, head.y - startY);
+    this.headSpeed = moved;
+    this.prevHeadX = head.x; this.prevHeadY = head.y;
     var moveAngle = moved > 0.08 ? Math.atan2(head.y - startY, head.x - startX) : this._getHeadAngle();
     this.serpentinePhase += this.headSpeed * 0.12;
     for (var i = 1; i < this.spine.length; i++) {

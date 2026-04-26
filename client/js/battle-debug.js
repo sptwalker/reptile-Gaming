@@ -27,6 +27,17 @@
     var audioStatus = document.getElementById('audioStatus');
     var audioRequirements = document.getElementById('audioRequirements');
     var battleReport = document.getElementById('battleReport');
+    var battleTopHud = document.getElementById('battleTopHud');
+    var hudLeftName = document.getElementById('hudLeftName');
+    var hudRightName = document.getElementById('hudRightName');
+    var hudLeftHpText = document.getElementById('hudLeftHpText');
+    var hudRightHpText = document.getElementById('hudRightHpText');
+    var hudLeftHpBar = document.getElementById('hudLeftHpBar');
+    var hudRightHpBar = document.getElementById('hudRightHpBar');
+    var hudLeftFearText = document.getElementById('hudLeftFearText');
+    var hudRightFearText = document.getElementById('hudRightFearText');
+    var hudLeftFearBar = document.getElementById('hudLeftFearBar');
+    var hudRightFearBar = document.getElementById('hudRightFearBar');
 
     var sessionId = '';
     var state = null;
@@ -48,9 +59,16 @@
     var previewKey = '';
     var idleRaf = 0;
     var stepping = false;
+    var stepBacklog = 0;
+    var stepStartedAt = 0;
+    var stepWatchdogShown = false;
+    var sameFrameResponses = 0;
+    var eventLogRows = [];
+    var summaryShownKey = '';
+    var renderDegradedUntil = 0;
     var animator = window.BattleAnimator ? new window.BattleAnimator({ contracts: window.BattleActionContracts }) : null;
+
     var battleAdapter = window.LizardBattleAdapter ? new window.LizardBattleAdapter(canvas, { animator: animator }) : null;
-    var battleRenderer = window.LizardBattleRenderer ? new window.LizardBattleRenderer() : null;
 
     var PERSONALITY_DIMS = [
         ['aggression', '攻击倾向'], ['risk', '风险偏好'], ['caution', '谨慎度'], ['mobility', '机动性'],
@@ -85,13 +103,39 @@
         return { 'Content-Type': 'application/json', 'X-Admin-Key': key };
     }
 
-    async function request(path, body) {
-        var options = { method: body ? 'POST' : 'GET', headers: headers() };
-        if (body) options.body = JSON.stringify(body);
-        var resp = await fetch(API + path, options);
-        var data = await resp.json();
-        if (data.code !== 0) throw new Error(data.msg || '接口错误');
-        return data.data;
+    async function request(path, body, options) {
+        options = options || {};
+        var headersObj = headers();
+        var fetchOptions = { method: body ? 'POST' : 'GET', headers: headersObj };
+        if (body) fetchOptions.body = JSON.stringify(body);
+        var controller = null;
+        var timeoutId = 0;
+        var timedOut = false;
+        if (options.timeoutMs && window.AbortController) {
+            controller = new AbortController();
+            fetchOptions.signal = controller.signal;
+        }
+        var timeoutPromise = options.timeoutMs ? new Promise(function (_resolve, reject) {
+            timeoutId = setTimeout(function () {
+                timedOut = true;
+                if (controller) controller.abort();
+                reject(new Error('战斗步进请求超时，请重新开始或降低倍速'));
+            }, options.timeoutMs);
+        }) : null;
+        try {
+            var fetchPromise = fetch(API + path, fetchOptions);
+            var resp = await (timeoutPromise ? Promise.race([fetchPromise, timeoutPromise]) : fetchPromise);
+            var jsonPromise = resp.json();
+            var data = await (timeoutPromise ? Promise.race([jsonPromise, timeoutPromise]) : jsonPromise);
+            if (timedOut) throw new Error('战斗步进请求超时，请重新开始或降低倍速');
+            if (data.code !== 0) throw new Error(data.msg || '接口错误');
+            return data.data;
+        } catch (err) {
+            if (timedOut || (err && err.name === 'AbortError')) throw new Error('战斗步进请求超时，请重新开始或降低倍速');
+            throw err;
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+        }
     }
 
     function pct(v, max) {
@@ -196,11 +240,39 @@
         return battleAudio.ctx;
     }
 
-    function soundPan(e) {
+    function anchorCanvasPoint(side) {
+        if (!side) return null;
+        if (battleAdapter && battleAdapter.lastAnchors && battleAdapter.lastAnchors[side] && battleAdapter.lastAnchors[side].head) {
+            return battleAdapter.lastAnchors[side].head;
+        }
+        var unit = null;
+        if (animator && state && state.units && animator.getUnitVisual) unit = animator.getUnitVisual(side, state.units[side]);
+        else if (state && state.units) unit = state.units[side];
+        return unit ? worldToCanvas(unit, canvas.clientWidth || 960, canvas.clientHeight || 560, currentMapConfig()) : null;
+    }
+
+    function eventCanvasPoint(e) {
+        var w = canvas.clientWidth || 960;
+        var h = canvas.clientHeight || 560;
         var map = currentMapConfig();
-        var mw = Math.max(200, Number(map && map.width) || 800);
-        var x = e && Number.isFinite(Number(e.x)) ? Number(e.x) : mw / 2;
-        return Math.max(-1, Math.min(1, (x - mw / 2) / (mw / 2)));
+        if (!e) return { x: w / 2, y: h / 2 };
+        if (e.type === 'sound' && e.fake && Number.isFinite(Number(e.x))) return worldToCanvas(e, w, h, map);
+        var side = null;
+        if (e.type === 'hit' || e.type === 'crit' || e.type === 'skill_hit') side = e.tgt || e.target;
+        else if (e.type === 'combat_action') side = e.result && e.result.hit ? (e.target || e.tgt) : (e.actor || e.src);
+        else if (e.type === 'visual_fx') side = e.target || e.actor || e.tgt || e.src;
+        else side = e.src || e.actor || e.realSource;
+        var anchored = anchorCanvasPoint(side);
+        if (anchored) return anchored;
+        if (Number.isFinite(Number(e.x)) || Number.isFinite(Number(e.y))) return worldToCanvas(e, w, h, map);
+        return { x: w / 2, y: h / 2 };
+    }
+
+    function soundPan(e) {
+        var w = canvas.clientWidth || 960;
+        var p = eventCanvasPoint(e);
+        var x = p && Number.isFinite(Number(p.x)) ? Number(p.x) : w / 2;
+        return Math.max(-1, Math.min(1, (x - w / 2) / (w / 2)));
     }
 
     function audioVariantFile(req) {
@@ -361,7 +433,7 @@
         var d = lastBatchReport;
         var rows = [
             ['metric', 'value'], ['count', d.count], ['leftRate', d.leftRate], ['rightRate', d.rightRate], ['drawRate', d.drawRate], ['avgDuration', d.avgDuration], ['avgDamageLeft', d.avgDamageLeft], ['avgDamageRight', d.avgDamageRight],
-            [], ['side', 'avgDamage', 'avgHits', 'avgCrits', 'avgDodges', 'avgSkills', 'avgHpLeft'], ['left', d.detail.left.avgDamage, d.detail.left.avgHits, d.detail.left.avgCrits, d.detail.left.avgDodges, d.detail.left.avgSkills, d.detail.left.avgHpLeft], ['right', d.detail.right.avgDamage, d.detail.right.avgHits, d.detail.right.avgCrits, d.detail.right.avgDodges, d.detail.right.avgSkills, d.detail.right.avgHpLeft],
+            [], ['side', 'avgDamage', 'avgHits', 'avgCrits', 'avgDodges', 'avgSkills', 'avgHpLeft', 'front', 'sideZone', 'rear', 'avgFlank'], ['left', d.detail.left.avgDamage, d.detail.left.avgHits, d.detail.left.avgCrits, d.detail.left.avgDodges, d.detail.left.avgSkills, d.detail.left.avgHpLeft, d.detail.left.angle && d.detail.left.angle.front, d.detail.left.angle && d.detail.left.angle.side, d.detail.left.angle && d.detail.left.angle.rear, d.detail.left.angle && d.detail.left.angle.avgFlankScore], ['right', d.detail.right.avgDamage, d.detail.right.avgHits, d.detail.right.avgCrits, d.detail.right.avgDodges, d.detail.right.avgSkills, d.detail.right.avgHpLeft, d.detail.right.angle && d.detail.right.angle.front, d.detail.right.angle && d.detail.right.angle.side, d.detail.right.angle && d.detail.right.angle.rear, d.detail.right.angle && d.detail.right.angle.avgFlankScore],
             [], ['sample', 'winner', 'duration', 'leftDamage', 'rightDamage', 'leftAi', 'rightAi']
         ];
         (d.detail.samples || []).forEach(function (s) { rows.push([s.index, s.winner, s.duration, s.leftDamage, s.rightDamage, s.leftAi, s.rightAi]); });
@@ -388,6 +460,27 @@
         return '<div class="metric"><span>' + k + '</span><strong>' + v + '</strong></div>';
     }
 
+    function updateTopHud() {
+        if (!battleTopHud) return;
+        if (!state || !state.units) {
+            battleTopHud.classList.add('hidden');
+            return;
+        }
+        var left = state.units.left || {};
+        var right = state.units.right || {};
+        battleTopHud.classList.remove('hidden');
+        hudLeftName.textContent = left.name || '左方宠物';
+        hudRightName.textContent = right.name || '右方宠物';
+        hudLeftHpText.textContent = fmt(left.hp) + ' / ' + fmt(left.maxHp);
+        hudRightHpText.textContent = fmt(right.hp) + ' / ' + fmt(right.maxHp);
+        hudLeftHpBar.style.width = pct(left.hp, left.maxHp) + '%';
+        hudRightHpBar.style.width = pct(right.hp, right.maxHp) + '%';
+        hudLeftFearText.textContent = fmt(left.fear || 0);
+        hudRightFearText.textContent = fmt(right.fear || 0);
+        hudLeftFearBar.style.width = Math.max(0, Math.min(100, Number(left.fear || 0))) + '%';
+        hudRightFearBar.style.width = Math.max(0, Math.min(100, Number(right.fear || 0))) + '%';
+    }
+
     function renderUnit(el, unit) {
         if (!unit) { el.innerHTML = '<div class="muted">无数据</div>'; return; }
         var skills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return s.code + ':' + s.cooldownLeft; }).join(' / ') : '无';
@@ -395,7 +488,11 @@
         html += line('HP', fmt(unit.hp) + ' / ' + fmt(unit.maxHp));
         html += '<div class="bar"><i style="width:' + pct(unit.hp, unit.maxHp) + '%"></i></div>';
         html += line('恐惧 / 体力', fmt(unit.fear) + ' / ' + fmt(unit.sta));
-        html += line('AI / 技能', unit.st + ' / ' + (unit.canSkill ? '可用' : '禁用'));
+        html += line('AI / 子状态', unit.st + ' / ' + (unit.aiSubState || '-'));
+        html += line('朝向 / 角速', fmt(unit.facing) + ' / ' + fmt(unit.angularVelocity || 0));
+        if (unit.flankTarget) html += line('绕后目标', 'x=' + unit.flankTarget.x + ' y=' + unit.flankTarget.y);
+        if (unit.protectTarget) html += line('保护目标', 'x=' + unit.protectTarget.x + ' y=' + unit.protectTarget.y);
+        if (unit.weakExposure) html += line('弱点暴露', unit.weakExposure.part + ' ' + fmt(unit.weakExposure.exposure) + ' / HP ' + fmt(unit.weakExposure.hpRatio));
         if (unit.personality) html += line('战斗性格', (unit.personality.name || unit.personality.code) + ' / ' + (unit.personality.code || 'custom'));
         html += line('攻 / 防 / 速', fmt(unit.atk) + ' / ' + fmt(unit.def) + ' / ' + fmt(unit.effectiveSpd));
         html += line('视野 / 转头', fmt(unit.vision) + ' / ' + fmt(unit.headTurn));
@@ -419,29 +516,76 @@
         return '<div class="state-line"><span>' + k + '</span><strong>' + v + '</strong></div>';
     }
 
+    function sideName(side) {
+        return side === 'left' ? '左方宠物' : side === 'right' ? '右方宠物' : '未知宠物';
+    }
+
+    function skillName(code) {
+        var names = {
+            bite: '撕咬', move: '移动', fast_move: '快速突进', flee: '撤退', dodge: '闪避',
+            scratch: '利爪抓击', tail_whip: '尾鞭横扫', camouflage: '伪装潜伏', venom_spit: '毒液喷吐',
+            iron_hide: '铁皮硬化', dragon_rush: '龙形冲撞', regen: '再生恢复', predator_eye: '掠食者凝视',
+            flame_breath: '火焰吐息', gale_slash: '疾风斩', shadow_step: '影步', heal: '治疗'
+        };
+        return names[code] || code || '普通行动';
+    }
+
+    function partName(part) {
+        return bodyPartNames[part] || ({ head: '头部', body: '躯干', tail: '尾部', leg_fl: '左前肢', leg_fr: '右前肢', leg_bl: '左后肢', leg_br: '右后肢' }[part]) || part || '身体';
+    }
+
+    function zoneName(zone) {
+        return ({ front: '正面', side: '侧面', rear: '背后' }[zone]) || zone || '未知角度';
+    }
+
+    function stateName(st) {
+        return ({ aggressive: '主动进攻', kiting: '保持距离', defensive: '防守周旋', fear: '恐惧退避', free: '自由活动' }[st]) || st || '观察';
+    }
+
+    function soundName(type) {
+        return ({ footstep: '脚步声', scramble: '失衡摩擦声', fake_skill_sound: '技能假声', hit: '命中声', crit: '暴击声' }[type]) || type || '声音';
+    }
+
     function describeEvent(e) {
+        e = e || {};
         var frame = e.frame || e.startFrame || e.impactFrame || (state ? state.frame : 0);
         var src = e.src || e.actor || '';
         var tgt = e.tgt || e.target || '';
-        var text = '[' + frame + '] ' + e.type + ' ' + src + '→' + tgt;
+        var prefix = '[' + frame + '] ';
         if (e.type === 'sound') {
-            text += ' ' + e.soundType + ' pos=(' + fmt(e.x) + ',' + fmt(e.y) + ') vol=' + e.volume + ' r=' + e.radius + ' surface=' + e.surface + (e.fake ? ' fake' : '');
-        } else if (e.type === 'perception') {
-            var vec = e.vector ? ' vec=(' + fmt(e.vector.x) + ',' + fmt(e.vector.y) + ')' : '';
-            text += ' ' + e.subtype + ' dir=' + e.direction + ' angle=' + fmt(e.angle) + vec + ' conf=' + e.confidence + ' pos≈(' + fmt(e.lastKnownX) + ',' + fmt(e.lastKnownY) + ')' + (e.fake ? ' fake' : '');
-        } else if (e.type === 'movement') {
-            text += ' action=' + e.actionId + ' pos=(' + (e.from ? e.from.x : '?') + ',' + (e.from ? e.from.y : '?') + ')→(' + (e.to ? e.to.x : '?') + ',' + (e.to ? e.to.y : '?') + ') speed=' + e.speed + (e.fast ? ' fast' : '');
-        } else if (e.type === 'combat_action') {
-            var result = e.result || {};
-            text += ' action=' + e.actionId + ' hit=' + !!result.hit + ' dmg=' + (result.damage || 0) + (result.part ? ' part=' + result.part : '') + (result.dodged ? ' dodge' : '') + (result.crit ? ' crit' : '');
-        } else if (e.type === 'perception_action') {
-            text += ' action=' + e.actionId + ' look=(' + (e.lookAt ? fmt(e.lookAt.x) : '?') + ',' + (e.lookAt ? fmt(e.lookAt.y) : '?') + ')' + (e.cause && e.cause.fake ? ' fake' : '');
-        } else if (e.type === 'visual_fx') {
-            text += ' fx=' + e.fxId + (Number.isFinite(Number(e.x)) || Number.isFinite(Number(e.y)) ? ' pos=(' + fmt(e.x) + ',' + fmt(e.y) + ')' : '') + (e.radius ? ' r=' + e.radius : '') + (e.intensity ? ' intensity=' + fmt(e.intensity) : '');
-        } else {
-            text += (e.dmg ? ' dmg=' + e.dmg : '') + (e.part ? ' part=' + e.part : '') + (e.skill ? ' skill=' + e.skill : '');
+            return prefix + sideName(e.realSource || src) + (e.fake ? '制造' : '发出') + soundName(e.soundType) + '，音量 ' + fmt(e.volume || 0) + '，传播半径 ' + fmt(e.radius || 0) + (e.fake ? '，试图误导对手。' : '。');
         }
-        return text;
+        if (e.type === 'perception') {
+            return prefix + sideName(src) + (e.fake ? '被假声误导' : '听到' + sideName(tgt) + '的动静') + '，判断方向为' + (e.direction || '未知') + '，置信度 ' + fmt(e.confidence || 0) + '。';
+        }
+        if (e.type === 'movement') {
+            var verb = e.fast ? '快速冲刺' : '调整位置';
+            return prefix + sideName(src) + '决定' + verb + '，执行' + skillName(e.actionId) + '，速度 ' + fmt(e.speed || 0) + '。';
+        }
+        if (e.type === 'combat_action') {
+            var result = e.result || {};
+            var action = skillName(e.actionId);
+            if (result.dodged) return prefix + sideName(src) + '发动' + action + '，但' + sideName(tgt) + (result.decoy ? '用断尾诱饵骗过攻击。' : '成功闪避。');
+            if (!result.hit) return prefix + sideName(src) + '尝试' + action + '，没有造成有效伤害。';
+            return prefix + sideName(src) + '发动' + action + '，' + (result.crit ? '暴击' : '命中') + sideName(tgt) + '的' + partName(result.part || e.targetPart) + '，造成 ' + fmt(result.damage || 0) + ' 点伤害' + (result.attackZone ? '（' + zoneName(result.attackZone) + '攻击）' : '') + '。';
+        }
+        if (e.type === 'hit' || e.type === 'crit') {
+            return prefix + sideName(src) + (e.type === 'crit' ? '打出暴击，' : '命中，') + '击中' + sideName(tgt) + '的' + partName(e.part) + '，造成 ' + fmt(e.dmg || 0) + ' 点伤害' + (e.attackZone ? '（' + zoneName(e.attackZone) + '）' : '') + '。';
+        }
+        if (e.type === 'skill_hit') {
+            return prefix + sideName(src) + '释放' + skillName(e.skill) + '，' + (e.crit ? '暴击命中' : '命中') + sideName(tgt) + '的' + partName(e.part) + '，造成 ' + fmt(e.dmg || 0) + ' 点技能伤害' + (e.attackZone ? '（' + zoneName(e.attackZone) + '攻击）' : '') + '。';
+        }
+        if (e.type === 'heal') return prefix + sideName(src) + '释放' + skillName(e.skill) + '，恢复约 ' + fmt(e.amt || 0) + ' 点生命。';
+        if (e.type === 'buff') return prefix + sideName(src) + '释放' + skillName(e.skill) + '，获得' + (e.effect || '强化') + '效果。';
+        if (e.type === 'fear') return prefix + sideName(src) + '释放' + skillName(e.skill) + '，震慑' + sideName(tgt) + '，恐惧值增加 ' + fmt(e.fear || 0) + '。';
+        if (e.type === 'dodge' || e.type === 'tail_decoy') return prefix + sideName(src) + (e.type === 'tail_decoy' ? '断尾制造诱饵，骗过' : '闪避了') + sideName(tgt) + '的攻击。';
+        if (e.type === 'tail_detach') return prefix + sideName(src) + '尾部脱落，留下诱饵。';
+        if (e.type === 'limb_detach') return prefix + sideName(src) + '的' + partName(e.part) + '受创脱落。';
+        if (e.type === 'spin') return prefix + sideName(src) + '移动失衡，原地打转并发出声响。';
+        if (e.type === 'flee') return prefix + sideName(src) + '因恐惧或劣势选择撤退。';
+        if (e.type === 'perception_action') return prefix + sideName(src) + (e.cause && e.cause.fake ? '转向假声位置搜索。' : '根据声音转向目标位置。');
+        if (e.type === 'visual_fx') return prefix + '画面表现：' + (e.fxId === 'skill_glow' ? '技能光效' : e.fxId === 'crit_hit' ? '暴击冲击' : e.fxId === 'hit_flash' ? '命中闪光' : e.fxId === 'dodge_spark' ? '闪避火花' : e.fxId === 'fake_sound_wave' ? '假声波纹' : e.fxId === 'sound_wave' ? '声波扩散' : (e.fxId || '特效')) + '。';
+        return prefix + sideName(src) + '执行' + stateName(e.type) + (tgt ? '，目标是' + sideName(tgt) : '') + '。';
     }
 
     function selectedPersonalities() {
@@ -484,10 +628,12 @@
             '<div><b>左均命中/暴击/技能</b><span>' + fmt(left.avgHits || 0) + ' / ' + fmt(left.avgCrits || 0) + ' / ' + fmt(left.avgSkills || 0) + '</span></div>',
             '<div><b>右均命中/暴击/技能</b><span>' + fmt(right.avgHits || 0) + ' / ' + fmt(right.avgCrits || 0) + ' / ' + fmt(right.avgSkills || 0) + '</span></div>',
             '<div><b>左均剩余HP</b><span>' + fmt(left.avgHpLeft || 0) + '</span></div>',
-            '<div><b>右均剩余HP</b><span>' + fmt(right.avgHpLeft || 0) + '</span></div>',
+            '<div><b>左攻击角度</b><span>前/侧/后 ' + ((left.angle && left.angle.front) || 0) + ' / ' + ((left.angle && left.angle.side) || 0) + ' / ' + ((left.angle && left.angle.rear) || 0) + ' · 绕后均分 ' + fmt(left.angle && left.angle.avgFlankScore || 0) + '</span></div>',
+            '<div><b>右攻击角度</b><span>前/侧/后 ' + ((right.angle && right.angle.front) || 0) + ' / ' + ((right.angle && right.angle.side) || 0) + ' / ' + ((right.angle && right.angle.rear) || 0) + ' · 绕后均分 ' + fmt(right.angle && right.angle.avgFlankScore || 0) + '</span></div>',
             '</div>',
             '<div class="report-line"><b>左AI状态分布</b><span>' + traceText(left.aiTraceAvg) + '</span></div>',
             '<div class="report-line"><b>右AI状态分布</b><span>' + traceText(right.aiTraceAvg) + '</span></div>',
+            '<div class="report-line"><b>角度收益</b><span>左后方伤害 ' + fmt(left.angle && left.angle.rearDamage || 0) + ' / 右后方伤害 ' + fmt(right.angle && right.angle.rearDamage || 0) + '</span></div>',
             '<div class="report-line"><b>平衡提示</b><span>' + balance + '</span></div>',
             '<div class="sample-list">' + samples.map(function (s) { return '<span>#' + s.index + ' ' + s.leftAi + ' vs ' + s.rightAi + ' → ' + s.winner + ' ' + s.duration + 's 伤害 ' + s.leftDamage + '/' + s.rightDamage + '</span>'; }).join('') + '</div>'
         ].join('');
@@ -563,9 +709,122 @@
         ctx.restore();
     }
 
+    function drawTargetMarker(w, h, map, point, label, color) {
+        if (!point) return;
+        var p = worldToCanvas(point, w, h, map);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(p.x - 12, p.y); ctx.lineTo(p.x + 12, p.y);
+        ctx.moveTo(p.x, p.y - 12); ctx.lineTo(p.x, p.y + 12);
+        ctx.stroke();
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, p.x, p.y - 16);
+        ctx.restore();
+    }
+
+    function drawSimpleUnit(unit, w, h, map, color, label) {
+        if (!unit) return;
+        var p = worldToCanvas(unit, w, h, map);
+        var facing = Number.isFinite(Number(unit.facing)) ? Number(unit.facing) : 0;
+        var hpRatio = unit.maxHp > 0 ? Math.max(0, Math.min(1, unit.hp / unit.maxHp)) : 0;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(facing);
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#0d1117';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 28, 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(24, 0, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        ctx.save();
+        ctx.fillStyle = '#21262d';
+        ctx.fillRect(p.x - 42, p.y - 44, 84, 7);
+        ctx.fillStyle = hpRatio > 0.45 ? '#3fb950' : hpRatio > 0.2 ? '#f59e0b' : '#f85149';
+        ctx.fillRect(p.x - 42, p.y - 44, 84 * hpRatio, 7);
+        ctx.fillStyle = '#c9d1d9';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label + ' ' + Math.round(unit.hp || 0), p.x, p.y - 50);
+        if (unit.actionId) {
+            ctx.fillStyle = '#58a6ff';
+            ctx.fillText(unit.actionId, p.x, p.y - 64);
+        }
+        ctx.restore();
+    }
+
+    function drawFallbackUnits(w, h, map, left, right, message) {
+        drawSimpleUnit(left, w, h, map, '#3fb950', '左');
+        drawSimpleUnit(right, w, h, map, '#f85149', '右');
+        if (!message) return;
+        ctx.save();
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = '13px sans-serif';
+        ctx.fillText(message, 40, 96);
+        ctx.restore();
+    }
+
+    function drawUnitSpatialDebug(unit, w, h, map, color) {
+        if (!unit) return;
+        var p = worldToCanvas(unit, w, h, map);
+        var facing = Number(unit.facing);
+        if (!Number.isFinite(facing)) return;
+        var vision = Math.PI * 2 / 3;
+        var rear = Math.PI * 2 / 3;
+        var arena = arenaRect(w, h, map);
+        var visionMult = Number.isFinite(Number(unit.visionMult)) ? Math.max(0.1, Number(unit.visionMult)) : 1;
+        var len = Math.max(90, 250 * arena.scale * visionMult);
+        ctx.save();
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, len, facing - vision / 2, facing + vision / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.1;
+        ctx.fillStyle = '#f85149';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, len * 0.78, facing + Math.PI - rear / 2, facing + Math.PI + rear / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + Math.cos(facing) * len, p.y + Math.sin(facing) * len);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x + Math.cos(facing) * len, p.y + Math.sin(facing) * len, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        drawTargetMarker(w, h, map, unit.flankTarget, '绕后', '#d2a8ff');
+        drawTargetMarker(w, h, map, unit.protectTarget, '保护', '#f2cc60');
+    }
+
+    function drawSpatialDebug(w, h, map, left, right) {
+        if (toggleMotionDebug && !toggleMotionDebug.checked) return;
+        drawUnitSpatialDebug(left, w, h, map, '#3fb950');
+        drawUnitSpatialDebug(right, w, h, map, '#f85149');
+    }
+
     function hintPointFromEvent(e) {
         if (!e) return null;
-        if (e.type === 'sound' || e.type === 'visual_fx') return { x: e.x, y: e.y };
         if (e.type === 'perception') return { x: e.lastKnownX, y: e.lastKnownY };
         if (e.lookAt) return e.lookAt;
         return null;
@@ -576,10 +835,8 @@
         (events || []).forEach(function (e) {
             var label = '';
             var color = '#58a6ff';
-            if (e.type === 'sound') { label = e.fake ? '假声' : '声源'; color = e.fake ? '#d2a8ff' : '#58a6ff'; }
-            else if (e.type === 'perception') { label = e.fake ? '误判' : '捕获'; color = e.fake ? '#d2a8ff' : '#58a6ff'; }
+            if (e.type === 'perception') { label = e.fake ? '误判' : '捕获'; color = e.fake ? '#d2a8ff' : '#58a6ff'; }
             else if (e.type === 'combat_action') { label = e.actionId || '攻击'; color = '#f59e0b'; }
-            else if (e.type === 'visual_fx' && (e.fxId === 'sound_wave' || e.fxId === 'fake_sound_wave')) { label = e.fxId === 'fake_sound_wave' ? '假声波' : '声波'; color = e.fxId === 'fake_sound_wave' ? '#d2a8ff' : '#58a6ff'; }
             if (!label) return;
             edgeHints.push({ point: hintPointFromEvent(e), direction: e.direction, label: label, color: color, life: 36 });
         });
@@ -672,19 +929,94 @@
         ctx.restore();
     }
 
+    function isSoundWaveEvent(e) {
+        return !!e && (e.type === 'sound' || (e.type === 'visual_fx' && (e.fxId === 'sound_wave' || e.fxId === 'fake_sound_wave')));
+    }
+
+    function shouldLogEvent(e) {
+        return !!e && !isSoundWaveEvent(e);
+    }
+
+    function eventLogKey(e) {
+        if (!e) return '';
+        return [e.type, e.src || e.actor || '', e.tgt || e.target || '', e.part || '', e.dmg || '', e.actionId || e.fxId || ''].join('|');
+    }
+
     function pushEvents(events) {
         if (!events || !events.length) return;
-        flashEvents = events.concat(flashEvents).slice(0, 10);
-        var rows = events.map(function (e) {
-            return '<div class="event">' + describeEvent(e) + '</div>';
-        }).join('');
-        eventLog.innerHTML = rows + eventLog.innerHTML;
+        var visibleEvents = events.filter(shouldLogEvent);
+        if (!visibleEvents.length) return;
+        var existingHead = eventLogRows.slice(0, 8).join('\n');
+        var rows = visibleEvents.map(function (e) {
+            return { key: eventLogKey(e), html: '<div class="event">' + esc(describeEvent(e)) + '</div>' };
+        }).filter(function (row, idx, arr) {
+            if (!row.key) return true;
+            if (idx > 0 && arr[idx - 1].key === row.key) return false;
+            return existingHead.indexOf(row.html) < 0;
+        }).map(function (row) { return row.html; });
+        if (!rows.length) return;
+        Array.prototype.unshift.apply(eventLogRows, rows);
+        eventLogRows = eventLogRows.slice(0, 80);
+        eventLog.innerHTML = eventLogRows.join('');
+    }
+
+    function winnerName(winner) {
+        if (winner === 'left') return '左方宠物';
+        if (winner === 'right') return '右方宠物';
+        if (winner === 'draw') return '平局';
+        return winner || '未知';
+    }
+
+    function finishReasonName(reason) {
+        return ({
+            both_dead: '双方同时失去战斗能力',
+            left_dead: '左方宠物生命值归零',
+            right_dead: '右方宠物生命值归零',
+            time_limit: '达到最大战斗时长，按剩余生命比例判定',
+            unknown: '异常结束：未命中合法结束条件'
+        }[reason]) || reason || '异常结束：未命中合法结束条件';
+    }
+
+    function inferFinishReason(nextState, summary, left, right) {
+        var reason = summary.reason || nextState.reason;
+        if (reason && reason !== 'unknown') return reason;
+        var frame = summary.totalFrames || nextState.frame || 0;
+        var fps = nextState.fps || 30;
+        var lhp = left.hpRemaining != null ? left.hpRemaining : left.hp;
+        var rhp = right.hpRemaining != null ? right.hpRemaining : right.hp;
+        if (lhp <= 0 && rhp <= 0) return 'both_dead';
+        if (lhp <= 0) return 'left_dead';
+        if (rhp <= 0) return 'right_dead';
+        var maxFrames = nextState.maxFrames || fps * 120;
+        if (frame >= maxFrames) return 'time_limit';
+        return 'unknown';
+    }
+
+    function pushBattleSummary(nextState) {
+        if (!nextState || !nextState.finished) return;
+        var summary = nextState.summary || {};
+        var key = (sessionId || 'battle') + ':' + (summary.totalFrames || nextState.frame || 0) + ':' + (summary.winner || nextState.winner || '');
+        if (summaryShownKey === key) return;
+        summaryShownKey = key;
+        var left = summary.left || (nextState.units && nextState.units.left) || {};
+        var right = summary.right || (nextState.units && nextState.units.right) || {};
+        var duration = summary.duration != null ? summary.duration : Math.ceil((nextState.frame || 0) / (nextState.fps || 30));
+        var reason = inferFinishReason(nextState, summary, left, right);
+        var rows = [
+            '<div class="event"><b>===== 战斗结算报告 =====</b></div>',
+            '<div class="event">结束原因：' + esc(finishReasonName(reason)) + '</div>',
+            '<div class="event">胜利方：' + esc(winnerName(summary.winner || nextState.winner)) + '</div>',
+            '<div class="event">战斗时长：' + esc(duration) + ' 秒（' + esc(summary.totalFrames || nextState.frame || 0) + ' 帧）</div>',
+            '<div class="event">左方剩余生命：' + esc(fmt(left.hpRemaining != null ? left.hpRemaining : left.hp)) + ' / ' + esc(fmt(left.hpMax || left.maxHp || 0)) + '</div>',
+            '<div class="event">右方剩余生命：' + esc(fmt(right.hpRemaining != null ? right.hpRemaining : right.hp)) + ' / ' + esc(fmt(right.hpMax || right.maxHp || 0)) + '</div>'
+        ];
+        eventLogRows = rows.concat(eventLogRows).slice(0, 90);
+        eventLog.innerHTML = eventLogRows.join('');
     }
 
     function applyAppearance(appearance) {
         battleAppearance = appearance || { left: null, right: null };
         if (battleAdapter && battleAdapter.setAppearance) battleAdapter.setAppearance(battleAppearance);
-        if (battleRenderer && battleRenderer.setAppearance) battleRenderer.setAppearance(battleAppearance);
     }
 
     function updateAll(nextState) {
@@ -697,14 +1029,27 @@
         renderMetrics();
         renderUnit(leftState, state.units.left);
         renderUnit(rightState, state.units.right);
+        updateTopHud();
         if (state.finished) {
-            running = false;
-            winnerBadge.textContent = '战斗结束：' + state.winner;
-            winnerBadge.classList.remove('hidden');
+            var summary = state.summary || {};
+            var left = summary.left || (state.units && state.units.left) || {};
+            var right = summary.right || (state.units && state.units.right) || {};
+            var reason = inferFinishReason(state, summary, left, right);
+            if (reason === 'unknown') {
+                running = false;
+                pushBattleSummary(state);
+                winnerBadge.textContent = '战斗异常结束：服务端返回 unknown 结束原因';
+                winnerBadge.classList.remove('hidden');
+            } else {
+                running = false;
+                pushBattleSummary(state);
+                winnerBadge.textContent = '战斗结束：' + winnerName(state.winner);
+                winnerBadge.classList.remove('hidden');
+            }
         } else {
             winnerBadge.classList.add('hidden');
         }
-        draw();
+        if (!running || state.finished) draw();
     }
 
     function resizeCanvas() {
@@ -744,31 +1089,36 @@
             decayScreenImpact();
             return;
         }
-        if (animator) animator.advanceRenderFrame(Math.max(0.5, Number(speed.value || 1) * 0.28));
+        if (animator) {
+            animator.advanceRenderFrame(Math.max(0.7, Math.min(2.2, Number(speed.value || 1) * 0.55)));
+        }
         var leftVisual = animator ? animator.getUnitVisual('left', state.units.left) : state.units.left;
         var rightVisual = animator ? animator.getUnitVisual('right', state.units.right) : state.units.right;
         var shake = getShakeOffset();
         ctx.save();
         ctx.translate(shake.x, shake.y);
-        if (battleAdapter && battleAdapter.isReady && battleAdapter.isReady()) {
-            battleAdapter.render(ctx, { left: leftVisual, right: rightVisual }, { width: w, height: h, map: map });
-            if (animator && battleRenderer && battleRenderer.drawVisualFx) {
-                battleRenderer.lastAnchors = battleAdapter.lastAnchors;
-                battleRenderer.drawVisualFx(ctx, animator.getActiveFx(), { width: w, height: h, map: map, units: { left: leftVisual, right: rightVisual } });
+        var renderSkipped = renderDegradedUntil > 0;
+        if (battleAdapter && battleAdapter.isReady && battleAdapter.isReady() && !renderSkipped) {
+            try {
+                var renderStart = performance.now();
+                battleAdapter.render(ctx, { left: leftVisual, right: rightVisual }, { width: w, height: h, map: map });
+                if (!toggleMotionDebug || toggleMotionDebug.checked) battleAdapter.drawMotionDebug(ctx);
+                var renderCost = performance.now() - renderStart;
+                if (renderCost > 32) {
+                    renderDegradedUntil = 45;
+                    console.warn('[BattleDebug] 正式渲染耗时过高，临时降级为简化绘制', renderCost, state && state.frame);
+                }
+            } catch (err) {
+                renderDegradedUntil = 90;
+                console.error('[BattleDebug] 正式渲染异常，已降级为简化绘制', err, state && state.frame);
             }
-            if (!toggleMotionDebug || toggleMotionDebug.checked) battleAdapter.drawMotionDebug(ctx);
-        } else if (battleRenderer) {
-            battleRenderer.renderUnit(ctx, leftVisual, { side: 'left', color: '#3fb950', width: w, height: h, map: map, faceRight: true, appearance: battleAppearance.left });
-            battleRenderer.renderUnit(ctx, rightVisual, { side: 'right', color: '#f85149', width: w, height: h, map: map, faceRight: false, appearance: battleAppearance.right });
-            if (animator && battleRenderer.drawVisualFx) battleRenderer.drawVisualFx(ctx, animator.getActiveFx(), { width: w, height: h, map: map, units: { left: leftVisual, right: rightVisual } });
-            if (!toggleMotionDebug || toggleMotionDebug.checked) battleRenderer.drawMotionDebug(ctx);
-        } else {
-            ctx.fillStyle = '#f85149';
-            ctx.font = '16px sans-serif';
-            ctx.fillText('正式宠物渲染器不可用：请检查 lizard-renderer.js / lizard-battle-adapter.js 加载顺序', 40, 92);
+        }
+        if (renderSkipped || renderDegradedUntil > 0 || !battleAdapter || !battleAdapter.isReady || !battleAdapter.isReady()) {
+            drawFallbackUnits(w, h, map, leftVisual, rightVisual, renderDegradedUntil > 0 ? '正式渲染临时降级，战斗继续推进' : '正式宠物渲染器不可用');
+            if (renderDegradedUntil > 0) renderDegradedUntil -= 1;
         }
         ctx.restore();
-        drawFlashes(w, h);
+        drawSpatialDebug(w, h, map, leftVisual, rightVisual);
         drawEdgeHints(w, h);
         drawScreenImpact(w, h);
         decayScreenImpact();
@@ -779,7 +1129,6 @@
         flashEvents.forEach(function (e, i) {
             var color = '#f59e0b';
             if (e.type === 'perception' || e.type === 'perception_action') color = '#58a6ff';
-            else if (e.type === 'sound' || e.fxId === 'sound_wave' || e.fxId === 'fake_sound_wave') color = '#d2a8ff';
             else if (e.type === 'movement') color = '#7ee787';
             else if (e.type === 'crit' || e.crit || (e.result && e.result.crit)) color = '#f85149';
             else if (e.type === 'heal') color = '#3fb950';
@@ -796,16 +1145,27 @@
 
     async function start() {
         stopIdleLoop();
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+        running = false;
+        stepping = false;
+        stepStartedAt = 0;
+        stepWatchdogShown = false;
+        sameFrameResponses = 0;
+        lastTick = 0;
         previewActive = false;
         previewKey = '';
         eventLog.innerHTML = '';
+        eventLogRows = [];
+        summaryShownKey = '';
+        stepBacklog = 0;
         flashEvents = [];
         resetScreenImpact();
         edgeHints = [];
         applyAppearance(null);
+        updateTopHud();
         if (animator) animator.reset();
         if (battleAdapter) battleAdapter.reset();
-        if (battleRenderer) battleRenderer.reset();
         rememberPetIds();
         rememberPersonalities();
         var payload = selectedPersonalities();
@@ -813,6 +1173,8 @@
         payload.pet2Id = Number(pet2Id.value);
         payload.mapId = mapId.value;
         var data = await request('/start', payload);
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
         sessionId = data.sessionId;
         applyAppearance(data.appearance);
         updateAll(data.state);
@@ -821,29 +1183,71 @@
     }
 
     async function step(frames) {
-        if (!sessionId || stepping) return;
+        if (!sessionId) return;
+        var requestSession = sessionId;
+        var want = Math.max(1, Math.round(Number(frames) || 1));
+        if (stepping) {
+            stepBacklog = Math.min(18, stepBacklog + want);
+            return;
+        }
         stepping = true;
+        stepStartedAt = performance.now ? performance.now() : Date.now();
+        stepWatchdogShown = false;
         try {
-            var data = await request('/step', { sessionId: sessionId, frames: frames || 1 });
+            var data = await request('/step', { sessionId: requestSession, frames: want }, { timeoutMs: 2500 });
+            var prevFrame = state && state.frame || 0;
+            var respFrame = data.state && data.state.frame || 0;
+            if (respFrame <= prevFrame && !(data.state && data.state.finished)) sameFrameResponses += 1;
+            else sameFrameResponses = 0;
+            if (sameFrameResponses >= 3) {
+                running = false;
+                stepBacklog = 0;
+                throw new Error('战斗步进未推进：服务端连续返回同一帧 ' + respFrame);
+            }
+            if (requestSession !== sessionId) return;
             updateAll(data.state);
         } finally {
+            if (requestSession !== sessionId) return;
             stepping = false;
+            stepStartedAt = 0;
+            stepWatchdogShown = false;
+            if (running && stepBacklog > 0) {
+                var next = Math.min(18, stepBacklog);
+                stepBacklog = 0;
+                step(next).catch(showError);
+            }
         }
+    }
+
+    function checkStepWatchdog(now) {
+        if (!stepping || !stepStartedAt || stepWatchdogShown) return false;
+        if (now - stepStartedAt < 3500) return false;
+        stepWatchdogShown = true;
+        stepBacklog = 0;
+        showError(new Error('战斗步进请求超时，请重新开始或降低倍速'));
+        return true;
     }
 
     function loop(ts) {
         if (!running) return;
         raf = requestAnimationFrame(loop);
         draw();
-        if (!lastTick || (ts || 0) - lastTick >= 80) {
-            lastTick = ts || 0;
-            step(Math.max(1, Number(speed.value || 1) * 3)).catch(showError);
+        var now = ts || performance.now();
+        if (checkStepWatchdog(now)) return;
+        if (!lastTick) lastTick = now;
+        var elapsed = now - lastTick;
+        if (elapsed >= 90) {
+            lastTick = now;
+            var frames = Math.max(1, Math.min(8, Math.round(Number(speed.value || 1) * elapsed / 33)));
+            step(frames).catch(showError);
         }
     }
 
     function showError(err) {
         running = false;
         stepping = false;
+        stepStartedAt = 0;
+        stepBacklog = 0;
         alert(err.message || err);
     }
 
@@ -874,36 +1278,61 @@
     }
 
     document.getElementById('btnStart').onclick = function () { start().catch(showError); };
-    document.getElementById('btnPause').onclick = function () { running = !running; if (running) loop(); };
+    document.getElementById('btnPause').onclick = function () {
+        running = !running;
+        if (!running) {
+            stepBacklog = 0;
+            if (raf) cancelAnimationFrame(raf);
+            raf = 0;
+            return;
+        }
+        lastTick = 0;
+        loop();
+    };
     document.getElementById('btnStep').onclick = function () { running = false; step(1).catch(showError); };
     document.getElementById('btnReset').onclick = async function () {
         if (!sessionId) return start().catch(showError);
         var data = await request('/reset', { sessionId: sessionId });
         sessionId = data.sessionId;
         stopIdleLoop();
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+        running = false;
+        stepping = false;
+        stepStartedAt = 0;
+        stepWatchdogShown = false;
+        sameFrameResponses = 0;
+        lastTick = 0;
         previewActive = false;
         previewKey = '';
         eventLog.innerHTML = '';
+        eventLogRows = [];
+        summaryShownKey = '';
+        stepBacklog = 0;
         flashEvents = [];
         resetScreenImpact();
         if (animator) animator.reset();
         if (battleAdapter) battleAdapter.reset();
-        if (battleRenderer) battleRenderer.reset();
         applyAppearance(data.appearance);
         updateAll(data.state);
     };
     document.getElementById('btnEnd').onclick = async function () {
         stopIdleLoop();
         running = false;
+        stepping = false;
+        stepStartedAt = 0;
+        stepWatchdogShown = false;
+        stepBacklog = 0;
         if (sessionId) await request('/end', { sessionId: sessionId });
         sessionId = '';
         state = null;
+        updateTopHud();
+        summaryShownKey = '';
         flashEvents = [];
         resetScreenImpact();
         edgeHints = [];
         if (animator) animator.reset();
         if (battleAdapter) battleAdapter.reset();
-        if (battleRenderer) battleRenderer.reset();
         previewKey = '';
         loadPreview().catch(showError);
     };
@@ -919,13 +1348,13 @@
         payload.count = Number(document.getElementById('batchCount').value || 20);
         var data = await request('/batch', payload);
         lastBatchReport = data;
-        batchResult.innerHTML = '总场次：' + data.count + '<br>左胜率：' + data.leftRate + '% (' + data.left + ')<br>右胜率：' + data.rightRate + '% (' + data.right + ')<br>平局率：' + data.drawRate + '% (' + data.draw + ')<br>平均时长：' + data.avgDuration + 's<br>左/右均伤：' + data.avgDamageLeft + ' / ' + data.avgDamageRight + '<br>左/右均闪避：' + data.avgDodgesLeft + ' / ' + data.avgDodgesRight;
+        batchResult.innerHTML = '总场次：' + data.count + '<br>左胜率：' + data.leftRate + '% (' + data.left + ')<br>右胜率：' + data.rightRate + '% (' + data.right + ')<br>平局率：' + data.drawRate + '% (' + data.draw + ')<br>平均时长：' + data.avgDuration + 's<br>左/右均伤：' + data.avgDamageLeft + ' / ' + data.avgDamageRight + '<br>左/右均闪避：' + data.avgDodgesLeft + ' / ' + data.avgDodgesRight + '<br>左角度 前/侧/后：' + (data.detail.left.angle.front || 0) + ' / ' + (data.detail.left.angle.side || 0) + ' / ' + (data.detail.left.angle.rear || 0) + '<br>右角度 前/侧/后：' + (data.detail.right.angle.front || 0) + ' / ' + (data.detail.right.angle.side || 0) + ' / ' + (data.detail.right.angle.rear || 0);
         renderBattleReport(data);
     };
 
     if (toggleMotionDebug) toggleMotionDebug.onchange = draw;
-    if (pet1Id) pet1Id.onchange = function () { state = null; previewKey = ''; loadPreview().catch(showError); };
-    if (pet2Id) pet2Id.onchange = function () { state = null; previewKey = ''; loadPreview().catch(showError); };
+    if (pet1Id) pet1Id.onchange = function () { state = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
+    if (pet2Id) pet2Id.onchange = function () { state = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
     bindPanelToggle('toggleControlsPanel', 'controlsPanel', 'rg_battle_controls_collapsed');
     bindPanelToggle('toggleInspectPanel', 'inspectPanel', 'rg_battle_inspect_collapsed');
     if (leftPersonality) leftPersonality.onchange = function () { rememberPersonalities(); renderPersonalityEditors(); };

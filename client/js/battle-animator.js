@@ -52,7 +52,11 @@
     BattleAnimator.prototype.ingestState = function (state) {
         if (!state) return;
         if (state.frame < this.currentFrame) this.reset();
+        var prevFrame = this.currentFrame || 0;
         this.currentFrame = state.frame || 0;
+        if (!this.renderFrame || this.renderFrame > this.currentFrame || this.renderFrame < prevFrame - 1) {
+            this.renderFrame = Math.max(prevFrame, this.currentFrame - 4);
+        }
         this._syncUnit('left', state.units && state.units.left);
         this._syncUnit('right', state.units && state.units.right);
         this.ingestEvents(state.events || []);
@@ -75,11 +79,9 @@
         Object.keys(unit).forEach(function (key) {
             if (key !== 'x' && key !== 'y') visual[key] = unit[key];
         });
-        if (!this.motions[side] || this.currentFrame >= this.motions[side].endFrame) {
-            visual.x = unit.x;
-            visual.y = unit.y;
-            visual.yOffset = 0;
-        }
+        visual.x = unit.x;
+        visual.y = unit.y;
+        visual.yOffset = 0;
         this.units[side] = visual;
     };
 
@@ -113,7 +115,10 @@
     BattleAnimator.prototype.advanceRenderFrame = function (dt) {
         var step = Number(dt);
         if (!Number.isFinite(step) || step <= 0) step = 1;
-        this.renderFrame = Math.max(this.renderFrame || 0, this.currentFrame || 0) + step;
+        var target = this.currentFrame || 0;
+        var current = this.renderFrame || target;
+        if (current > target || current < target - 10) current = Math.max(0, target - 4);
+        this.renderFrame = Math.min(target, current + step);
         this._expireTransient(this.renderFrame);
     };
 
@@ -158,11 +163,11 @@
         var motionSample = this.sampleRootMotion(motion, sampleFrame);
         var action = this.actions[side];
         if (motionSample) {
-            base.x = motionSample.x;
-            base.y = motionSample.y;
             base.yOffset = motionSample.yOffset;
             base.footPhase = motionSample.footPhase;
             base.motionProgress = motionSample.progress;
+            base.velocityX = motionSample.velocityX;
+            base.velocityY = motionSample.velocityY;
         }
         if (action) {
             base.actionId = action.actionId;
