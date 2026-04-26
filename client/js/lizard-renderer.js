@@ -1683,21 +1683,36 @@ class LizardRenderer {
 
 
 
-  _render() {
+  _render(options) {
+    options = options || {};
     var ctx = this.ctx;
-    ctx.fillStyle = "#0a0a10";
-    ctx.fillRect(0, 0, this._w, this._h);
-    this._updateTreadmill();
-    this._drawTreadmill();
-    this._updateLightDots();
+    if (options.clear !== false) {
+      if (options.transparent) ctx.clearRect(0, 0, this._w, this._h);
+      else {
+        ctx.fillStyle = "#0a0a10";
+        ctx.fillRect(0, 0, this._w, this._h);
+      }
+    }
+    if (!options.skipTreadmill) {
+      this._updateTreadmill();
+      this._drawTreadmill();
+    }
+    if (!options.skipLightDots) this._updateLightDots();
     this._updateSpine();
     this._updateLegs();
-    this._drawLightDots();
-    this._drawVisionCone();
+    if (!options.skipLightDots) this._drawLightDots();
+    if (!options.skipVision) this._drawVisionCone();
     this._drawLegs();
     this._drawBody();
     this._drawHead();
     this._drawSpines();
     this._applyTestEffect(this._testEffect);
   }
+
+  renderBattleFrame(options) {
+    this._render(options || { transparent: true, skipTreadmill: true, skipLightDots: true, skipVision: true });
+  }
 }
+
+if (typeof window !== "undefined") window.LizardRenderer = LizardRenderer;
+if (typeof globalThis !== "undefined") globalThis.LizardRenderer = LizardRenderer;

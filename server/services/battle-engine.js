@@ -11,6 +11,67 @@
 
 const { secureRandomFloat } = require('../utils/random');
 const rules = require('../models/game-rules');
+const animationMapper = require('./battle-animation-mapper');
+
+function _clamp01(v, fallback = 0.5) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(1, n));
+}
+
+function normalizePersonality(input) {
+    const presets = rules.BATTLE_PERSONALITY_PRESETS || {};
+    let base = presets.balanced || {};
+    let code = 'balanced';
+    if (typeof input === 'string' && presets[input]) {
+        code = input;
+        base = presets[input];
+    } else if (input && typeof input === 'object') {
+        code = presets[input.code] ? input.code : 'custom';
+        base = presets[input.code] || presets.balanced || {};
+    }
+    const merged = input && typeof input === 'object' ? { ...base, ...input } : base;
+    return {
+        code,
+        name: merged.name || (presets[code] && presets[code].name) || '均衡适应',
+        aggression: _clamp01(merged.aggression),
+        risk: _clamp01(merged.risk),
+        caution: _clamp01(merged.caution),
+        mobility: _clamp01(merged.mobility),
+        cunning: _clamp01(merged.cunning),
+        ferocity: _clamp01(merged.ferocity),
+        skill: _clamp01(merged.skill),
+        hearing: _clamp01(merged.hearing),
+    };
+}
+
+function _skillIntent(effect) {
+    if (!effect) return 'attack';
+    if (effect.type === 'heal') return 'heal';
+    if (effect.type === 'buff') {
+        if (effect.effect === 'dodge_up' || effect.sound) return 'trick';
+        if (effect.effect === 'crit_up') return 'focus';
+        return 'guard';
+    }
+    if (effect.type === 'fear_skill') return 'fear';
+    if (effect.type === 'ranged') return 'ranged';
+    return 'melee';
+}
+
+function _skillScore(unit, opponent, effect, dist, hpRatio) {
+    const p = unit.personality;
+    const effectiveDist = dist / Math.max(0.1, unit.visionMult);
+    let score = 0;
+    const intent = _skillIntent(effect);
+    if (intent === 'heal') score = hpRatio < 0.72 - p.risk * 0.28 ? 65 + p.caution * 35 : 0;
+    else if (intent === 'guard') score = hpRatio > 0.2 ? 38 + p.caution * 42 : 15;
+    else if (intent === 'trick') score = 34 + p.cunning * 55 + p.caution * 12;
+    else if (intent === 'focus') score = 32 + p.skill * 45 + p.aggression * 16;
+    else if (intent === 'fear') score = opponent.fear > 30 + p.ferocity * 28 ? 42 + p.ferocity * 45 : 8;
+    else if (intent === 'ranged') score = effectiveDist <= 300 ? 38 + p.skill * 26 + p.cunning * 20 : 0;
+    else score = effectiveDist <= 100 ? 42 + p.aggression * 32 + p.ferocity * 18 : 0;
+    return score + p.skill * 25 + secureRandomFloat() * 6;
+}
 
 /* ═══════════════════════════════════════════
  * 战斗属性计算
@@ -151,14 +212,17 @@ function _snapshotBodyParts(unit) {
  * 战斗单位状态
  * ═══════════════════════════════════════════ */
 
-function _createUnit(fighter, side) {
+function _createUnit(fighter, side, map) {
     const stats = _calcCombatStats(fighter);
+    const personality = normalizePersonality(fighter.personality);
+    const hearingMult = 1 + (personality.hearing - 0.5) * 0.28;
     const skillList = (fighter.skills || []).map(s => ({
         code: s.skill_code,
         level: s.skill_level || 1,
         cooldownLeft: 0,
     }));
 
+    const spawn = _spawnPoint(map, side);
     return {
         side,
         petId: fighter.id,
@@ -192,16 +256,35 @@ function _createUnit(fighter, side) {
         moveControl: 1,
         spinChance: 0,
         tailDecoyFrames: 0,
+        soundVolumeMult: 1,
+        baseSoundVolumeMult: 1,
+        hearingMult,
+        baseHearingMult: hearingMult,
+        personality,
+        personalityTrace: { aggressive: 0, kiting: 0, defensive: 0, fear: 0, alert: 0, searching: 0 },
+        bodyNoiseSize: Math.max(1, (Number(fighter.attr.str_base || 0) + Number(fighter.attr.vit_base || 0)) / 2 + Number(fighter.stage || 0) * 4),
+        perception: {
+            hearingRange: 0,
+            awareness: 0,
+            lastHeardFrame: -Infinity,
+            lastHeardSource: null,
+            lastKnownTargetX: null,
+            lastKnownTargetY: null,
+            detectedBySound: false,
+            soundConfidence: 0,
+            misledByFakeSound: false,
+        },
 
-        // 状态
+        // 原始六维
+        attr: fighter.attr,
         fear: 0,
         aiState: 'aggressive',
         skills: skillList,
         buffs: [],
 
-        // 位置（简化为1D距离）
-        x: side === 'left' ? 100 : 700,
-        y: 300,
+        // 二维地图坐标
+        x: spawn.x,
+        y: spawn.y,
 
         // 攻击冷却（基于速度）
         attackCooldown: 0,
@@ -213,51 +296,169 @@ function _createUnit(fighter, side) {
  * AI 状态机
  * ═══════════════════════════════════════════ */
 
-function _updateAIState(unit, opponent) {
+function _updateAIState(unit, opponent, frame) {
     const hpRatio = unit.hp / unit.maxHp;
+    const p = unit.personality;
     const fearRatio = unit.fear / rules.BATTLE_FEAR_ESCAPE;
+    const recentlyHeard = frame - unit.perception.lastHeardFrame <= rules.BATTLE_SOUND_MEMORY_FRAMES * (0.75 + p.hearing * 0.5);
+    const fearLimit = 0.48 + p.risk * 0.26 + p.ferocity * 0.12 - p.caution * 0.1;
+    const defensiveHp = Math.max(0.12, Math.min(0.62, rules.AI_HP_DEFENSIVE_THRESHOLD + p.caution * 0.2 - p.risk * 0.16));
+    const kiteFear = Math.max(22, rules.AI_FEAR_KITING_THRESHOLD + p.aggression * 18 - p.caution * 16 - p.mobility * 8);
 
-    if (fearRatio >= 0.6) {
+    if (fearRatio >= fearLimit) {
         unit.aiState = 'fear';
-    } else if (hpRatio < rules.AI_HP_DEFENSIVE_THRESHOLD) {
-        unit.aiState = 'defensive';
-    } else if (unit.fear > rules.AI_FEAR_KITING_THRESHOLD) {
+    } else if (hpRatio < defensiveHp && p.caution >= 0.35) {
+        unit.aiState = p.mobility > 0.62 ? 'kiting' : 'defensive';
+    } else if (unit.fear > kiteFear && p.aggression < 0.86) {
         unit.aiState = 'kiting';
+    } else if (recentlyHeard && unit.perception.awareness >= 6 + p.caution * 6 - p.hearing * 3) {
+        unit.aiState = unit.perception.misledByFakeSound ? 'searching' : 'alert';
     } else {
         unit.aiState = 'aggressive';
     }
+    if (unit.personalityTrace[unit.aiState] != null) unit.personalityTrace[unit.aiState]++;
 }
 
-/** AI 决策：选择行动 */
-function _aiDecide(unit, opponent, frame) {
-    // 恐惧逃跑检查
-    if (unit.fear >= rules.BATTLE_FEAR_ESCAPE) {
+function _battleDist(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function _arenaBounds(map) {
+    const width = Math.max(200, Number(map && map.width) || 800);
+    const height = Math.max(200, Number(map && map.height) || 600);
+    const margin = Math.max(16, Number(map && map.margin) || 20);
+    return {
+        width,
+        height,
+        minX: margin,
+        maxX: width - margin,
+        minY: margin,
+        maxY: height - margin,
+    };
+}
+
+function _clampPoint(map, point) {
+    const b = _arenaBounds(map);
+    return {
+        x: Math.max(b.minX, Math.min(b.maxX, Number(point.x) || 0)),
+        y: Math.max(b.minY, Math.min(b.maxY, Number(point.y) || 0)),
+    };
+}
+
+function _spawnPoint(map, side) {
+    const b = _arenaBounds(map);
+    const usableW = b.maxX - b.minX;
+    const usableH = b.maxY - b.minY;
+    return {
+        x: side === 'left' ? b.minX + usableW * 0.12 : b.maxX - usableW * 0.12,
+        y: b.minY + usableH * 0.5,
+    };
+}
+
+function _knownTargetDecision(unit, toward) {
+    if (unit.perception.lastKnownTargetX == null || unit.perception.lastKnownTargetY == null) return null;
+    return {
+        action: 'move',
+        toward,
+        targetX: unit.perception.lastKnownTargetX,
+        targetY: unit.perception.lastKnownTargetY,
+    };
+}
+
+function _targetPointFor(unit, opponent, decision, map) {
+    if (decision.targetX != null || decision.targetY != null) {
+        return _clampPoint(map, {
+            x: decision.targetX != null ? decision.targetX : opponent.x,
+            y: decision.targetY != null ? decision.targetY : opponent.y,
+        });
+    }
+
+    const p = unit.personality || {};
+    const dx = opponent.x - unit.x;
+    const dy = opponent.y - unit.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = dx / len;
+    const ny = dy / len;
+    const lx = -ny;
+    const ly = nx;
+    const spread = 52 + (p.mobility || 0.5) * 72 + (p.cunning || 0.5) * 48;
+    const wave = Math.sin((unit.battleStamina + unit.fear + opponent.x + opponent.y) * 0.017 + (unit.side === 'left' ? 0 : Math.PI)) * spread;
+
+    if (decision.toward === false) {
+        const retreat = 120 + (p.caution || 0.5) * 70 + (p.mobility || 0.5) * 55;
+        return _clampPoint(map, {
+            x: unit.x - nx * retreat + lx * wave * 0.45,
+            y: unit.y - ny * retreat + ly * wave * 0.45,
+        });
+    }
+
+    const closeOffset = 34 + (p.caution || 0.5) * 18;
+    return _clampPoint(map, {
+        x: opponent.x - nx * closeOffset + lx * wave * 0.18,
+        y: opponent.y - ny * closeOffset + ly * wave * 0.18,
+    });
+}
+
+function _directionFromVector(dx, dy) {
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    if (ax < 1 && ay < 1) return 'center';
+    if (ax > ay * 1.8) return dx > 0 ? 'east' : 'west';
+    if (ay > ax * 1.8) return dy > 0 ? 'south' : 'north';
+    if (dx >= 0 && dy >= 0) return 'southeast';
+    if (dx >= 0 && dy < 0) return 'northeast';
+    if (dx < 0 && dy >= 0) return 'southwest';
+    return 'northwest';
+}
+
+function _aiDecide(unit, opponent, frame, map) {
+    const p = unit.personality;
+    if (unit.fear >= rules.BATTLE_FEAR_ESCAPE * (0.82 + p.risk * 0.32 + p.ferocity * 0.12)) {
         return { action: 'flee' };
     }
 
-    const dist = Math.abs(unit.x - opponent.x);
-
-    // 检查可用技能
+    const dist = _battleDist(unit, opponent);
+    const meleeRange = 68 + p.aggression * 34 + p.risk * 18;
+    const kiteRange = 115 + p.caution * 80 + p.mobility * 45;
     const readySkill = _pickSkill(unit, opponent, dist);
-    if (readySkill) {
-        return { action: 'skill', skill: readySkill };
-    }
+    if (readySkill) return { action: 'skill', skill: readySkill };
 
     switch (unit.aiState) {
         case 'aggressive':
-            if (dist > 80) return { action: 'move', toward: true };
+            if (dist > meleeRange) return { action: 'move', toward: true };
             if (unit.attackCooldown <= 0) return { action: 'attack' };
+            if (p.ferocity > 0.82 && dist < 140) return { action: 'move', toward: true };
             return { action: 'idle' };
 
-        case 'kiting':
-            if (dist < 150) return { action: 'move', toward: false };
-            if (unit.attackCooldown <= 0 && dist < 200) return { action: 'attack' };
-            return { action: 'idle' };
+        case 'kiting': {
+            if (dist < kiteRange) return { action: 'move', toward: false };
+            if (unit.attackCooldown <= 0 && dist < kiteRange + 55) return { action: 'attack' };
+            const known = _knownTargetDecision(unit, true);
+            return p.cunning > 0.68 && known ? known : { action: 'idle' };
+        }
 
         case 'defensive':
-            if (dist > 120) return { action: 'move', toward: true };
-            if (unit.attackCooldown <= 0) return { action: 'attack' };
+            if (dist < 95 + p.caution * 45) return { action: 'move', toward: false };
+            if (dist > 105 + p.aggression * 35) return { action: 'move', toward: true };
+            if (unit.attackCooldown <= 0 && p.risk > 0.28) return { action: 'attack' };
             return { action: 'idle' };
+
+        case 'alert': {
+            if (dist <= 95 + p.aggression * 35 && unit.attackCooldown <= 0) return { action: 'attack' };
+            return _knownTargetDecision(unit, true) || { action: 'move', toward: true };
+        }
+
+        case 'searching': {
+            const known = _knownTargetDecision(unit, p.cunning < 0.25);
+            if (!known) return { action: 'idle' };
+            if (p.cunning >= 0.25) {
+                const target = _targetPointFor(unit, { x: known.targetX, y: known.targetY }, { toward: false }, map);
+                return { action: 'move', toward: false, targetX: target.x, targetY: target.y };
+            }
+            return known;
+        }
 
         case 'fear':
             return { action: 'move', toward: false };
@@ -270,30 +471,20 @@ function _aiDecide(unit, opponent, frame) {
 /** 选择可用技能 */
 function _pickSkill(unit, opponent, dist) {
     if (!unit.canUseSkills) return null;
-    const effectiveDist = dist / Math.max(0.1, unit.visionMult);
+    let best = null;
+    let bestScore = 0;
+    const hpRatio = unit.hp / unit.maxHp;
     for (const sk of unit.skills) {
         if (sk.cooldownLeft > 0) continue;
         const effect = rules.BATTLE_SKILL_EFFECTS[sk.code];
         if (!effect) continue;
-
-        const hpRatio = unit.hp / unit.maxHp;
-
-        // 治疗技能：HP<50%时使用
-        if (effect.type === 'heal' && hpRatio < 0.5) return sk;
-
-        // buff技能：HP>30%时使用
-        if (effect.type === 'buff' && hpRatio > 0.3) return sk;
-
-        // 恐惧技能：对手恐惧>50时使用
-        if (effect.type === 'fear_skill' && opponent.fear > 50) return sk;
-
-        // 攻击技能：距离合适时使用
-        if ((effect.type === 'melee' && effectiveDist <= 100) ||
-            (effect.type === 'ranged' && effectiveDist <= 300)) {
-            return sk;
+        const score = _skillScore(unit, opponent, effect, dist, hpRatio);
+        if (score > bestScore) {
+            bestScore = score;
+            best = sk;
         }
     }
-    return null;
+    return bestScore >= 55 ? best : null;
 }
 
 /* ═══════════════════════════════════════════
@@ -362,17 +553,124 @@ function _applyPartDamage(defender, partKey, damage) {
     return events;
 }
 
+function _soundSurface(map) {
+    return (map && (map.soundSurface || map.terrain)) || 'grass';
+}
+
+function _terrainSoundMultiplier(map) {
+    return rules.BATTLE_TERRAIN_SOUND_MULTIPLIER[_soundSurface(map)] || 1;
+}
+
+function _refreshPerception(unit) {
+    const per = Number(unit.attr.per_base || 0);
+    const headPenalty = Math.max(0.1, unit.visionMult || 1) * Math.max(0.1, unit.headTurnMult || 1);
+    unit.perception.hearingRange = Math.max(30, (rules.BATTLE_HEARING_BASE_RANGE + per * rules.BATTLE_HEARING_PER_RANGE) * headPenalty * unit.hearingMult);
+}
+
+function _decayPerception(unit) {
+    unit.perception.awareness = Math.max(0, unit.perception.awareness - rules.BATTLE_AWARENESS_DECAY);
+    unit.perception.detectedBySound = false;
+    unit.perception.misledByFakeSound = false;
+}
+
+function _isFastMove(moveSpeed) {
+    return moveSpeed >= rules.BATTLE_FAST_MOVE_SPEED;
+}
+
+function _buildSoundEvent(unit, frame, map, moveSpeed, options = {}) {
+    const surfaceMult = _terrainSoundMultiplier(map);
+    const speedMult = Math.max(0.5, moveSpeed / Math.max(1, rules.BATTLE_FAST_MOVE_SPEED));
+    const agilityDamp = Math.max(0.45, 1 - Number(unit.attr.agi_base || 0) * 0.006);
+    const sizeMult = Math.max(0.65, 0.85 + unit.bodyNoiseSize / 60);
+    const fakeVolume = Number(options.fakeVolume || 0);
+    const volume = Math.max(1, fakeVolume || rules.BATTLE_FOOTSTEP_BASE_VOLUME * speedMult * sizeMult * agilityDamp * surfaceMult * unit.soundVolumeMult);
+    const radius = Math.max(20, rules.BATTLE_SOUND_BASE_RADIUS * Math.sqrt(volume / rules.BATTLE_FOOTSTEP_BASE_VOLUME) * surfaceMult);
+    return {
+        type: 'sound',
+        soundType: options.soundType || 'footstep',
+        src: unit.side,
+        frame,
+        x: Math.round(options.x != null ? options.x : unit.x),
+        y: Math.round(options.y != null ? options.y : unit.y),
+        volume: Number(volume.toFixed(2)),
+        radius: Math.round(radius),
+        surface: _soundSurface(map),
+        fake: !!options.fake,
+        realSource: options.realSource || unit.side,
+    };
+}
+
+function _applySoundPerception(listener, sound, frame, map) {
+    if (listener.side === sound.src && !sound.fake) return null;
+    _refreshPerception(listener);
+    const dx = sound.x - listener.x;
+    const dy = sound.y - listener.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > Math.min(listener.perception.hearingRange, sound.radius)) return null;
+
+    const rangeRatio = Math.max(0, 1 - dist / Math.max(1, sound.radius));
+    const heardVolume = sound.volume * rangeRatio;
+    if (heardVolume < rules.BATTLE_HEARING_MIN_VOLUME) return null;
+
+    const confidence = Math.max(0.05, Math.min(1, heardVolume / Math.max(rules.BATTLE_HEARING_MIN_VOLUME, sound.volume)));
+    const error = Math.round((1 - confidence) * 80);
+    const angle = Math.atan2(dy, dx);
+    const estimated = _clampPoint(map, {
+        x: sound.x + (secureRandomFloat() * 2 - 1) * error,
+        y: sound.y + (secureRandomFloat() * 2 - 1) * error,
+    });
+    listener.perception.awareness = Math.min(100, listener.perception.awareness + (sound.fake ? rules.BATTLE_AWARENESS_FAKE : rules.BATTLE_AWARENESS_HEARD) * confidence);
+    listener.perception.lastHeardFrame = frame;
+    listener.perception.lastHeardSource = sound.src;
+    listener.perception.lastKnownTargetX = estimated.x;
+    listener.perception.lastKnownTargetY = estimated.y;
+    listener.perception.detectedBySound = true;
+    listener.perception.soundConfidence = Number(confidence.toFixed(2));
+    listener.perception.misledByFakeSound = !!sound.fake;
+
+    return {
+        type: 'perception',
+        subtype: sound.fake ? 'heard_fake_sound' : 'heard_target',
+        src: listener.side,
+        tgt: sound.realSource || sound.src,
+        soundType: sound.soundType,
+        frame,
+        direction: _directionFromVector(dx, dy),
+        angle: Number(angle.toFixed(3)),
+        vector: {
+            x: Number((dx / Math.max(1, dist)).toFixed(3)),
+            y: Number((dy / Math.max(1, dist)).toFixed(3)),
+        },
+        confidence: listener.perception.soundConfidence,
+        distance: Math.round(dist),
+        heardVolume: Number(heardVolume.toFixed(2)),
+        lastKnownX: Math.round(listener.perception.lastKnownTargetX),
+        lastKnownY: Math.round(listener.perception.lastKnownTargetY),
+        fake: !!sound.fake,
+    };
+}
+
+function _emitSoundAndPerception(unit, opponent, frame, map, moveSpeed, options = {}) {
+    const events = [];
+    const sound = _buildSoundEvent(unit, frame, map, moveSpeed, options);
+    events.push(sound);
+    const heard = _applySoundPerception(opponent, sound, frame, map);
+    if (heard) events.push(heard);
+    return events;
+}
+
 /* ═══════════════════════════════════════════
  * Buff 系统
  * ═══════════════════════════════════════════ */
 
 function _applyBuff(unit, effect, skillCode) {
-    if (!effect.effect) return;
+    if (!effect.effect && !effect.sound) return;
     unit.buffs.push({
         code: skillCode,
         effect: effect.effect,
         value: effect.value,
-        remaining: effect.duration,
+        sound: effect.sound,
+        remaining: effect.duration || rules.BATTLE_SOUND_MEMORY_FRAMES,
     });
     _recalcBuffs(unit);
 }
@@ -391,6 +689,8 @@ function _recalcBuffs(unit) {
     unit.dodge = unit.baseDodge;
     unit.crit = unit.baseCrit;
     unit.atk = unit.baseAtk;
+    unit.soundVolumeMult = unit.baseSoundVolumeMult;
+    unit.hearingMult = unit.baseHearingMult;
 
     for (const b of unit.buffs) {
         switch (b.effect) {
@@ -398,6 +698,10 @@ function _recalcBuffs(unit) {
             case 'dodge_up': unit.dodge = unit.baseDodge + b.value; break;
             case 'crit_up':  unit.crit  = unit.baseCrit + b.value; break;
             case 'atk_up':   unit.atk   = Math.floor(unit.baseAtk * (1 + b.value)); break;
+        }
+        if (b.sound) {
+            if (b.sound.selfVolumeMult) unit.soundVolumeMult *= b.sound.selfVolumeMult;
+            if (b.sound.hearingMult) unit.hearingMult *= b.sound.hearingMult;
         }
     }
 }
@@ -416,15 +720,17 @@ function _applyMapBuff(unit, map) {
     }
 }
 
-function createBattle({ pet1, pet2, mapId }) {
+function createBattle({ pet1, pet2, mapId, leftPersonality, rightPersonality }) {
     const map = rules.ARENA_MAPS.find(m => m.id === mapId) || rules.ARENA_MAPS[0];
-    const unitA = _createUnit(pet1, 'left');
-    const unitB = _createUnit(pet2, 'right');
+    const unitA = _createUnit({ ...pet1, personality: leftPersonality || pet1.personality }, 'left', map);
+    const unitB = _createUnit({ ...pet2, personality: rightPersonality || pet2.personality }, 'right', map);
 
     _applyMapBuff(unitA, map);
     _applyMapBuff(unitB, map);
     _updateBodyImpairments(unitA);
     _updateBodyImpairments(unitB);
+    _refreshPerception(unitA);
+    _refreshPerception(unitB);
 
     return {
         frame: 0,
@@ -445,6 +751,18 @@ function _calcRageMulti(frame) {
     if (frame < rules.BATTLE_RAGE_START_FRAME) return 1;
     const rageSec = (frame - rules.BATTLE_RAGE_START_FRAME) / rules.BATTLE_FPS;
     return 1 + rageSec * rules.BATTLE_RAGE_PER_SEC;
+}
+
+function _snapshotMap(map) {
+    return {
+        id: map.id,
+        name: map.name,
+        width: map.width,
+        height: map.height,
+        margin: map.margin || 20,
+        terrain: map.terrain,
+        soundSurface: map.soundSurface,
+    };
 }
 
 function _snapshotUnit(unit) {
@@ -469,7 +787,18 @@ function _snapshotUnit(unit) {
         canSkill: unit.canUseSkills,
         spin: unit.spinChance,
         decoy: unit.tailDecoyFrames > 0,
-        tailDecoyFrames: unit.tailDecoyFrames,
+        personality: unit.personality,
+        personalityTrace: { ...unit.personalityTrace },
+        perception: {
+            hearingRange: Math.round(unit.perception.hearingRange),
+            awareness: Number(unit.perception.awareness.toFixed(1)),
+            detectedBySound: unit.perception.detectedBySound,
+            soundConfidence: unit.perception.soundConfidence,
+            lastKnownTargetX: unit.perception.lastKnownTargetX == null ? null : Math.round(unit.perception.lastKnownTargetX),
+            lastKnownTargetY: unit.perception.lastKnownTargetY == null ? null : Math.round(unit.perception.lastKnownTargetY),
+            lastHeardSource: unit.perception.lastHeardSource,
+            misledByFakeSound: unit.perception.misledByFakeSound,
+        },
         skills: unit.skills.map(s => ({ code: s.code, cooldownLeft: s.cooldownLeft })),
     };
 }
@@ -489,12 +818,15 @@ function _buildSummary(session) {
     return {
         winner: session.winner,
         map: session.map.id,
+        mapConfig: _snapshotMap(session.map),
         totalFrames: session.frame,
         duration: Math.ceil(session.frame / rules.BATTLE_FPS),
         left: {
             petId: unitA.petId,
             name: unitA.name,
             hpRemaining: Math.max(0, unitA.hp),
+            personality: unitA.personality,
+            personalityTrace: { ...unitA.personalityTrace },
             hpMax: unitA.maxHp,
             bodyParts: _snapshotBodyParts(unitA),
             impairments: {
@@ -511,6 +843,8 @@ function _buildSummary(session) {
             petId: unitB.petId,
             name: unitB.name,
             hpRemaining: Math.max(0, unitB.hp),
+            personality: unitB.personality,
+            personalityTrace: { ...unitB.personalityTrace },
             hpMax: unitB.maxHp,
             bodyParts: _snapshotBodyParts(unitB),
             impairments: {
@@ -548,6 +882,10 @@ function stepBattle(session, frameCount = 1, options = {}) {
         if (frame % rules.BATTLE_FPS === 0) {
             unitA.fear = Math.max(0, unitA.fear - rules.BATTLE_FEAR_DECAY);
             unitB.fear = Math.max(0, unitB.fear - rules.BATTLE_FEAR_DECAY);
+            _refreshPerception(unitA);
+            _refreshPerception(unitB);
+            _decayPerception(unitA);
+            _decayPerception(unitB);
             _recoverBodyParts(unitA);
             _recoverBodyParts(unitB);
         }
@@ -565,14 +903,14 @@ function stepBattle(session, frameCount = 1, options = {}) {
         for (const sk of unitA.skills) sk.cooldownLeft = Math.max(0, sk.cooldownLeft - 1);
         for (const sk of unitB.skills) sk.cooldownLeft = Math.max(0, sk.cooldownLeft - 1);
 
-        _updateAIState(unitA, unitB);
-        _updateAIState(unitB, unitA);
+        _updateAIState(unitA, unitB, frame);
+        _updateAIState(unitB, unitA, frame);
 
-        const decA = _aiDecide(unitA, unitB, frame);
-        const decB = _aiDecide(unitB, unitA, frame);
-        const eventsA = _executeAction(unitA, unitB, decA, rageMulti, session.stats.left);
-        const eventsB = _executeAction(unitB, unitA, decB, rageMulti, session.stats.right);
-        lastEvents = [...eventsA, ...eventsB];
+        const decA = _aiDecide(unitA, unitB, frame, session.map);
+        const decB = _aiDecide(unitB, unitA, frame, session.map);
+        const eventsA = _executeAction(unitA, unitB, decA, rageMulti, session.stats.left, frame, session.map);
+        const eventsB = _executeAction(unitB, unitA, decB, rageMulti, session.stats.right, frame, session.map);
+        lastEvents = animationMapper.appendDerivedAnimationEvents([...eventsA, ...eventsB], frame);
 
         if (recordFrames && frame % 3 === 0) {
             session.frames.push(_snapshotFrame(session, lastEvents));
@@ -602,6 +940,7 @@ function getBattleState(session, events = []) {
         finished: session.finished,
         winner: session.winner,
         map: session.map.id,
+        mapConfig: _snapshotMap(session.map),
         units: {
             left: _snapshotUnit(session.unitA),
             right: _snapshotUnit(session.unitB),
@@ -617,8 +956,8 @@ function getBattleState(session, events = []) {
  * @param {{ pet1: object, pet2: object, mapId: string }} params
  * @returns {{ winner: string, frames: Array, summary: object }}
  */
-function simulate({ pet1, pet2, mapId }) {
-    const session = createBattle({ pet1, pet2, mapId });
+function simulate({ pet1, pet2, mapId, leftPersonality, rightPersonality }) {
+    const session = createBattle({ pet1, pet2, mapId, leftPersonality, rightPersonality });
     while (!session.finished) {
         stepBattle(session, 1, { recordFrames: true });
     }
@@ -664,24 +1003,56 @@ function _compressFrames(frames) {
  * 行动执行
  * ═══════════════════════════════════════════ */
 
-function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
+function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame, map) {
     const events = [];
 
     switch (decision.action) {
         case 'move': {
+            const from = { x: Math.round(unit.x), y: Math.round(unit.y) };
+            let moved = false;
+            let moveSpeed = 0;
             if (secureRandomFloat() < unit.spinChance) {
-                unit.x = Math.max(20, Math.min(780, unit.x + (secureRandomFloat() < 0.5 ? -1 : 1) * 3));
+                moveSpeed = rules.BATTLE_FAST_MOVE_SPEED;
+                const spinPoint = _clampPoint(map, {
+                    x: unit.x + (secureRandomFloat() * 2 - 1) * 18,
+                    y: unit.y + (secureRandomFloat() * 2 - 1) * 18,
+                });
+                unit.x = spinPoint.x;
+                unit.y = spinPoint.y;
+                moved = true;
                 events.push({ type: 'spin', src: unit.side });
-                break;
+                events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed, { soundType: 'scramble' }));
+            } else {
+                const target = _targetPointFor(unit, opponent, decision, map);
+                const dx = target.x - unit.x;
+                const dy = target.y - unit.y;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                moveSpeed = Math.max(1, Math.floor(unit.effectiveSpd / 10));
+                const next = _clampPoint(map, {
+                    x: unit.x + dx / len * moveSpeed,
+                    y: unit.y + dy / len * moveSpeed,
+                });
+                unit.x = next.x;
+                unit.y = next.y;
+                moved = from.x !== Math.round(unit.x) || from.y !== Math.round(unit.y);
+                if (_isFastMove(moveSpeed)) events.push(..._emitSoundAndPerception(unit, opponent, frame, map, moveSpeed));
             }
-            const dir = decision.toward ? (opponent.x > unit.x ? 1 : -1) : (opponent.x > unit.x ? -1 : 1);
-            const moveSpeed = Math.max(1, Math.floor(unit.effectiveSpd / 10));
-            unit.x = Math.max(20, Math.min(780, unit.x + dir * moveSpeed));
+            if (moved) {
+                events.push(animationMapper.mapMovementAction({
+                    actor: unit,
+                    from,
+                    to: { x: Math.round(unit.x), y: Math.round(unit.y) },
+                    speed: moveSpeed,
+                    frame,
+                    map,
+                    actionId: _isFastMove(moveSpeed) ? 'fast_move' : 'move',
+                }));
+            }
             break;
         }
 
         case 'attack': {
-            const dist = Math.abs(unit.x - opponent.x);
+            const dist = _battleDist(unit, opponent);
             if (dist > 100 * Math.max(0.1, unit.visionMult)) break;
 
             const targetPart = _pickTargetPart(opponent);
@@ -706,6 +1077,14 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
                     part: targetPart,
                 });
             }
+            events.push(animationMapper.mapAttackAction({
+                actor: unit,
+                target: opponent,
+                frame,
+                result,
+                targetPart,
+                actionId: 'bite',
+            }));
             break;
         }
 
@@ -717,6 +1096,20 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
 
             sk.cooldownLeft = effect.cooldown;
             statTracker.skillsUsed++;
+            if (effect.sound && effect.sound.fakeSound) {
+                const fakePoint = _clampPoint(map, {
+                    x: unit.x - (opponent.x - unit.x) / Math.max(1, _battleDist(unit, opponent)) * 120,
+                    y: unit.y - (opponent.y - unit.y) / Math.max(1, _battleDist(unit, opponent)) * 120,
+                });
+                events.push(..._emitSoundAndPerception(unit, opponent, frame, map, rules.BATTLE_FAST_MOVE_SPEED, {
+                    soundType: 'fake_skill_sound',
+                    fake: true,
+                    fakeVolume: effect.sound.fakeVolume || rules.BATTLE_FOOTSTEP_BASE_VOLUME * 1.4,
+                    x: fakePoint.x,
+                    y: fakePoint.y,
+                    realSource: unit.side,
+                }));
+            }
 
             if (effect.type === 'heal') {
                 const healAmt = Math.floor(unit.maxHp * effect.value);
@@ -726,15 +1119,18 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
                 _syncBodyHp(unit);
                 _updateBodyImpairments(unit);
                 events.push({ type: 'heal', src: unit.side, amt: healAmt, skill: sk.code });
+                events.push(animationMapper.mapSkillAction({ actor: unit, target: unit, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else if (effect.type === 'buff') {
                 _applyBuff(unit, effect, sk.code);
                 events.push({ type: 'buff', src: unit.side, skill: sk.code, effect: effect.effect });
+                events.push(animationMapper.mapSkillAction({ actor: unit, target: unit, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else if (effect.type === 'fear_skill') {
                 opponent.fear += rules.BATTLE_FEAR_SKILL;
                 events.push({ type: 'fear', src: unit.side, tgt: opponent.side, skill: sk.code, fear: rules.BATTLE_FEAR_SKILL });
+                events.push(animationMapper.mapSkillAction({ actor: unit, target: opponent, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else {
                 // 攻击型技能
-                const dist = Math.abs(unit.x - opponent.x);
+                const dist = _battleDist(unit, opponent);
                 const maxRange = (effect.type === 'ranged' ? 300 : 100) * Math.max(0.1, unit.visionMult);
                 if (dist > maxRange) break;
 
@@ -761,6 +1157,15 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
                         part: targetPart,
                     });
                 }
+                events.push(animationMapper.mapSkillAction({
+                    actor: unit,
+                    target: opponent,
+                    frame,
+                    skillCode: sk.code,
+                    effect,
+                    result,
+                    targetPart,
+                }));
 
                 // 技能附带buff
                 if (effect.effect) {
@@ -782,4 +1187,4 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker) {
     return events;
 }
 
-module.exports = { simulate, createBattle, stepBattle, getBattleState };
+module.exports = { simulate, createBattle, stepBattle, getBattleState, normalizePersonality };

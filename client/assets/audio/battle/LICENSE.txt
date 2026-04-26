@@ -1,0 +1,32 @@
+Kenney audio assets integrated for battle-debug.
+
+License: Creative Commons CC0.
+Source packages:
+- RPG Audio: https://kenney.nl/assets/rpg-audio
+- Impact Sounds: https://kenney.nl/assets/impact-sounds
+- Interface Sounds: https://kenney.nl/assets/interface-sounds
+- Sci-fi Sounds: https://kenney.nl/assets/sci-fi-sounds
+
+Downloaded ZIP source URLs:
+- https://kenney.nl/media/pages/assets/rpg-audio/706161bc16-1677590336/kenney_rpg-audio.zip
+- https://kenney.nl/media/pages/assets/impact-sounds/8aa7b545c9-1677589768/kenney_impact-sounds.zip
+- https://kenney.nl/media/pages/assets/interface-sounds/d23a84242e-1677589452/kenney_interface-sounds.zip
+- https://kenney.nl/media/pages/assets/sci-fi-sounds/e3af5f7ed7-1677589334/kenney_sci-fi-sounds.zip
+
+Attribution is not required for CC0, but crediting Kenney is appreciated.
+
+Mapping notes:
+- footstep/footstep_grass_01..03.ogg <- Kenney Impact Sounds footstep_grass_000..002
+- footstep/footstep_sand_01..03.ogg <- Kenney Impact Sounds footstep_carpet_000..002, used as soft sand proxy
+- footstep/footstep_stone_01..03.ogg <- Kenney Impact Sounds footstep_concrete_000..002
+- footstep/footstep_water_01..03.ogg <- Kenney Impact Sounds footstep_snow_000..002, used as soft wet proxy until dedicated splash assets are approved
+- movement/scramble_01..02.ogg <- Kenney Impact Sounds impactSoft_medium_000..001
+- combat/hit_01..03.ogg <- Kenney Impact Sounds impactPunch_medium_000..002
+- combat/dodge_01..02.ogg <- Kenney Interface Sounds drop_001..002
+- combat/crit_01..02.ogg <- Kenney Impact Sounds impactPunch_heavy_000..001
+- skill/fake_sound_01..02.ogg <- Kenney Sci-fi Sounds slime_000..001
+- skill/skill_cast_01..02.ogg <- Kenney Sci-fi Sounds forceField_000..001
+- ui/perception_ping_01.ogg <- Kenney Interface Sounds confirmation_001
+
+Candidate CC-BY assets reviewed but not imported to avoid attribution obligations:
+- OpenGameArt Yo Frankie sand/rock/water footsteps by Blender Foundation, CC-BY 3.0.

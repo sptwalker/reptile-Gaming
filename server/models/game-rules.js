@@ -255,6 +255,36 @@ module.exports = {
     BATTLE_TAIL_DECOY_HIT_CHANCE: 0.35,
     BATTLE_TAIL_DECOY_DODGE_BONUS: 0.2,
 
+    /* ── 脚步-声音-听力-感知系统 ── */
+    /** 单帧移动速度达到该值视为快速移动，会产生可传播脚步声 */
+    BATTLE_FAST_MOVE_SPEED: 3,
+    /** 脚步声音基础强度 */
+    BATTLE_FOOTSTEP_BASE_VOLUME: 22,
+    /** 脚步声音基础传播半径 */
+    BATTLE_SOUND_BASE_RADIUS: 120,
+    /** 听觉最低捕获阈值，传播衰减后的声音低于该值则无法捕获 */
+    BATTLE_HEARING_MIN_VOLUME: 4,
+    /** 感知属性转化为听力距离的系数 */
+    BATTLE_HEARING_PER_RANGE: 7,
+    /** 基础听力距离 */
+    BATTLE_HEARING_BASE_RANGE: 90,
+    /** 听到声音后 AI 保持警觉/搜索的帧数 */
+    BATTLE_SOUND_MEMORY_FRAMES: 120,
+    /** 听到真实声音增加的警觉值 */
+    BATTLE_AWARENESS_HEARD: 18,
+    /** 听到假声音增加的警觉值 */
+    BATTLE_AWARENESS_FAKE: 10,
+    /** 警觉值每秒自然衰减 */
+    BATTLE_AWARENESS_DECAY: 3,
+    /** 不同地面脚步声强度系数 */
+    BATTLE_TERRAIN_SOUND_MULTIPLIER: {
+        grass: 1.0,
+        sand: 0.65,
+        stone: 1.35,
+        water: 2.0,
+        mud: 1.15,
+    },
+
     /* ── 结算奖惩 ── */
     /** 胜利：+赌注 +5金 -1体力 */
     ARENA_BATTLE_BONUS: 5,
@@ -274,17 +304,28 @@ module.exports = {
 
     /* ── AI 状态机 ── */
     /** AI状态: aggressive / kiting / defensive / fear */
-    AI_STATES: ['aggressive', 'kiting', 'defensive', 'fear'],
+    AI_STATES: ['aggressive', 'kiting', 'defensive', 'fear', 'alert', 'searching'],
     /** 状态切换阈值 */
     AI_HP_DEFENSIVE_THRESHOLD: 0.3,
     AI_HP_AGGRESSIVE_THRESHOLD: 0.6,
     AI_FEAR_KITING_THRESHOLD: 60,
 
+    /** 战斗性格预设：0~1维度形成AI性格地图 */
+    BATTLE_PERSONALITY_PRESETS: {
+        balanced: { name: '均衡适应', aggression: 0.5, risk: 0.5, caution: 0.5, mobility: 0.5, cunning: 0.5, ferocity: 0.5, skill: 0.5, hearing: 0.5 },
+        brave: { name: '勇猛鲁莽', aggression: 0.82, risk: 0.86, caution: 0.22, mobility: 0.42, cunning: 0.34, ferocity: 0.72, skill: 0.55, hearing: 0.42 },
+        cautious: { name: '谨慎小心', aggression: 0.34, risk: 0.24, caution: 0.84, mobility: 0.54, cunning: 0.62, ferocity: 0.28, skill: 0.58, hearing: 0.72 },
+        timid: { name: '胆小灵活', aggression: 0.22, risk: 0.18, caution: 0.78, mobility: 0.9, cunning: 0.48, ferocity: 0.2, skill: 0.42, hearing: 0.82 },
+        cunning: { name: '聪明狡猾', aggression: 0.5, risk: 0.42, caution: 0.66, mobility: 0.64, cunning: 0.92, ferocity: 0.44, skill: 0.86, hearing: 0.78 },
+        frenzy: { name: '疯狂凶猛', aggression: 0.95, risk: 0.94, caution: 0.12, mobility: 0.6, cunning: 0.25, ferocity: 0.96, skill: 0.7, hearing: 0.36 }
+    },
+
     /* ── 地图定义 ── */
     ARENA_MAPS: [
-        { id: 'grassland', name: '草原', width: 800, height: 600, terrain: 'flat', buff: null },
-        { id: 'swamp',     name: '沼泽', width: 800, height: 600, terrain: 'slow', buff: { stat: 'spd', mod: -0.2 } },
-        { id: 'volcano',   name: '火山', width: 800, height: 600, terrain: 'hot',  buff: { stat: 'atk', mod: 0.1 } },
+        { id: 'grassland', name: '草原', width: 800, height: 600, terrain: 'grass', soundSurface: 'grass', buff: null },
+        { id: 'swamp',     name: '沼泽', width: 800, height: 600, terrain: 'mud',   soundSurface: 'water', buff: { stat: 'spd', mod: -0.2 } },
+        { id: 'volcano',   name: '火山', width: 800, height: 600, terrain: 'stone', soundSurface: 'stone', buff: { stat: 'atk', mod: 0.1 } },
+        { id: 'dune',      name: '沙地', width: 800, height: 600, terrain: 'sand',  soundSurface: 'sand',  buff: null },
     ],
 
     /* ── 技能战斗效果 ── */
@@ -292,17 +333,17 @@ module.exports = {
         bite:         { dmg_multi: 1.2, fear: 5,  cooldown: 90,  type: 'melee' },
         scratch:      { dmg_multi: 1.0, fear: 3,  cooldown: 60,  type: 'melee' },
         tail_whip:    { dmg_multi: 0.8, fear: 10, cooldown: 75,  type: 'melee' },
-        camouflage:   { dmg_multi: 0,   fear: 0,  cooldown: 150, type: 'buff', effect: 'dodge_up', value: 0.3, duration: 90 },
+        camouflage:   { dmg_multi: 0,   fear: 0,  cooldown: 150, type: 'buff', effect: 'dodge_up', value: 0.3, duration: 90, sound: { selfVolumeMult: 0.45 } },
         venom_spit:   { dmg_multi: 1.5, fear: 15, cooldown: 120, type: 'ranged' },
         iron_hide:    { dmg_multi: 0,   fear: 0,  cooldown: 180, type: 'buff', effect: 'def_up', value: 0.5, duration: 90 },
-        dragon_rush:  { dmg_multi: 2.0, fear: 20, cooldown: 180, type: 'melee' },
+        dragon_rush:  { dmg_multi: 2.0, fear: 20, cooldown: 180, type: 'melee', sound: { selfVolumeMult: 1.65 } },
         regen:        { dmg_multi: 0,   fear: 0,  cooldown: 200, type: 'heal', value: 0.15 },
-        predator_eye: { dmg_multi: 0,   fear: 12, cooldown: 150, type: 'buff', effect: 'crit_up', value: 0.2, duration: 120 },
-        crystal_armor:{ dmg_multi: 0,   fear: 0,  cooldown: 240, type: 'buff', effect: 'def_up', value: 0.8, duration: 60 },
-        shadow_step:  { dmg_multi: 1.3, fear: 18, cooldown: 150, type: 'melee', effect: 'dodge_up', value: 0.5, duration: 30 },
+        predator_eye: { dmg_multi: 0,   fear: 12, cooldown: 150, type: 'buff', effect: 'crit_up', value: 0.2, duration: 120, sound: { hearingMult: 1.35 } },
+        crystal_armor:{ dmg_multi: 0,   fear: 0,  cooldown: 240, type: 'buff', effect: 'def_up', value: 0.8, duration: 60, sound: { selfVolumeMult: 1.2 } },
+        shadow_step:  { dmg_multi: 1.3, fear: 18, cooldown: 150, type: 'melee', effect: 'dodge_up', value: 0.5, duration: 30, sound: { selfVolumeMult: 0.35, fakeSound: true } },
         flame_breath: { dmg_multi: 2.5, fear: 25, cooldown: 240, type: 'ranged' },
         gale_slash:   { dmg_multi: 1.8, fear: 15, cooldown: 150, type: 'ranged' },
-        primal_roar:  { dmg_multi: 0,   fear: 40, cooldown: 300, type: 'fear_skill' },
+        primal_roar:  { dmg_multi: 0,   fear: 40, cooldown: 300, type: 'fear_skill', sound: { fakeSound: true, fakeVolume: 42 } },
     },
 
     /* ── 宠物售卖 (P7) ── */

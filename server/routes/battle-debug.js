@@ -24,10 +24,17 @@ router.get('/meta', wrap((_req, res) => {
     ok(res, result.data, result.msg);
 }));
 
-router.post('/start', wrap((req, res) => {
-    const { pet1Id, pet2Id, mapId } = req.body;
+router.post('/preview', wrap((req, res) => {
+    const { pet1Id, pet2Id } = req.body;
     if (!pet1Id || !pet2Id) return fail(res, 8023, '需要两只宠物ID');
-    const result = debug.startBattle({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id), mapId });
+    const result = debug.previewPets({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id) });
+    result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
+}));
+
+router.post('/start', wrap((req, res) => {
+    const { pet1Id, pet2Id, mapId, leftPersonality, rightPersonality, randomPersonality } = req.body;
+    if (!pet1Id || !pet2Id) return fail(res, 8023, '需要两只宠物ID');
+    const result = debug.startBattle({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id), mapId, leftPersonality, rightPersonality, randomPersonality });
     result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
 }));
 
@@ -53,9 +60,9 @@ router.post('/end', wrap((req, res) => {
 }));
 
 router.post('/batch', wrap((req, res) => {
-    const { pet1Id, pet2Id, mapId, count } = req.body;
+    const { pet1Id, pet2Id, mapId, count, leftPersonality, rightPersonality, randomPersonality } = req.body;
     if (!pet1Id || !pet2Id) return fail(res, 8023, '需要两只宠物ID');
-    const result = debug.batchTest({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id), mapId, count: Number(count || 20) });
+    const result = debug.batchTest({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id), mapId, count: Number(count || 20), leftPersonality, rightPersonality, randomPersonality });
     result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
 }));
 

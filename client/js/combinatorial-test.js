@@ -761,6 +761,15 @@
     return (el && el.value ? el.value : "scratch:melee").split(":")[0];
   }
 
+  function suggestBattlePersonality(attrs) {
+    if (attrs.str >= attrs.agi + 6 && attrs.vit >= attrs.per) return "brave";
+    if (attrs.agi >= attrs.str + 6 && attrs.per >= attrs.vit) return "timid";
+    if (attrs.per >= attrs.str + 5 && attrs.int >= attrs.agi) return "cunning";
+    if (attrs.vit >= attrs.agi + 5 && attrs.per >= attrs.str) return "cautious";
+    if (attrs.str >= 24 && attrs.agi >= 22) return "frenzy";
+    return "balanced";
+  }
+
   async function importCurrentToBattle() {
     if (!btnImportBattle) return;
     var uid = Number(prompt("请输入导入目标用户ID", localStorage.getItem("rg_test_uid") || "1"));
@@ -793,17 +802,21 @@
       var data = await resp.json();
       if (data.code !== 0) throw new Error(data.msg || "导入失败");
       var petId = data.data.petId;
+      var suggestedPersonality = suggestBattlePersonality(payload.attrBases);
       var leftId = localStorage.getItem("rg_battle_left_pet_id");
       var rightId = localStorage.getItem("rg_battle_right_pet_id");
       if (!leftId || (leftId && rightId)) {
         localStorage.setItem("rg_battle_left_pet_id", String(petId));
+        localStorage.setItem("rg_battle_left_personality", suggestedPersonality);
         leftId = String(petId);
       } else {
         localStorage.setItem("rg_battle_right_pet_id", String(petId));
+        localStorage.setItem("rg_battle_right_personality", suggestedPersonality);
         rightId = String(petId);
       }
-      if (importStatus) importStatus.textContent = "已导入 petId=" + petId;
-      if (confirm("导入成功，宠物ID：" + petId + "\n当前战斗槽位：左方=" + (leftId || "未设置") + "，右方=" + (rightId || "未设置") + "\n是否打开实时战斗测试页？")) {
+      localStorage.setItem("rg_battle_random_personality", "0");
+      if (importStatus) importStatus.textContent = "已导入 petId=" + petId + "，推荐性格=" + suggestedPersonality;
+      if (confirm("导入成功，宠物ID：" + petId + "\n推荐战斗性格：" + suggestedPersonality + "\n当前战斗槽位：左方=" + (leftId || "未设置") + "，右方=" + (rightId || "未设置") + "\n是否打开实时战斗测试页？")) {
         var qs = "?left=" + encodeURIComponent(leftId || petId) + (rightId ? "&right=" + encodeURIComponent(rightId) : "");
         location.href = "battle-debug.html" + qs;
       }

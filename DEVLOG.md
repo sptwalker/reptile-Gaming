@@ -98,7 +98,67 @@ reptile-Gaming/
 - **活跃度**: 1-10，控制游走速度和转向频率
 - **参数调节**: 页面底部面板实时调整所有动画参数
 
-## 开发历程
+## 2026-04-26 - 战斗测试页前后端二维平面表现一致性改造
+- `server/services/battle-engine.js` 输出 `mapConfig`，把当前战斗地图 `id/name/width/height/margin/terrain/soundSurface` 随状态返回给前端，避免测试页继续依赖固定 `800×600` 或旧基准线假设。
+- `client/js/battle-debug.js` 新增地图配置缓存、Canvas 地图矩形投影、边界/网格绘制和二维事件提示；`draw()` 移除旧 `h * .72` 地面线，预览、正式身体、fallback 身体和 visual_fx 均传入同一份服务器地图配置。
+- `client/js/lizard-battle-adapter.js` 的正式 `LizardRenderer` 合成坐标改为按 `map.width/height/margin` 投影，战斗前预览、运动采样和轨迹调试使用同一二维地图坐标系。
+- `client/js/lizard-battle-renderer.js` 的 fallback 身体、声波半径、技能轨迹、命中/闪避/感知特效改为使用地图投影，确保特效与正式身体锚点一致。
+- 事件日志与音效空间化同步二维化：声音、感知、感知动作、visual_fx 显示 `x/y`、`angle/vector` 等服务端输出字段，声像按当前地图宽度计算。
+- 检查：`node --check client/js/battle-debug.js`、`node --check client/js/lizard-battle-adapter.js`、`node --check client/js/lizard-battle-renderer.js`、`node --check client/js/battle-animator.js`、`node --check server/services/battle-engine.js`、`git diff --check` 均通过；`client/js/battle-debug.js` lint 无新增错误。
+
+## 2026-04-26 - 服务器端真实二维地图战斗逻辑改造
+- `server/services/battle-engine.js` 新增 `_arenaBounds()`、`_clampPoint()`、`_spawnPoint()`，出生点、移动边界和坐标钳制统一来自地图 `width/height/margin`，移除战斗核心中的旧固定基准线语义。
+- AI 决策链升级为完整二维目标点：追逐、躲避、警戒、搜索和听声追踪均携带或生成 `targetX/targetY`，移动执行按二维向量推进并限制在地图边界内。
+- 声音感知升级为二维方位：按欧氏距离传播，听声估算点同时包含 X/Y 误差，并输出 `direction/angle/vector/lastKnownX/lastKnownY`。
+- `server/services/battle-animation-mapper.js` 的感知动作改用二维 `lookAt.x/y`，移除 `y: 300` 表现层硬编码，并透传二维方位字段。
+- 清理检查：已搜索 `1D`、`简化为1D`、`y: 300`、`_clampArenaY`、`Math.min(780)`、旧 `targetX` 听声追踪等服务端一维残留，未发现战斗核心旧逻辑残留。
+- 检查：`node --check server/services/battle-engine.js`、`node --check server/services/battle-animation-mapper.js`、`node --check server/services/battle-debug-service.js`、`node --check server/services/arena-service.js`、`git diff --check` 均通过；相关文件 lint 无新增错误；补充执行 30 帧服务端战斗 smoke test，单位 X/Y 坐标均由服务器端二维逻辑推进。
+
+## 2026-04-26 - 战斗测试页全屏二维自由运动改造
+- `client/battle-debug.html` 将事件日志移入战斗舞台底部 overlay，并为左右控制/状态面板添加收起按钮与可滚动内容容器。
+- `client/css/battle-debug.css` 将战斗页改为固定全屏、不可滚动布局；Canvas 占满视口，两侧面板改为浮动抽屉，底部战斗文字信息独立滚动显示。
+- `server/routes/battle-debug.js` 与 `server/services/battle-debug-service.js` 新增 `/api/battle-debug/preview`，用于不开启战斗会话时加载左右宠物真实外观。
+- `client/js/battle-debug.js` 新增战斗前预览循环，导入宠物后自动以 `LizardBattleAdapter.renderPreview()` 展示左右宠物在各自区域自由活动；开始战斗后停止预览，结束后回到预览。
+- `client/js/lizard-battle-adapter.js` 将单位坐标映射升级为二维战斗场地，并用二维运动量驱动正式 `LizardRenderer` 的身体牵引、朝向和步态表现。
+- `server/services/battle-engine.js` 将 AI 距离判断、追逐/躲避移动、攻击/技能射程从单轴距离升级为二维距离，移动事件与感知状态同步输出 `x/y` 坐标。
+- 检查：`node --check client/js/battle-debug.js`、`node --check client/js/lizard-battle-adapter.js`、`node --check server/routes/battle-debug.js`、`node --check server/services/battle-debug-service.js`、`node --check server/services/battle-engine.js`、`git diff --check` 均通过；相关文件 lint 无新增错误。
+- 遗留建议：仍需浏览器人工验收组合测试页生成宠物后导入战斗页的真实运动观感，重点观察战斗前自由活动、战斗中二维追逐/躲避、底部日志滚动和两侧面板收起。
+
+## 2026-04-26 - 正式 LizardRenderer 战斗适配阶段 5
+- `client/js/battle-debug.js` 清理最终旧椭圆 `drawUnit()` 渲染路径，正式宠物身体主路径固定为 `LizardBattleAdapter + LizardRenderer`。
+- `LizardBattleRenderer` 继续作为兼容层保留，仅承担 visual_fx、fallback 正式适配失败时的旧身体绘制能力和旧调试工具函数；主流程不再主动回退到最简椭圆身体。
+- 若正式身体适配器不可用，战斗页现在显示明确错误提示，避免误以为已经看到真实宠物动画。
+- 最终计划回顾：阶段 1 已完成正式身体接入；阶段 2 已完成战斗坐标驱动；阶段 3 已完成动作协议到正式姿态映射；阶段 4 已完成 visual_fx 与统一播放循环合成；阶段 5 已完成旧路径清理和验收记录。
+- 阶段 5 检查：`node --check client/js/battle-animator.js`、`node --check client/js/lizard-battle-adapter.js`、`node --check client/js/battle-debug.js`、`node --check client/js/lizard-renderer.js`、`git diff --check` 均通过；相关文件 lint 无新增错误。
+- 遗留建议：后续可在浏览器内用真实宠物 ID 做人工视觉验收，重点观察不同 `render_params/body_seed`、攻击/闪避/感知动作、声波/命中特效和倍速播放是否符合预期。
+
+- `client/js/battle-animator.js` 新增 `renderFrame` 与 `advanceRenderFrame(dt)`，使前端渲染循环能在服务端 `/step` 间隔之间持续推进动作进度、root motion 与 visual_fx 进度。
+- `getUnitVisual()` 与 `getActiveFx()` 改为优先使用 `renderFrame` 采样，统一身体姿态、位移插值和特效播放时间轴。
+- `client/js/battle-debug.js` 在每帧 `draw()` 前调用 `animator.advanceRenderFrame()`，服务端状态仍保持权威，前端仅负责连续播放表现层动画。
+- 正式身体路径下同步 `battleAdapter.lastAnchors` 到 `LizardBattleRenderer.drawVisualFx()`，让声波、命中、闪避、技能轨迹继续锚定正式 `LizardRenderer` 的头部/单位坐标。
+- 阶段 4 检查：`node --check client/js/battle-animator.js`、`node --check client/js/lizard-battle-adapter.js`、`node --check client/js/battle-debug.js`、`node --check client/js/lizard-renderer.js`、`git diff --check` 均通过；相关文件 lint 无新增错误。
+- 阶段 4 计划核对：正式身体、root motion、visual_fx 已进入同一播放循环；下一阶段清理旧渲染路径并补齐最终验收记录。
+
+## 2026-04-26 - 正式 LizardRenderer 战斗适配阶段 3
+- `client/js/lizard-battle-adapter.js` 新增 `_contractFor()`、`_actionProfile()` 与 `_syncActionEffect()`，把 `BattleActionContracts` 的动作协议映射为正式身体牵引参数。
+- 已覆盖 `move/fast_move/flee`、`bite/scratch/tail_whip`、`venom_spit/flame_breath/gale_slash`、`dragon_rush/shadow_step`、`regen/heal/buff/camouflage/iron_hide/predator_eye`、`listen_alert/search_sound`、`dodge/hit_react/dead` 等动作表现。
+- 正式身体现在根据动作类型产生前伸、抬头、侧摆、压缩/拉伸、闪避后撤、受击缩身、死亡倾倒等姿态变化，并复用 `LizardRenderer.triggerSkillTest()` 触发近战、远程、增益、治疗、威慑等轻量身体特效。
+- `client/js/battle-debug.js` 在正式身体渲染路径下把 `battleAdapter.lastAnchors` 同步给旧 `LizardBattleRenderer.drawVisualFx()`，让现有 visual_fx 继续锚定正式宠物头部位置。
+- 阶段 3 检查：`node --check client/js/lizard-battle-adapter.js`、`node --check client/js/battle-debug.js`、`node --check client/js/lizard-renderer.js`、`git diff --check` 均通过；相关文件 lint 无新增错误。
+- 阶段 3 计划核对：动作事件已映射到正式宠物身体姿态；下一阶段进入战斗特效与统一播放循环合成。
+
+- `client/js/lizard-battle-adapter.js` 新增 `unitHistory` 与 `_motionSample()`，按服务端战斗坐标变化计算每方速度、纵向偏移和朝向输入。
+- `_unitPoint()` 现在把服务端 `x/y/yOffset` 统一转换为主战斗 Canvas 坐标，正式宠物身体随服务端位置移动。
+- `_prepareRenderer()` 根据坐标变化动态调整正式 `LizardRenderer` 的牵引目标，快速位移会产生更强身体前伸与步态驱动。
+- `client/js/battle-debug.js` 主循环每帧执行 `draw()`，服务端 `/step` 只负责权威状态推进，避免正式身体动画只在接口返回时刷新。
+- 阶段 2 计划核对：正式身体已接入并由战斗坐标持续驱动；下一阶段进入动作事件到正式身体姿态/技能表现映射。
+
+## 2026-04-26 - 正式 LizardRenderer 战斗适配阶段 1
+- 在 `client/battle-debug.html` 中新增加载 `client/js/lizard-renderer.js` 与 `client/js/lizard-battle-adapter.js`，确保战斗页可访问正式宠物身体渲染器。
+- 新增 `client/js/lizard-battle-adapter.js`，以双离屏 Canvas 管理左右双方 `LizardRenderer`，并将正式身体图像合成到主战斗 Canvas。
+- 扩展 `client/js/lizard-renderer.js`：`_render(options)` 支持透明清屏、跳过跑步机/光点/视野，并新增 `renderBattleFrame(options)`；同时显式暴露 `window.LizardRenderer` / `globalThis.LizardRenderer`。
+- 改造 `client/js/battle-debug.js`：优先使用 `LizardBattleAdapter` 渲染正式宠物身体，旧 `LizardBattleRenderer` 保留为 visual_fx 与 fallback。
+- 阶段 1 检查：`node --check client/js/lizard-battle-adapter.js`、`node --check client/js/battle-debug.js`、`node --check client/js/lizard-renderer.js`、`git diff --check` 均通过；相关文件 lint 无新增错误。
 
 ### v0.1 - 基础骨骼
 - 脊椎链跟随鼠标
@@ -545,7 +605,297 @@ reptile-Gaming/
 
 > 新增宠物组合测试到数据库的快速导入能力，接入实时战斗测试页，并修复导入宠物启动战斗时的属性与 ID 槽位问题
 
-#### 组合测试导入战斗测试
+#### 真实战斗动画协议阶段 1（2026-04-26）
+
+> 阶段目标：保持服务端权威战斗事实不变，在现有事件基础上并行输出真实表现动画协议事件，为后续 `BattleAnimator` 和真实蜥蜴战斗渲染器提供稳定输入。
+
+- 新增 `server/models/battle-action-contracts.js`：定义服务端 `ACTION_CONTRACTS`，包含移动、快速移动、普通攻击、技能、感知、逃跑和死亡等动作时序。
+- 新增 `client/js/battle-action-contracts.js`：提供前端同构动作合同，暴露 `window.BattleActionContracts`，供后续动画调度器使用。
+- 新增 `server/services/battle-animation-mapper.js`：封装动画协议映射，提供 `mapMovementAction()`、`mapAttackAction()`、`mapSkillAction()`、`mapPerceptionAction()`、`mapVisualFx()` 和 `appendDerivedAnimationEvents()`。
+- `server/services/battle-engine.js` 接入动画映射层：
+  - 移动行为输出 `movement` 事件，包含 `actionId`、`from`、`to`、`speed`、`surface`、`pose`、`priority`。
+  - 普通攻击输出 `combat_action` 事件，包含起止帧、命中帧、命中/闪避/暴击/伤害结果与冲击表现参数。
+  - 技能行为输出 `combat_action` 事件，覆盖治疗、buff、恐惧技能和攻击型技能。
+  - 每帧事件合并后追加派生 `perception_action` 与 `visual_fx`，保留旧事件实现兼容。
+- `client/js/battle-debug.js` 扩展事件日志：支持展示 `movement`、`combat_action`、`perception_action`、`visual_fx`，并为新事件提供调试闪烁颜色。
+
+#### 阶段 1 核对结论
+
+- 旧协议事件继续保留：`hit`、`crit`、`dodge`、`skill_hit`、`sound`、`perception`、`heal`、`buff`、`fear`、`flee` 等未移除。
+- 新协议事件只承担表现层输入，不改变伤害、AI、位移、声音感知、胜负等服务端权威结果。
+- 当前阶段不引入真实动画播放器，只完成协议输出和调试可视化。
+
+#### 阶段 1 验证
+
+- `node --check` 已覆盖 `server/services/battle-engine.js`、`server/services/battle-animation-mapper.js`、`server/models/battle-action-contracts.js`、`client/js/battle-debug.js`、`client/js/battle-action-contracts.js`。
+- lints 检查上述新增/修改 JS 文件均无诊断错误。
+- mapper 单元验证覆盖动作合同 fallback、`movement` 映射、`combat_action` 映射。
+- `petId=11` vs `petId=12` 推进 240 帧，事件流包含 `sound`、`movement`、`visual_fx`、`perception`、`perception_action`、`skill_hit`、`combat_action`、`dodge`、`hit`、`crit`。
+- `battle-debug-service.batchTest({ pet1Id: 11, pet2Id: 12, count: 1 })` 返回 `code: 0`。
+- `git diff --check` 通过，仅提示工作区 LF/CRLF 换行转换警告。
+
+#### 下一阶段目标
+
+- 阶段 2：新增前端 `BattleAnimator` 最小调度器，消费 `movement`、`combat_action`、`perception_action`、`visual_fx`，生成可插值的表现状态。
+- 需要确认：动画事件是否按服务端帧直接播放，还是在前端按固定延迟缓冲；动作优先级冲突时是否允许高优先级动作打断低优先级动作；阶段 2 是否先只接入战斗调试页。
+
+#### 真实战斗动画系统阶段 2（2026-04-26）
+
+> 阶段目标：在战斗调试页接入最小 `BattleAnimator`，直接按服务端帧消费阶段 1 动画协议，输出可插值表现状态；高优先级动作可打断低优先级动作；`movement` 支持更细 root motion 曲线；`visual_fx` 暂只调度不完整渲染。
+
+- 新增 `client/js/battle-animator.js`：
+  - 支持浏览器 `window.BattleAnimator` 与 Node `module.exports` 双环境，便于调试页使用和命令行单元验证。
+  - `ingestState(state)` 直接使用服务端帧推进，不做前端缓冲。
+  - `ingestEvents(events)` 消费 `movement`、`combat_action`、`perception_action`、`visual_fx`。
+  - `sampleRootMotion(event, frame)` 提供平滑插值、步态起伏、脚步相位、速度向量等更细 root motion 输出。
+  - `getUnitVisual(side, fallback)` 输出表现层单位状态：`x/y/yOffset`、`actionId`、`pose`、`actionProgress`、`impact`、`footPhase`。
+  - `getActiveFx()` 仅调度 `visual_fx` 生命周期和进度，不做完整特效渲染。
+  - 动作优先级策略：当前动作未结束时，只有同级或更高优先级动作可以覆盖。
+- `client/battle-debug.html` 增加脚本顺序：`battle-action-contracts.js` → `battle-animator.js` → `battle-debug.js`。
+- `client/js/battle-debug.js` 接入 `BattleAnimator`：
+  - 开始、重置、结束时重置动画器。
+  - 每次 `updateAll()` 后将服务端状态送入动画器。
+  - Canvas 绘制改用 `animator.getUnitVisual()` 的表现状态。
+  - 简化蜥蜴调试绘制加入动作拉伸、命中高亮、移动起伏、脚步相位和当前动作标签。
+
+#### 阶段 2 核对结论
+
+- 阶段 2 仅接入 `client/battle-debug.html`，未影响竞技场正式页面。
+- 动画播放按服务端帧直接采样，未加入缓冲队列。
+- 高优先级动作可打断低优先级动作，低优先级动作不会覆盖未结束的高优先级动作。
+- root motion 已从简单线性位置升级为平滑插值 + 起伏 + 脚步相位。
+- `visual_fx` 目前只保存在 `fxQueue` 并输出进度，暂不做完整特效渲染，符合阶段边界。
+
+#### 阶段 2 验证
+
+- `node --check` 已覆盖 `client/js/battle-animator.js`、`client/js/battle-debug.js`、`client/js/battle-action-contracts.js`。
+- lints 检查 `client/js/battle-animator.js`、`client/js/battle-debug.js`、`client/battle-debug.html` 均无诊断错误。
+- 单元验证覆盖：root motion 插值、动作优先级打断策略、低优先级不可覆盖高优先级、`visual_fx` 调度与过期。
+- `petId=11` vs `petId=12` 调试战斗推进 240 帧返回 `code: 0`，事件流包含阶段 1 动画协议事件。
+
+#### 下一阶段目标
+
+- 阶段 3：新增 `LizardBattleRenderer` 简化骨架版，消费 `BattleAnimator.getUnitVisual()` 输出，不再直接绘制固定椭圆占位蜥蜴。
+- 需要确认：阶段 3 是否继续只接入 `client/battle-debug.html`；简化骨架是否复用 `client/js/lizard-renderer.js` 的部分比例参数，还是先实现独立轻量战斗骨架；是否需要在阶段 3 绘制 root motion 足迹/动作轨迹辅助调试。
+
+#### 真实战斗动画系统阶段 3（2026-04-26）
+
+> 阶段目标：继续只接入 `client/battle-debug.html`，新增简化 `LizardBattleRenderer` 战斗骨架版，复用 `client/js/lizard-renderer.js` 的解剖比例参数，并提供可关闭的 root motion 足迹 / 动作轨迹辅助调试。
+
+- 新增 `client/js/lizard-battle-renderer.js`：
+  - 支持浏览器 `window.LizardBattleRenderer` 与 Node `module.exports` 双环境。
+  - 复用 `lizard-renderer.js` 的关键比例：22 节脊椎、`BASE_REF_W=1200`、`SEGMENT_LENGTH=18`、`LEG_LENGTH1=38`、`LEG_LENGTH2=34`、`STEP_DISTANCE=50`。
+  - 复刻轻量版 `_segmentLengthAt()`、`_bodyWidthAt()`、`_legIndexAt()`，保持头部、躯干、尾部和四肢挂载比例一致。
+  - `renderUnit(ctx, unit, options)` 消费 `BattleAnimator.getUnitVisual()` 输出，绘制简化蜥蜴骨架、身体轮廓、头部、四肢、血条和动作标签。
+  - `drawMotionDebug(ctx)` 绘制左右双方 root motion 足迹 / 动作轨迹。
+  - `reset()` 清空轨迹，避免新战斗复用旧轨迹。
+- `client/battle-debug.html` 接入 `lizard-battle-renderer.js`，脚本顺序为 `battle-action-contracts.js` → `battle-animator.js` → `lizard-battle-renderer.js` → `battle-debug.js`。
+- `client/battle-debug.html` 新增「显示 root motion 足迹 / 动作轨迹」开关，默认开启。
+- `client/css/battle-debug.css` 新增 `.inline-toggle` 样式。
+- `client/js/battle-debug.js`：
+  - 创建 `battleRenderer` 实例。
+  - Canvas 绘制优先使用 `battleRenderer.renderUnit()`，保留旧 `drawUnit()` 作为 fallback。
+  - 根据开关调用 `battleRenderer.drawMotionDebug()`。
+  - 开始、重置、结束战斗时同步清空渲染器轨迹。
+
+#### 阶段 3 核对结论
+
+- 阶段 3 仍只接入 `client/battle-debug.html`，未影响正式战斗或养成页面。
+- 战斗骨架已复用 `client/js/lizard-renderer.js` 的核心比例参数和身体宽度/脊椎段长分布。
+- root motion 足迹 / 动作轨迹默认开启，并可通过调试页开关关闭。
+- 当前阶段仍是轻量骨架版，未迁移完整皮肤花纹、IK 足趾、隐藏基因外观和完整特效渲染。
+
+#### 阶段 3 验证
+
+- `node --check` 已覆盖 `client/js/lizard-battle-renderer.js`、`client/js/battle-debug.js`。
+- lints 检查 `client/js/lizard-battle-renderer.js`、`client/js/battle-debug.js`、`client/battle-debug.html`、`client/css/battle-debug.css` 均无诊断错误。
+- 命令行单元验证覆盖：`LizardBattleRenderer.renderUnit()` 生成 22 节脊椎、写入轨迹点、调用 Canvas 绘制接口；`drawMotionDebug()` 可在无浏览器环境下执行。
+
+#### 下一阶段目标
+
+- 阶段 4：增强战斗骨架表现，把 `combat_action` / `perception_action` / `visual_fx` 映射为更明确的骨架姿态、头部朝向、命中冲击和轻量特效绘制。
+- 需要确认：阶段 4 是否继续只接入调试页；是否开始绘制轻量 `visual_fx`（声波、命中、闪避、技能光效）；是否需要为左右双方接入宠物 `render_params/body_seed` 以还原真实外观差异。
+
+#### 真实战斗动画系统阶段 4（2026-04-26）
+
+> 阶段目标：继续只接入 `client/battle-debug.html`，开始绘制轻量 `visual_fx`（声波、命中、闪避、技能光效），并为左右双方接入宠物 `render_params/body_seed`，让战斗调试页还原真实外观差异。
+
+- `server/services/battle-debug-service.js` 扩展调试战斗启动返回：
+  - 新增 `_parseBodySeed()`、`_sumAttrs()`、`_buildAppearance()`，按 `pet-service.js` 同源规则生成轻量战斗外观参数。
+  - `_loadFighter()` 返回 `appearance`，包含 `body_seed` 与 `render_params`。
+  - `startBattle()` 返回 `appearance.left/right`，`resetBattle()` 复用 `startBattle()`，重置后同步恢复外观数据。
+- `client/js/battle-debug.js`：
+  - 新增 `battleAppearance` 与 `applyAppearance()`。
+  - 开始/重置战斗时接收服务端外观数据，并传入 `LizardBattleRenderer.renderUnit()`。
+  - Canvas 绘制阶段调用 `battleRenderer.drawVisualFx(ctx, animator.getActiveFx(), ...)`，继续只作用于战斗调试页。
+- `client/js/lizard-battle-renderer.js`：
+  - 新增 `setAppearance()`、`_resolveAppearance()`，支持 `body_seed` / `render_params` 驱动左右双方颜色、体型、头部比例、肢体粗细、腿距、花纹、背刺和脊椎节点差异。
+  - 增强骨架姿态：攻击/技能姿态前探，闪避姿态轻量弯曲，感知姿态抬头。
+  - 新增 `_drawPattern()` 与 `_drawSpines()`，绘制轻量斑点/条纹和背刺。
+  - 新增 `drawVisualFx()`，绘制 `sound_wave` / `fake_sound_wave`、`hit_flash` / `crit_hit`、`dodge_spark` / `decoy_dodge`、`skill_glow`。
+- `server/services/battle-animation-mapper.js` 扩展 `mapVisualFx()`：
+  - 为 `dodge` / `tail_decoy` 生成闪避特效。
+  - 为 `combat_action.fx.impact` 生成命中、暴击、技能光效和闪避特效。
+- `client/js/battle-animator.js` 修复 `visual_fx.frame === 0` 时被 falsy 覆盖的问题。
+
+#### 阶段 4 核对结论
+
+- 阶段 4 仍只接入 `client/battle-debug.html` 与 `/api/battle-debug` 调试接口，未接入正式战斗页面。
+- 轻量 `visual_fx` 已从阶段 2 的“只调度”推进到 Canvas 绘制，但仍不是完整粒子/音画系统。
+- 左右双方已通过调试接口接入 `render_params/body_seed`，战斗页可展示真实宠物外观差异。
+- 当前外观计算逻辑与 `pet-service.js` 保持同源公式，但阶段 4 为避免大范围重构，暂未抽成公共模块。
+
+#### 阶段 4 验证
+
+- `node --check` 已覆盖 `server/services/battle-debug-service.js`、`server/services/battle-animation-mapper.js`、`client/js/battle-animator.js`、`client/js/battle-debug.js`、`client/js/lizard-battle-renderer.js`。
+- lints 检查阶段 4 修改文件无诊断错误。
+- 命令行单元验证覆盖：调试战斗返回 `appearance.left/right.render_params/body_seed`；`LizardBattleRenderer.renderUnit()` 可消费左右外观并绘制；`drawVisualFx()` 可执行声波、命中、闪避、技能光效；`BattleAnimator.getActiveFx()` 保留 `frame=0` 特效生命周期。
+- `git diff --check` 通过。
+
+#### 下一阶段目标
+
+- 阶段 5：继续只在调试页内增强动作姿态，把不同 `actionId` 映射为更细的头部朝向、身体压缩/伸展、攻击前摇/后摇、技能蓄力和被击退表现。
+- 需要确认：阶段 5 是否仍只接入 `client/battle-debug.html`；是否允许抽取公共外观计算模块减少 `pet-service.js` 与 `battle-debug-service.js` 公式重复；是否开始加入相机震动/屏幕冲击等更强表现效果。
+
+#### 真实战斗动画系统阶段 5（2026-04-26）
+
+> 阶段目标：继续只接入 `client/battle-debug.html`，抽取公共宠物外观计算模块，增强不同 `actionId` 的骨架姿态，并加入相机震动 / 屏幕冲击等更强表现效果。
+
+- 新增 `server/services/pet-appearance-service.js`：
+  - 集中提供 `parseBodySeed()`、`sumAttrTotals()`、`buildAttrs()`、`buildAppearance()`。
+  - 统一 `body_seed` 解析、六维属性汇总、阶段倍率、背刺、腿距、花纹、肢体粗细等 `render_params` 计算。
+- `server/services/pet-service.js`：
+  - 删除内联 `body_seed/render_params` 重复公式，改用公共外观模块。
+  - 保持详情接口返回字段 `body_seed` / `render_params` 不变。
+- `server/services/battle-debug-service.js`：
+  - 删除阶段 4 临时加入的 `_parseBodySeed()`、`_sumAttrs()`、`_buildAppearance()`。
+  - 调试战斗左右双方外观改为调用公共 `buildAppearance()`，减少与宠物详情接口的公式漂移风险。
+- `client/js/lizard-battle-renderer.js`：
+  - 新增 `_poseModifiers()`，按 `bite`、`scratch`、`tail_whip`、`venom_spit`、`dragon_rush`、`regen`、`predator_eye`、`listen_alert`、`search_sound` 生成头部抬升/前探、身体压缩/伸展、转头、盘绕、技能蓄力光晕和被击回挫。
+  - `_makeSpine()` 消费姿态修饰数据，增强攻击前摇/命中/后摇、技能蓄力和被击冲击表现。
+- `client/js/battle-debug.js`：
+  - 新增 `cameraShake` 与 `screenImpact` 状态，只作用于调试页 Canvas。
+  - 从 `combat_action.fx.cameraShake`、`visual_fx`、暴击事件中提取冲击强度。
+  - 绘制阶段对战斗场景应用相机偏移，并追加屏幕闪白/红框冲击叠层。
+  - 开始、重置、结束战斗时清空震动与屏幕冲击状态。
+
+#### 阶段 5 核对结论
+
+- 阶段 5 仍只接入 `client/battle-debug.html`，未接入正式竞技场或养成页面。
+- 服务端战斗权威逻辑未改变；本阶段只调整外观计算复用和前端表现层。
+- 外观公式已抽到公共模块，`pet-service.js` 与 `battle-debug-service.js` 共享同一计算入口。
+- 相机震动 / 屏幕冲击已开始接入，但仍为调试页轻量表现，不包含音频或完整粒子系统。
+
+#### 阶段 5 验证
+
+- `node --check` 覆盖本阶段修改/新增 JS 文件。
+- lints 检查本阶段修改文件无新增诊断错误。
+- 命令行单元验证覆盖：公共外观模块输出；宠物详情外观字段；调试战斗 `appearance.left/right`；`LizardBattleRenderer` 阶段 5 姿态渲染；调试页冲击相关函数语法检查。
+- `git diff --check` 通过。
+
+#### 整体计划回顾
+
+- 阶段 1 已完成服务端动画协议输出。
+- 阶段 2 已完成 `BattleAnimator` 最小调度器，并只接入调试页。
+- 阶段 3 已完成简化骨架战斗渲染器、root motion 足迹与轨迹调试。
+- 阶段 4 已完成真实外观接入与轻量 `visual_fx` 绘制。
+- 阶段 5 已完成外观公共模块、动作姿态增强、相机震动和屏幕冲击。
+- 当前未发现正式页面误接入问题；后续可继续推进完整粒子特效、音频联动、动作曲线编辑和正式战斗页面接入前的兼容封装。
+
+#### 下一阶段建议
+
+- 阶段 6：继续只在调试页内完善 `visual_fx` 粒子化表现和命中特效分层，补充技能专属轨迹、声波传播可视化、屏幕边缘方向提示，并准备正式页面接入前的渲染适配清单。
+
+#### 真实战斗动画系统阶段 6（2026-04-26）
+
+> 阶段目标：开发粒子化 `visual_fx`、技能专属轨迹、声波传播可视化、屏幕边缘方向提示，打通组合测试宠物到战斗测试报告流程，并完善战斗 AI 性格地图。
+
+- `server/models/game-rules.js`：
+  - 新增 `BATTLE_PERSONALITY_PRESETS`，包含 `balanced`、`brave`、`cautious`、`timid`、`cunning`、`frenzy`。
+  - 性格维度覆盖攻击倾向、风险偏好、谨慎度、机动性、狡猾度、凶猛度、技能偏好和听觉敏感。
+- `server/services/battle-engine.js`：
+  - 新增 `normalizePersonality()`，并导出给调试服务复用。
+  - `_createUnit()` 接入性格、听觉倍率和 `personalityTrace`。
+  - `_updateAIState()`、`_aiDecide()`、`_pickSkill()` 根据性格调整逃跑、防御、风筝、警觉、搜索、近战距离和技能释放评分。
+  - 战斗快照与摘要输出 `personality` / `personalityTrace`。
+- `server/services/battle-debug-service.js` 与 `server/routes/battle-debug.js`：
+  - `/meta` 返回性格预设。
+  - `/start`、`/batch` 接收 `leftPersonality`、`rightPersonality`、`randomPersonality`。
+  - 批量测试输出详细报告：胜率、平局率、平均时长、平均伤害、命中、暴击、闪避、技能次数、剩余 HP、AI 状态分布和样本对局。
+  - 随机性格使用 `secureRandom()`，符合服务端安全随机约束。
+- `client/js/lizard-battle-renderer.js`：
+  - 新增粒子爆发、技能轨迹和多层声波传播绘制。
+  - 为 `venom_spit`、`dragon_rush`、`regen`、`camouflage`、`iron_hide`、`predator_eye`、`scratch`、`tail_whip` 等技能提供差异化轨迹或环形效果。
+  - 真声 / 假声使用不同颜色和扰动粒子表现。
+- `client/battle-debug.html`、`client/js/battle-debug.js`、`client/css/battle-debug.css`：
+  - 新增左右 AI 性格下拉框、随机性格开关和性格说明。
+  - 开始战斗与批量测试会传递性格配置，并持久化到 localStorage。
+  - 画布新增屏幕边缘方向提示，展示声源、假声、捕获、攻击等方向信息。
+  - 批量测试后渲染详细战斗报告和基础平衡提示。
+- `client/js/combinatorial-test.js`：
+  - 组合测试导入战斗测试时，根据当前派生战斗属性推荐性格，并写入左右战斗槽 localStorage。
+  - 完成“组合测试生成宠物 → 战斗测试调用 → 批量报告分析”的闭环。
+
+#### 阶段 6 核对结论
+
+- 阶段 6 仍只接入 `client/battle-debug.html` 调试页和组合测试导入入口，未接入正式竞技场页面。
+- 服务端仍保持权威战斗计算；前端只消费帧状态、动画事件、性格配置和批量报告。
+- `visual_fx` 已从轻量圆环/闪光升级为粒子化与技能专属轨迹，但仍未加入真实音频播放。
+- AI 性格地图已可设定或随机赋予，且批量报告可辅助观察平衡趋势。
+
+#### 阶段 6 验证
+
+- `node --check` 覆盖 `battle-engine.js`、`battle-debug-service.js`、`battle-debug.js`、`lizard-battle-renderer.js`、`combinatorial-test.js` 等阶段 6 修改文件。
+- lints 检查阶段 6 修改文件无新增诊断错误。
+- 命令行单元验证覆盖：性格预设返回、`normalizePersonality('cunning')`、固定性格批量战斗报告、AI 状态分布输出。
+- 前端 VM 语法验证覆盖阶段 6 修改的前端 JS 文件。
+- `git diff --check` 通过；仅存在 Windows 工作区 LF→CRLF 提示。
+
+#### 阶段 6 补充审视
+
+- 可后续补充真实音频、更多技能材质贴图、正式竞技场接入适配层、报告导出 CSV/JSON。
+- 当前测试页已有足够数据用于初步平衡调整，下一阶段可进入正式页面接入前的适配与兼容清单。
+
+#### 真实战斗动画系统阶段 7：调试页音效、报告导出与自定义 AI（2026-04-26）
+
+> 阶段目标：继续只完善 `client/battle-debug.html`，不接入正式系统；设计真实音效需求表和资源目录，支持真实音效集成；补充批量报告 CSV/JSON 导出；增强 AI 性格多维自定义配置。
+
+- `client/battle-debug.html`：
+  - 新增左右自定义性格开关与多维参数编辑区。
+  - 新增真实音效开关、主音量滑块和音效状态提示。
+  - 新增批量报告 `JSON` / `CSV` 导出按钮。
+  - 新增音效需求表展示区。
+- `client/js/battle-debug.js`：
+  - 新增 `BATTLE_AUDIO_REQUIREMENTS` 音效需求表，指定资源根目录为 `client/assets/audio/battle/`，并细分 `footstep/`、`movement/`、`combat/`、`skill/`、`ui/`。
+  - 真实音效加载路径为 `assets/audio/battle/...`；缺失真实文件时自动使用 WebAudio fallback 合成占位音，并在状态栏提示。
+  - 音效事件覆盖脚步草地/沙地/石头/水面、失衡、假声、命中、闪避、暴击、技能释放、听觉捕获。
+  - 音效播放支持主音量、事件冷却、位置声像和多变体文件名 `_01/_02/_03`。
+  - 批量测试结果保存为 `lastBatchReport`，支持导出时间戳文件名的 `battle-report-*.json` 与 `battle-report-*.csv`。
+  - 自定义 AI 支持 `aggression`、`risk`、`caution`、`mobility`、`cunning`、`ferocity`、`skill`、`hearing` 八维滑块，左右双方独立配置并持久化到 `localStorage`。
+  - `/start` 与 `/batch` 会传递自定义性格对象；后端已有 `normalizePersonality()` 支持，无需改正式战斗系统。
+- `client/css/battle-debug.css`：
+  - 新增自定义性格面板、音效控制面板、导出按钮、音效需求表样式。
+
+#### 阶段 7 核对结论
+
+- 本阶段仍只接入 `client/battle-debug.html` 调试页，未接入正式竞技场页面。
+- 音效资源目录已明确：`client/assets/audio/battle/`；当前代码不强制要求资源存在，缺失时 fallback，便于后续逐步替换真实音频。
+- 数据报告导出直接使用最近一次批量测试结果，适合外部表格和脚本分析。
+- AI 性格自定义已进入前端配置闭环，并复用服务端对象归一化能力。
+
+#### 阶段 7 验证
+
+- `node --check client/js/battle-debug.js` 通过。
+- `node --check server/services/battle-debug-service.js && node --check server/services/battle-engine.js` 通过。
+- lints 检查 `client/battle-debug.html`、`client/js/battle-debug.js`、`client/css/battle-debug.css` 无新增诊断错误。
+- 命令行单元验证覆盖：`listMaps()` 性格预设、自定义性格对象批量测试、详细报告结构输出。
+- `git diff --check` exit code 为 0；仅存在 Windows 工作区 LF→CRLF 提示。
+
+#### 阶段 7 补充审视
+
+- 后续可补充真实 `.ogg` 音频资源文件，优先填充脚步、命中、暴击、技能和听觉提示。
+- 可继续补充报告字段：每种技能使用率、平均声音捕获次数、误判次数、地形维度分组胜率。
+- 正式接入前仍需做音频开关默认策略、移动端浏览器兼容和用户首次交互解锁音频策略审查。
 
 - `client/combinatorial-test.html` 新增「导入战斗测试」按钮和实时战斗测试入口
 - `client/js/combinatorial-test.js` 将当前表现测试参数导入 `/api/admin/test/create-pet`

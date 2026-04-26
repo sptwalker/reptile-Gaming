@@ -17,7 +17,9 @@
         </header>
 
         <section class="layout">
-            <aside class="panel controls">
+            <aside class="panel controls" id="controlsPanel">
+                <button id="toggleControlsPanel" class="panel-toggle panel-toggle-left" type="button">控制台</button>
+                <div class="panel-scroll">
                 <h2>控制台</h2>
                 <label>管理员密钥<input id="adminKey" type="password" placeholder="X-Admin-Key"></label>
                 <div class="grid2">
@@ -25,6 +27,19 @@
                     <label>右方宠物ID<input id="pet2Id" type="number" min="1" value="2"></label>
                 </div>
                 <label>地图<select id="mapId"></select></label>
+                <div class="grid2">
+                    <label>左方性格<select id="leftPersonality"></select></label>
+                    <label>右方性格<select id="rightPersonality"></select></label>
+                </div>
+                <label class="inline-toggle"><input id="randomPersonality" type="checkbox"> 每场随机战斗性格</label>
+                <div id="personalityHint" class="personality-hint muted">性格影响攻击倾向、风险偏好、谨慎度、机动性、狡猾度、凶猛度、技能偏好与听觉敏感。</div>
+                <section class="custom-ai-panel">
+                    <div class="grid2">
+                        <label class="inline-toggle"><input id="leftCustomPersonality" type="checkbox"> 左方自定义性格</label>
+                        <label class="inline-toggle"><input id="rightCustomPersonality" type="checkbox"> 右方自定义性格</label>
+                    </div>
+                    <div id="personalityEditors" class="personality-editors"></div>
+                </section>
                 <div class="button-row">
                     <button id="btnStart" class="primary">开始</button>
                     <button id="btnPause">暂停</button>
@@ -33,6 +48,13 @@
                     <button id="btnEnd">结束</button>
                 </div>
                 <label>倍速<select id="speed"><option value="1">1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label>
+                <label class="inline-toggle"><input id="toggleMotionDebug" type="checkbox" checked> 显示 root motion 足迹 / 动作轨迹</label>
+                <section class="audio-panel">
+                    <h2>真实音效</h2>
+                    <label class="inline-toggle"><input id="audioEnabled" type="checkbox"> 启用战斗音效</label>
+                    <label>主音量<input id="audioVolume" type="range" min="0" max="1" step="0.01" value="0.65"></label>
+                    <div id="audioStatus" class="muted audio-status">音效关闭；资源目录：client/assets/audio/battle/</div>
+                </section>
                 <div class="metric-grid" id="battleMetrics"></div>
 
                 <h2>批量测试</h2>
@@ -41,24 +63,41 @@
                     <button id="btnBatch" class="accent">运行批量</button>
                 </div>
                 <div id="batchResult" class="batch-result muted">未运行</div>
+                <div class="button-row export-row">
+                    <button id="btnExportJson">导出 JSON</button>
+                    <button id="btnExportCsv">导出 CSV</button>
+                </div>
+                <div id="battleReport" class="battle-report muted">详细战斗报告将在批量测试后生成</div>
+                <div id="audioRequirements" class="audio-requirements muted"></div>
+                </div>
             </aside>
 
             <section class="stage-card">
                 <canvas id="battleCanvas" width="960" height="560"></canvas>
                 <div id="winnerBadge" class="winner hidden"></div>
+                <section class="battle-log-dock" aria-label="战斗文字信息">
+                    <div class="battle-log-title">战斗文字信息</div>
+                    <div id="eventLog" class="event-log"></div>
+                </section>
             </section>
 
-            <aside class="panel inspect">
+            <aside class="panel inspect" id="inspectPanel">
+                <button id="toggleInspectPanel" class="panel-toggle panel-toggle-right" type="button">实时状态</button>
+                <div class="panel-scroll">
                 <h2>实时状态</h2>
                 <div class="unit-wrap">
                     <section><h3>左方</h3><div id="leftState"></div></section>
                     <section><h3>右方</h3><div id="rightState"></div></section>
                 </div>
-                <h2>事件日志</h2>
-                <div id="eventLog" class="event-log"></div>
+                </div>
             </aside>
         </section>
     </main>
+    <script src="js/battle-action-contracts.js"></script>
+    <script src="js/battle-animator.js"></script>
+    <script src="js/lizard-renderer.js"></script>
+    <script src="js/lizard-battle-adapter.js"></script>
+    <script src="js/lizard-battle-renderer.js"></script>
     <script src="js/battle-debug.js"></script>
 </body>
 </html>
