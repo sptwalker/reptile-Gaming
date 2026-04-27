@@ -85,10 +85,10 @@ class LizardRenderer {
     this.PAUSE_LOOK_CHANCE = opts.pauseLookChance || 0.4;
     this.spine = [];
     this.legs = [
-      {spineIndex:this._legIndexAt(0.05),side:1,pairId:0,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.05),side:-1,pairId:0,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.242),side:1,pairId:1,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0},
-      {spineIndex:this._legIndexAt(0.242),side:-1,pairId:1,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},stepping:false,stepT:0}
+      {spineIndex:this._legIndexAt(0.05),side:1,pairId:0,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},plant:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.05),side:-1,pairId:0,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},plant:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.242),side:1,pairId:1,gaitGroup:1,target:{x:0,y:0},foot:{x:0,y:0},plant:{x:0,y:0},stepping:false,stepT:0},
+      {spineIndex:this._legIndexAt(0.242),side:-1,pairId:1,gaitGroup:0,target:{x:0,y:0},foot:{x:0,y:0},plant:{x:0,y:0},stepping:false,stepT:0}
     ];
     this.lightDots = [];
     this.mouseX = 0; this.mouseY = 0;
@@ -112,6 +112,8 @@ class LizardRenderer {
     this.externalMoveActive = false;
     this.externalMoveSpeed = 1;
     this.externalLookAngle = null;
+    this.externalBodyAngle = null;
+    this.externalMoveAngle = null;
     this.externalAction = null;
     this.activity = opts.activity || 5;
     /* ── 跑步机状态 ── */
@@ -130,7 +132,7 @@ class LizardRenderer {
     this._autoResize = opts.autoResize !== false;
     this._bindCanvasEvents = opts.bindEvents !== false;
     this._scaleBasisWidth = Number.isFinite(Number(opts.scaleBasisWidth)) ? Number(opts.scaleBasisWidth) : 0;
-    this._fixedScale = Number.isFinite(Number(opts.fixedScale)) ? Number(opts.fixedScale) : 0;
+    this._fixedScale = opts.fixedScale === undefined ? 0.68 : (Number.isFinite(Number(opts.fixedScale)) ? Number(opts.fixedScale) : 0.68);
     this._initCanvas();
     this._initSpine();
     this._initLegs();
@@ -188,6 +190,8 @@ class LizardRenderer {
       this.externalMoveTarget = null;
       this.externalMoveActive = false;
       this.externalLookAngle = null;
+      this.externalBodyAngle = null;
+      this.externalMoveAngle = null;
       this.externalAction = null;
       return;
     }
@@ -200,6 +204,8 @@ class LizardRenderer {
     };
     this.externalMoveSpeed = Number.isFinite(Number(target.speedScale)) ? Math.max(0.2, Math.min(3, Number(target.speedScale))) : 1;
     this.externalLookAngle = Number.isFinite(Number(target.facing)) ? Number(target.facing) : null;
+    this.externalBodyAngle = Number.isFinite(Number(target.bodyFacing)) ? Number(target.bodyFacing) : null;
+    this.externalMoveAngle = Number.isFinite(Number(target.moveFacing)) ? Number(target.moveFacing) : null;
     this.externalAction = target.action || null;
     this.externalMoveActive = true;
     this.aiActive = false;
@@ -457,6 +463,8 @@ class LizardRenderer {
       var hip = self._getHip(leg);
       leg.target.x = hip.x; leg.target.y = hip.y;
       leg.foot.x = hip.x; leg.foot.y = hip.y;
+      leg.plant = {x: hip.x, y: hip.y};
+      leg.stepping = false; leg.stepT = 0;
     });
   }
 
@@ -505,6 +513,10 @@ class LizardRenderer {
 
 
   _lerp(a, b, t) { return a + (b - a) * t; }
+
+  _lerpAngle(a, b, t) {
+    return a + this._angleDiff(a, b) * Math.max(0, Math.min(1, t));
+  }
 
   /**
    * 按解剖图比例返回第 i 节脊椎的关节间距
@@ -901,12 +913,22 @@ class LizardRenderer {
       var ex = this.externalMoveTarget.x - head.x, ey = this.externalMoveTarget.y - head.y;
       var ed = Math.hypot(ex, ey);
       var targetLook = this.externalLookAngle !== null ? this.externalLookAngle : (ed > 0.5 ? Math.atan2(ey, ex) : this._getVisualHeadAngle());
+      var actionPose = this.externalAction && (this.externalAction.pose || this.externalAction.id) || "";
+      var actionProgress = this.externalAction ? Math.max(0, Math.min(1, Number(this.externalAction.progress) || 0)) : 0;
+      var guardPose = actionPose === "guard" || actionPose === "brace";
+      var attackPose = actionPose === "bite" || actionPose === "bite_combo" || actionPose === "heavy_bite" || actionPose === "claw" || actionPose === "tail_swing" || actionPose === "rush" || actionPose === "shadow_step";
+      var bodyAngle = this.externalBodyAngle !== null ? this.externalBodyAngle : targetLook;
+      var moveAngleExt = ed > 0.5 ? Math.atan2(ey, ex) : (this.externalMoveAngle !== null ? this.externalMoveAngle : bodyAngle);
+      if (guardPose) targetLook = bodyAngle;
+      else if (attackPose) targetLook = this._lerpAngle(targetLook, bodyAngle, 0.35 + Math.sin(actionProgress * Math.PI) * 0.25);
       desiredLookAngle = targetLook;
-      this._updateHeadTurn(targetLook, 0.44, true);
+      this._updateHeadTurn(targetLook, guardPose ? 0.24 : 0.44, true, bodyAngle);
       headTurnUpdated = true;
       if (ed > 1.5) {
         var avExt = this._computeAvoidanceDir(head, this.externalMoveTarget.x, this.externalMoveTarget.y);
-        var moveExt = Math.min(ed, this.MAX_SPEED * this.externalMoveSpeed) * this._headLeadMoveFactor(targetLook);
+        var moveExt = Math.min(ed, this.MAX_SPEED * this.externalMoveSpeed) * this._headLeadMoveFactor(moveAngleExt);
+        if (guardPose) moveExt *= 0.35 + Math.sin(actionProgress * Math.PI) * 0.15;
+        else if (attackPose) moveExt *= 0.9 + Math.sin(actionProgress * Math.PI) * 0.25;
         head.x += avExt.x * moveExt; head.y += avExt.y * moveExt;
       }
     } else if (this.mouseDown && this.mouseDragStart && Math.hypot(this.mouseX - this.mouseDragStart.x, this.mouseY - this.mouseDragStart.y) > 8) {
@@ -1077,6 +1099,7 @@ class LizardRenderer {
         legRest.foot.x += (rest.x - legRest.foot.x) * 0.16;
         legRest.foot.y += (rest.y - legRest.foot.y) * 0.16;
         legRest.target.x = legRest.foot.x; legRest.target.y = legRest.foot.y;
+        legRest.plant = {x: legRest.foot.x, y: legRest.foot.y};
         legRest.stepping = false; legRest.stepT = 0;
       }
       return;
@@ -1095,13 +1118,18 @@ class LizardRenderer {
     for (var i = 0; i < this.legs.length; i++) {
       var leg = this.legs[i];
       var phase = (this._gaitPhase + (leg.gaitGroup === 1 ? 0.5 : 0)) % 1;
+      if (!leg.plant) leg.plant = {x: leg.foot.x, y: leg.foot.y};
       var p;
       if (phase < stancePortion) {
         var stanceT = phase / stancePortion;
-        p = this._legStrideTarget(leg, this._lerp(1, -1, stanceT));
+        var rest = this._legStrideTarget(leg, this._lerp(0.55, -0.35, stanceT));
+        var hip = this._getHip(leg);
+        var reachLimit = this.LEG_LENGTH1 + this.LEG_LENGTH2 - 5;
         leg.stepping = false;
-        leg.foot.x = p.x;
-        leg.foot.y = p.y;
+        leg.foot.x = leg.plant.x + (rest.x - leg.plant.x) * 0.08;
+        leg.foot.y = leg.plant.y + (rest.y - leg.plant.y) * 0.08;
+        p = this._clampLegFoot(hip, leg.foot, reachLimit);
+        leg.foot.x = p.x; leg.foot.y = p.y;
       } else {
         var swingT = (phase - stancePortion) / (1 - stancePortion);
         var swingEase = swingT * swingT * (3 - 2 * swingT);
@@ -1110,6 +1138,7 @@ class LizardRenderer {
         leg.stepping = true;
         leg.foot.x += (p.x - leg.foot.x) * 0.88;
         leg.foot.y += (p.y - leg.foot.y) * 0.88;
+        if (swingT > 0.88) leg.plant = {x: leg.foot.x, y: leg.foot.y};
       }
       leg.target.x = leg.foot.x; leg.target.y = leg.foot.y;
       leg.stepT = phase;

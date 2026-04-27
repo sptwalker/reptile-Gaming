@@ -66,4 +66,19 @@ router.post('/batch', wrap((req, res) => {
     result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
 }));
 
+router.get('/reports', wrap((req, res) => {
+    const result = debug.listReports(Number(req.query.limit || 20));
+    ok(res, result.data, result.msg);
+}));
+
+router.get('/reports/latest', wrap((_req, res) => {
+    const result = debug.getLatestReport();
+    result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
+}));
+
+router.get('/reports/:id', wrap((req, res) => {
+    const result = debug.getReport(Number(req.params.id));
+    result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
+}));
+
 module.exports = router;

@@ -23,11 +23,65 @@
         return out;
     }
 
+    function finite(v, fallback) {
+        var n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
+    function lerp(a, b, t) {
+        return a + (b - a) * t;
+    }
+
+    function normalizeAngle(a) {
+        while (a > Math.PI) a -= Math.PI * 2;
+        while (a < -Math.PI) a += Math.PI * 2;
+        return a;
+    }
+
+    function smoothAngle(current, target, amount) {
+        if (!Number.isFinite(Number(current))) return target;
+        if (!Number.isFinite(Number(target))) return current;
+        return normalizeAngle(current + normalizeAngle(target - current) * clamp01(amount));
+    }
+
+    function samplePath(event, t, eased) {
+        var from = event.from;
+        var to = event.to;
+        var dx = to.x - from.x;
+        var dy = to.y - from.y;
+        var x = from.x + dx * eased;
+        var y = from.y + dy * eased;
+        var pathType = event.pathType || event.rootMotionType || '';
+        var actionId = event.actionId || '';
+        var shouldArc = pathType === 'arc' || pathType === 'flank' || actionId === 'shadow_step' || actionId === 'dodge';
+        var shouldRetreat = pathType === 'retreat' || actionId === 'flee';
+        var shouldLunge = pathType === 'lunge' || actionId === 'dragon_rush';
+        if (shouldArc || shouldRetreat || shouldLunge) {
+            var dist = Math.max(1, Math.hypot(dx, dy));
+            var nx = -dy / dist;
+            var ny = dx / dist;
+            var side = event.actor === 'right' ? -1 : 1;
+            var amp = Math.min(80, Math.max(12, dist * 0.22));
+            var curve = Math.sin(Math.PI * t);
+            if (shouldRetreat) amp *= -0.35;
+            if (shouldLunge) amp *= 0.18;
+            x += nx * amp * curve * side;
+            y += ny * amp * curve * side;
+            if (shouldLunge) {
+                var punch = Math.sin(Math.PI * Math.min(1, t * 1.35));
+                x += dx / dist * amp * 0.35 * punch;
+                y += dy / dist * amp * 0.35 * punch;
+            }
+        }
+        return { x: x, y: y, pathType: pathType || (shouldLunge ? 'lunge' : shouldArc ? 'arc' : shouldRetreat ? 'retreat' : 'line') };
+    }
+
     function getPriority(event, contracts) {
         if (typeof event.priority === 'number') return event.priority;
         var contract = contracts && contracts.getActionContract ? contracts.getActionContract(event.actionId) : null;
         return contract && typeof contract.priority === 'number' ? contract.priority : 0;
     }
+
 
     function BattleAnimator(options) {
         options = options || {};
@@ -76,11 +130,25 @@
     BattleAnimator.prototype._syncUnit = function (side, unit) {
         if (!unit) return;
         var visual = this.units[side] || cloneUnit(unit);
+        var hadVisual = !!this.units[side];
         Object.keys(unit).forEach(function (key) {
             if (key !== 'x' && key !== 'y') visual[key] = unit[key];
         });
-        visual.x = unit.x;
-        visual.y = unit.y;
+        var serverX = finite(unit.x, finite(visual.x, 0));
+        var serverY = finite(unit.y, finite(visual.y, 0));
+        visual.serverX = serverX;
+        visual.serverY = serverY;
+        if (!hadVisual || !Number.isFinite(Number(visual.x)) || !Number.isFinite(Number(visual.y))) {
+            visual.x = serverX;
+            visual.y = serverY;
+        } else {
+            var dx = serverX - visual.x;
+            var dy = serverY - visual.y;
+            var dist = Math.hypot(dx, dy);
+            var correction = dist > 160 ? 0.35 : dist > 64 ? 0.18 : 0.08;
+            visual.x = lerp(visual.x, serverX, correction);
+            visual.y = lerp(visual.y, serverY, correction);
+        }
         visual.yOffset = 0;
         this.units[side] = visual;
     };
@@ -89,7 +157,10 @@
         var side = event.actor;
         if (!side || !this.units[side]) return;
         this.motions[side] = event;
-        this._acceptAction(event);
+        var current = this.actions[side];
+        var currentPriority = current ? getPriority(current, this.contracts) : -1;
+        var currentEnded = !current || this.currentFrame >= (current.endFrame || current.frame || 0);
+        if (currentEnded || currentPriority <= 20) this._acceptAction(event);
     };
 
     BattleAnimator.prototype._acceptAction = function (event) {
@@ -99,7 +170,11 @@
         var priority = getPriority(event, this.contracts);
         var currentPriority = current ? getPriority(current, this.contracts) : -1;
         var currentEnded = !current || this.currentFrame >= (current.endFrame || current.frame || 0);
-        if (currentEnded || priority >= currentPriority) {
+        var currentStart = current ? (current.startFrame != null ? current.startFrame : current.frame || 0) : 0;
+        var currentEnd = current ? (current.endFrame != null ? current.endFrame : currentStart + 1) : 0;
+        var currentProgress = current ? clamp01((this.currentFrame - currentStart) / Math.max(1, currentEnd - currentStart)) : 1;
+        var canBlendOut = currentProgress > 0.72 && priority >= currentPriority - 18;
+        if (currentEnded || priority >= currentPriority || canBlendOut) {
             this.actions[side] = event;
         }
     };
@@ -144,9 +219,11 @@
         var dy = event.to.y - event.from.y;
         var speed = Math.max(1, Number(event.speed || 1));
         var bob = Math.min(12, 2 + speed * 0.8) * Math.sin(Math.PI * t);
+        var path = samplePath(event, t, eased);
         return {
-            x: event.from.x + dx * eased,
-            y: event.from.y + dy * eased,
+            x: path.x,
+            y: path.y,
+            pathType: path.pathType,
             yOffset: -bob,
             progress: t,
             easedProgress: eased,
@@ -163,12 +240,44 @@
         var motionSample = this.sampleRootMotion(motion, sampleFrame);
         var action = this.actions[side];
         if (motionSample) {
+            base.x = motionSample.x;
+            base.y = motionSample.y;
+            base.visualX = motionSample.x;
+            base.visualY = motionSample.y;
+            base.serverX = finite(base.serverX, motionSample.x);
+            base.serverY = finite(base.serverY, motionSample.y);
             base.yOffset = motionSample.yOffset;
             base.footPhase = motionSample.footPhase;
             base.motionProgress = motionSample.progress;
             base.velocityX = motionSample.velocityX;
             base.velocityY = motionSample.velocityY;
+            base.motionPathType = motionSample.pathType;
+        } else if (Number.isFinite(Number(base.serverX)) && Number.isFinite(Number(base.serverY))) {
+            var dx = base.serverX - finite(base.x, base.serverX);
+            var dy = base.serverY - finite(base.y, base.serverY);
+            var dist = Math.hypot(dx, dy);
+            var correction = dist > 160 ? 0.3 : dist > 64 ? 0.14 : 0.06;
+            base.x = lerp(finite(base.x, base.serverX), base.serverX, correction);
+            base.y = lerp(finite(base.y, base.serverY), base.serverY, correction);
+            base.visualX = base.x;
+            base.visualY = base.y;
+            base.velocityX = dx * correction;
+            base.velocityY = dy * correction;
         }
+        var moveSpeed = Math.hypot(finite(base.velocityX, 0), finite(base.velocityY, 0));
+        var moveFacing = moveSpeed > 0.001 ? Math.atan2(base.velocityY, base.velocityX) : null;
+        var serverFacing = Number.isFinite(Number(base.facing)) ? Number(base.facing) : null;
+        var previousBody = Number.isFinite(Number(base.bodyFacing)) ? Number(base.bodyFacing) : (serverFacing !== null ? serverFacing : moveFacing);
+        var faceIntent = serverFacing !== null ? serverFacing : moveFacing;
+        var motionBlend = moveSpeed > 0.035 && moveFacing !== null ? Math.min(0.42, Math.max(0.12, moveSpeed * 0.08)) : 0;
+        var bodyTarget = faceIntent !== null && moveFacing !== null
+            ? smoothAngle(faceIntent, moveFacing, motionBlend)
+            : (faceIntent !== null ? faceIntent : moveFacing);
+        var bodyTurn = moveSpeed > 0.001 ? 0.18 : 0.12;
+        base.moveFacing = moveFacing !== null ? moveFacing : previousBody;
+        base.bodyFacing = bodyTarget !== null ? smoothAngle(previousBody, bodyTarget, bodyTurn) : previousBody;
+        base.lookFacing = serverFacing !== null ? smoothAngle(Number.isFinite(Number(base.lookFacing)) ? base.lookFacing : base.bodyFacing, serverFacing, 0.42) : base.bodyFacing;
+        base.facing = Number.isFinite(Number(base.lookFacing)) ? base.lookFacing : base.facing;
         if (action) {
             base.actionId = action.actionId;
             base.pose = action.pose;

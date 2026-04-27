@@ -190,14 +190,30 @@ module.exports = {
     BATTLE_RAGE_START_FRAME: 1800,
 
     /* ── 恐惧系统 ── */
-    /** 每次被击中恐惧值+8 */
-    BATTLE_FEAR_PER_HIT: 8,
+    /** 每次被击中恐惧值+4：降低普通命中带来的恐惧堆叠 */
+    BATTLE_FEAR_PER_HIT: 4,
     /** 恐惧阈值（达到则逃跑判负） */
     BATTLE_FEAR_ESCAPE: 100,
-    /** 恐惧自然衰减（每秒） */
-    BATTLE_FEAR_DECAY: 0.2,
-    /** 技能造成额外恐惧 */
-    BATTLE_FEAR_SKILL: 20,
+    /** 恐惧自然衰减（每秒）：让恐惧更快脱离主导状态 */
+    BATTLE_FEAR_DECAY: 0.85,
+    /** 恐惧类技能造成额外恐惧 */
+    BATTLE_FEAR_SKILL: 12,
+    /** 连续受击恐惧统计窗口（帧）：窗口内恐惧增长受上限约束 */
+    BATTLE_FEAR_HIT_WINDOW_FRAMES: 90,
+    /** 连续受击窗口内最高恐惧增长：避免被连打后恐惧瞬间滚雪球 */
+    BATTLE_FEAR_HIT_WINDOW_CAP: 14,
+    /** 攻击命中后自身恐惧快速下降 */
+    BATTLE_FEAR_ATTACK_SUCCESS_RELIEF: 6,
+    /** 防御格挡成功后自身恐惧快速下降 */
+    BATTLE_FEAR_BLOCK_SUCCESS_RELIEF: 14,
+    /** 反击窗口成功触发后额外降恐惧 */
+    BATTLE_FEAR_COUNTER_RELIEF: 8,
+    /** 同一策略连续帧阈值：超过后降低重复策略评分 */
+    BATTLE_STRATEGY_REPEAT_LIMIT: 75,
+    /** 同一策略重复评分惩罚 */
+    BATTLE_STRATEGY_REPEAT_SCORE_PENALTY: 18,
+    /** AI 少量探索概率：避免长时间锁死单一策略 */
+    BATTLE_AI_EXPLORE_CHANCE: 0.12,
 
     /* ── 体力惩罚 ── */
     /** 体力耗尽时伤害惩罚系数 */
@@ -356,12 +372,12 @@ module.exports = {
 
     /* ── 技能战斗效果 ── */
     BATTLE_SKILL_EFFECTS: {
-        quick_snap:   { dmg_multi: 0.78, fear: 2,  cooldown: 24,  staminaCost: 2, type: 'melee',  intent: 'harass', tags: ['fast', 'starter'] },
-        bite:         { dmg_multi: 1.2,  fear: 5,  cooldown: 42,  staminaCost: 3, type: 'melee',  intent: 'attack', tags: ['core'] },
-        combo_bite:   { dmg_multi: 1.45, fear: 7,  cooldown: 72,  staminaCost: 5, type: 'melee',  intent: 'pressure', hits: 2, tags: ['combo'] },
-        heavy_bite:   { dmg_multi: 1.85, fear: 14, cooldown: 105, staminaCost: 7, type: 'melee',  intent: 'execute', tags: ['heavy'] },
-        scratch:      { dmg_multi: 1.0,  fear: 3,  cooldown: 60,  staminaCost: 3, type: 'melee',  intent: 'harass' },
-        tail_whip:    { dmg_multi: 0.8,  fear: 10, cooldown: 75,  staminaCost: 4, type: 'melee',  intent: 'control' },
+        quick_snap:   { dmg_multi: 0.78, fear: 1,  cooldown: 24,  staminaCost: 2, type: 'melee',  intent: 'harass', tags: ['fast', 'starter'] },
+        bite:         { dmg_multi: 1.2,  fear: 3,  cooldown: 42,  staminaCost: 3, type: 'melee',  intent: 'attack', tags: ['core'] },
+        combo_bite:   { dmg_multi: 1.45, fear: 4,  cooldown: 72,  staminaCost: 5, type: 'melee',  intent: 'pressure', hits: 2, tags: ['combo'] },
+        heavy_bite:   { dmg_multi: 1.85, fear: 8,  cooldown: 105, staminaCost: 7, type: 'melee',  intent: 'execute', tags: ['heavy'] },
+        scratch:      { dmg_multi: 1.0,  fear: 2,  cooldown: 60,  staminaCost: 3, type: 'melee',  intent: 'harass' },
+        tail_whip:    { dmg_multi: 0.8,  fear: 6,  cooldown: 75,  staminaCost: 4, type: 'melee',  intent: 'control' },
         guard:        { dmg_multi: 0,    fear: 0,  cooldown: 36,  staminaCost: 2, type: 'defense', effect: 'guard', value: 0.45, duration: 30, counter: 0.2, intent: 'defend' },
         brace:        { dmg_multi: 0,    fear: 0,  cooldown: 60,  staminaCost: 3, type: 'defense', effect: 'brace', value: 0.65, duration: 38, counter: 0.12, intent: 'defend' },
         dodge:        { dmg_multi: 0,    fear: 0,  cooldown: 42,  staminaCost: 3, type: 'reaction', effect: 'dodge_up', value: 0.35, duration: 18, intent: 'evade' },
@@ -369,19 +385,19 @@ module.exports = {
         flank_step:   { dmg_multi: 0,    fear: 0,  cooldown: 30,  staminaCost: 2, type: 'movement', effect: 'flank', value: 36, duration: 22, intent: 'ambush' },
         listen_alert: { dmg_multi: 0,    fear: 0,  cooldown: 12,  staminaCost: 0, type: 'perception', effect: 'listen', value: 1, duration: 24, intent: 'observe' },
         search_sound: { dmg_multi: 0,    fear: 0,  cooldown: 18,  staminaCost: 1, type: 'perception', effect: 'search', value: 1, duration: 36, intent: 'observe' },
-        fake_sound:   { dmg_multi: 0,    fear: 8,  cooldown: 96,  staminaCost: 3, type: 'trick', effect: 'fake_sound', duration: 30, intent: 'bait', sound: { fakeSound: true, fakeVolume: 40 } },
+        fake_sound:   { dmg_multi: 0,    fear: 5,  cooldown: 96,  staminaCost: 3, type: 'trick', effect: 'fake_sound', duration: 30, intent: 'bait', sound: { fakeSound: true, fakeVolume: 40 } },
         tail_decoy:   { dmg_multi: 0,    fear: 0,  cooldown: 120, staminaCost: 4, type: 'trick', effect: 'tail_decoy', value: 0.25, duration: 60, intent: 'bait' },
         camouflage:   { dmg_multi: 0,    fear: 0,  cooldown: 150, staminaCost: 4, type: 'buff', effect: 'dodge_up', value: 0.3, duration: 90, intent: 'bait', sound: { selfVolumeMult: 0.45 } },
-        venom_spit:   { dmg_multi: 1.5,  fear: 15, cooldown: 120, staminaCost: 5, type: 'ranged', intent: 'kite' },
+        venom_spit:   { dmg_multi: 1.5,  fear: 9,  cooldown: 120, staminaCost: 5, type: 'ranged', intent: 'kite' },
         iron_hide:    { dmg_multi: 0,    fear: 0,  cooldown: 180, staminaCost: 4, type: 'buff', effect: 'def_up', value: 0.5, duration: 90, intent: 'defend' },
-        dragon_rush:  { dmg_multi: 2.0,  fear: 20, cooldown: 180, staminaCost: 8, type: 'melee', intent: 'rush', sound: { selfVolumeMult: 1.65 } },
+        dragon_rush:  { dmg_multi: 2.0,  fear: 12, cooldown: 180, staminaCost: 8, type: 'melee', intent: 'rush', sound: { selfVolumeMult: 1.65 } },
         regen:        { dmg_multi: 0,    fear: 0,  cooldown: 200, staminaCost: 4, type: 'heal', value: 0.15, intent: 'recover' },
-        predator_eye: { dmg_multi: 0,    fear: 12, cooldown: 150, staminaCost: 3, type: 'buff', effect: 'crit_up', value: 0.2, duration: 120, intent: 'execute', sound: { hearingMult: 1.35 } },
+        predator_eye: { dmg_multi: 0,    fear: 7,  cooldown: 150, staminaCost: 3, type: 'buff', effect: 'crit_up', value: 0.2, duration: 120, intent: 'execute', sound: { hearingMult: 1.35 } },
         crystal_armor:{ dmg_multi: 0,    fear: 0,  cooldown: 240, staminaCost: 5, type: 'buff', effect: 'def_up', value: 0.8, duration: 60, intent: 'defend', sound: { selfVolumeMult: 1.2 } },
-        shadow_step:  { dmg_multi: 1.3,  fear: 18, cooldown: 150, staminaCost: 5, type: 'melee', effect: 'dodge_up', value: 0.5, duration: 30, intent: 'ambush', sound: { selfVolumeMult: 0.35, fakeSound: true } },
-        flame_breath: { dmg_multi: 2.5,  fear: 25, cooldown: 240, staminaCost: 8, type: 'ranged', intent: 'pressure' },
-        gale_slash:   { dmg_multi: 1.8,  fear: 15, cooldown: 150, staminaCost: 6, type: 'ranged', intent: 'kite' },
-        primal_roar:  { dmg_multi: 0,    fear: 40, cooldown: 300, staminaCost: 5, type: 'fear_skill', intent: 'fear', sound: { fakeSound: true, fakeVolume: 42 } },
+        shadow_step:  { dmg_multi: 1.3,  fear: 10, cooldown: 150, staminaCost: 5, type: 'melee', effect: 'dodge_up', value: 0.5, duration: 30, intent: 'ambush', sound: { selfVolumeMult: 0.35, fakeSound: true } },
+        flame_breath: { dmg_multi: 2.5,  fear: 14, cooldown: 240, staminaCost: 8, type: 'ranged', intent: 'pressure' },
+        gale_slash:   { dmg_multi: 1.8,  fear: 9,  cooldown: 150, staminaCost: 6, type: 'ranged', intent: 'kite' },
+        primal_roar:  { dmg_multi: 0,    fear: 24, cooldown: 300, staminaCost: 5, type: 'fear_skill', intent: 'fear', sound: { fakeSound: true, fakeVolume: 42 } },
     },
 
     /* ── 宠物售卖 (P7) ── */

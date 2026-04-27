@@ -483,6 +483,32 @@ function _migrate() {
         );
     `);
 
+    /* 调试战斗报告表：保存 battle-debug 测试过程与分析摘要 */
+    _db.exec(`
+        CREATE TABLE IF NOT EXISTS battle_debug_report (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id          TEXT    NOT NULL DEFAULT '',
+            pet1_id             INTEGER NOT NULL DEFAULT 0,
+            pet2_id             INTEGER NOT NULL DEFAULT 0,
+            map_id              TEXT    NOT NULL DEFAULT '',
+            left_personality    TEXT    NOT NULL DEFAULT '',
+            right_personality   TEXT    NOT NULL DEFAULT '',
+            status              TEXT    NOT NULL DEFAULT '',
+            winner              TEXT    NOT NULL DEFAULT '',
+            reason              TEXT    NOT NULL DEFAULT '',
+            frame_count         INTEGER NOT NULL DEFAULT 0,
+            event_count         INTEGER NOT NULL DEFAULT 0,
+            summary             TEXT    NOT NULL DEFAULT '',
+            analysis            TEXT    NOT NULL DEFAULT '',
+            frames              TEXT    NOT NULL DEFAULT '',
+            created_at          INTEGER NOT NULL DEFAULT 0,
+            finished_at         INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_debug_report_session ON battle_debug_report(session_id);
+        CREATE INDEX IF NOT EXISTS idx_debug_report_time ON battle_debug_report(finished_at, created_at);
+        CREATE INDEX IF NOT EXISTS idx_debug_report_pair ON battle_debug_report(pet1_id, pet2_id);
+    `);
+
     /* ═══ 性能优化：补充缺失索引 ═══ */
     _db.exec(`
         /* 竞技场：按状态查询对手 */

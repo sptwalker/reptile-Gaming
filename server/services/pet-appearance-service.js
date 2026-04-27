@@ -32,7 +32,6 @@ function buildAppearance(pet, attr) {
     const attrTotals = sumAttrTotals(attr);
     const rb = rules.RENDER_BASE;
     const stage = Number(pet.stage || 0);
-    const stageMul = 1 + stage * 0.1;
     const evolveSpineBonus = Number.isFinite(Number(bodySeed.evolveSpineBonus)) ? Number(bodySeed.evolveSpineBonus) : stage * 2;
     const legGapByStage = { 0: 1.35, 1: 1.25, 2: 1.12, 3: 1.0, 4: 1.0 };
     if (Number.isFinite(Number(bodySeed.lightness))) {
@@ -40,20 +39,21 @@ function buildAppearance(pet, attr) {
     }
     return {
         body_seed: bodySeed,
+        hidden_gene: pet.hidden_gene || bodySeed.hiddenGene || '',
         render_params: {
-            bodyWidth: +(rb.bodyWidth * (1 + attrTotals.str * 0.01) * stageMul).toFixed(3),
-            headScale: +(rb.headScale * (1 + attrTotals.str * 0.008) * stageMul).toFixed(3),
+            bodyWidth: Number.isFinite(Number(bodySeed.bodyWidth)) ? Number(bodySeed.bodyWidth) : rb.bodyWidth,
+            headScale: Number.isFinite(Number(bodySeed.headScale)) ? Number(bodySeed.headScale) : rb.headScale,
             moveSpeed: +(rb.moveSpeed * (1 + attrTotals.agi * 0.015)).toFixed(3),
             legFrequency: +(rb.legFrequency * (1 + attrTotals.agi * 0.02)).toFixed(3),
-            spineNodes: rb.spineNodes + Math.floor(attrTotals.vit / 10) + evolveSpineBonus,
-            segmentWidth: +(rb.segmentWidth * (1 + attrTotals.vit * 0.005) * stageMul).toFixed(3),
+            spineNodes: Number.isFinite(Number(bodySeed.spineNodes)) ? Math.round(Number(bodySeed.spineNodes)) : rb.spineNodes,
+            segmentWidth: Number.isFinite(Number(bodySeed.segmentWidth)) ? Number(bodySeed.segmentWidth) : rb.segmentWidth,
             fovAngle: +(rb.fovAngle * (1 + attrTotals.int * 0.01)).toFixed(3),
             fovDistance: +(rb.fovDistance * (1 + attrTotals.per * 0.02)).toFixed(3),
             colorSaturation: +(rb.colorSaturation * (1 + attrTotals.cha * 0.01) * (1 + stage * 0.05)).toFixed(3),
             patternComplexity: rb.patternComplexity + Math.floor(attrTotals.cha / 8) + stage,
             legGapRatio: Number.isFinite(Number(bodySeed.legGapRatio)) ? Number(bodySeed.legGapRatio) : (legGapByStage[stage] || 1.0),
-            spineCount: Number.isFinite(Number(bodySeed.spineCount)) ? Number(bodySeed.spineCount) : 0,
-            spineLength: Number.isFinite(Number(bodySeed.spineLength)) ? Number(bodySeed.spineLength) : 1,
+            spineCount: Number.isFinite(Number(bodySeed.spineCount)) ? Number(bodySeed.spineCount) : Math.max(0, Math.round(evolveSpineBonus)),
+            spineLength: Number.isFinite(Number(bodySeed.spineLength)) ? Number(bodySeed.spineLength) : +(0.75 + stage * 0.08).toFixed(2),
             patternType: bodySeed.patternType || 'spots',
             patternColor: bodySeed.patternColor || null,
             limbThickness: Number.isFinite(Number(bodySeed.limbThickness)) ? Number(bodySeed.limbThickness) : 1

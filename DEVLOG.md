@@ -1,5 +1,15 @@
 # Reptile Gaming - 蜥蜴模拟器 开发文档
 
+## 2026-04-28 - P12 战斗机制与动画表现优化
+
+- 修改 `server/services/battle-engine.js` 与 `server/models/game-rules.js`，补齐虚拟基础防御技能 `guard` / `brace`，让 `defend` 策略真正进入防御动作而非仅作为 AI 意图。
+- 新增连续受击恐惧窗口上限与成功行动降恐惧：普通命中、恐惧技能、格挡和反击统一通过恐惧工具函数结算，避免恐惧过快滚雪球。
+- 增强 AI 策略多样性：记录 `strategyRepeatCount`，对长期重复策略降权，并加入少量探索行为，使压制、防御、绕后和短反击之间更容易切换。
+- 修改 `client/js/battle-animator.js`，优化动作接管规则：高优先级防御/攻击动作后段允许平滑接续，移动动作不再无条件覆盖当前动作。
+- 修改 `client/js/lizard-battle-adapter.js` 与 `client/js/lizard-renderer.js`，拆分 `bodyFacing`、`lookFacing`、`moveFacing`，让身体朝向、视线朝向和移动方向分层表现。
+- `LizardRenderer` 现在消费外部动作状态，根据 `guard` / `brace` / 攻击姿态调整头部朝向、身体基准角和移动节奏，减少防御后长时间僵直观感。
+- 验证：`node -c` 通过 `server/services/battle-engine.js`、`server/models/game-rules.js`、`client/js/battle-animator.js`、`client/js/lizard-battle-adapter.js`、`client/js/lizard-renderer.js`；批量战斗测试已产生稳定 `blocks` / `blockedDamage` / `counters` 统计。
+
 ## 2026-04-28 - P11 完善 battle-debug 验证面板
 
 - 修改 `server/services/battle-debug-service.js`，批量测试报告补齐 `targetPartsAvg`、`targetTacticsAvg`、`infoAvg` 与 `opponentModelAvg`，覆盖部位战术、信息博弈和对手建模统计。

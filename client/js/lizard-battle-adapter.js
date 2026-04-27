@@ -65,6 +65,39 @@
         };
     }
 
+    function skillDisplayName(code) {
+        var names = {
+            quick_snap: '快速咬击', bite: '撕咬', combo_bite: '连击撕咬', heavy_bite: '重咬', guard: '防御架势', brace: '稳固防御',
+            retreat_step: '后撤步', flank_step: '绕后步', fake_sound: '假声诱导', tail_decoy: '断尾诱饵', listen_alert: '警觉聆听', search_sound: '声音搜索',
+            scratch: '利爪抓击', tail_whip: '尾鞭横扫', camouflage: '伪装潜伏', venom_spit: '毒液喷吐', iron_hide: '铁皮硬化',
+            dragon_rush: '龙形冲撞', regen: '再生恢复', predator_eye: '掠食者凝视', crystal_armor: '晶甲护体', shadow_step: '影步突袭',
+            flame_breath: '火焰吐息', gale_slash: '疾风斩', primal_roar: '原初咆哮', heal: '治疗'
+        };
+        return names[code] || code || '';
+    }
+
+    function shouldShowSkillName(code) {
+        if (!code) return false;
+        return !({ move: 1, fast_move: 1, flee: 1, dodge: 1, free_roam: 1, idle: 1 }[code]);
+    }
+
+    function drawRoundRect(ctx, x, y, w, h, r) {
+        if (ctx.roundRect) {
+            ctx.roundRect(x, y, w, h, r);
+            return;
+        }
+        var rr = Math.min(r, w / 2, h / 2);
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+        ctx.lineTo(x + rr, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+        ctx.lineTo(x, y + rr);
+        ctx.quadraticCurveTo(x, y, x + rr, y);
+    }
+
     function makePreviewUnit(side, frame, slot, map) {
         var m = resolveMap(map);
         var t = frame / 60 + (side === 'left' ? 0 : Math.PI);
@@ -171,7 +204,8 @@
         var params = app.render_params || app.renderParams || null;
         var seed = app.body_seed || app.bodySeed || null;
         if (r.applyRenderParams) r.applyRenderParams(params, seed);
-        if (r.applyHiddenGene && app.hidden_gene) r.applyHiddenGene(app.hidden_gene);
+        var hiddenGene = app.hidden_gene || app.hiddenGene || '';
+        if (r.applyHiddenGene && hiddenGene) r.applyHiddenGene(hiddenGene);
         this._seedPose(side, side === 'left' ? 1 : -1);
     };
 
@@ -211,11 +245,12 @@
         if (pose === 'run' || actionId === 'fast_move' || actionId === 'flee' || pose === 'rush' || actionId === 'dragon_rush' || actionId === 'shadow_step') profile.speedScale = 1.7;
         else if (pose === 'dodge' || actionId === 'dodge') profile.speedScale = 1.45;
         else if (pose === 'dead' || actionId === 'dead') profile.speedScale = 0.2;
+        else if (pose === 'guard' || actionId === 'guard' || pose === 'brace' || actionId === 'brace') profile.speedScale = 0.8;
         else if (motion && motion.speed > 8) profile.speedScale = 1.25;
         if (pose === 'bite' || actionId === 'bite' || pose === 'claw' || actionId === 'scratch' || pose === 'tail_swing' || actionId === 'tail_whip' || pose === 'rush' || actionId === 'dragon_rush') profile.effectType = 'melee';
         else if (pose === 'spit' || actionId === 'venom_spit' || pose === 'breath' || actionId === 'flame_breath' || actionId === 'gale_slash') profile.effectType = 'ranged';
         else if (pose === 'heal' || actionId === 'regen' || actionId === 'heal') profile.effectType = 'heal';
-        else if (pose === 'buff' || pose === 'camouflage' || pose === 'brace' || pose === 'focus' || actionId === 'predator_eye' || actionId === 'iron_hide' || actionId === 'camouflage' || actionId === 'buff') profile.effectType = actionId === 'predator_eye' ? 'fear_skill' : 'buff';
+        else if (pose === 'guard' || actionId === 'guard' || pose === 'brace' || actionId === 'brace' || pose === 'buff' || pose === 'camouflage' || pose === 'focus' || actionId === 'predator_eye' || actionId === 'iron_hide' || actionId === 'camouflage' || actionId === 'buff') profile.effectType = actionId === 'predator_eye' ? 'fear_skill' : 'buff';
         return profile;
     };
 
@@ -259,30 +294,37 @@
         var motion = this._motionSample(side, unit, map);
         var profile = this._actionProfile(unit, motion);
         var facing = Number.isFinite(Number(unit.facing)) ? Number(unit.facing) : null;
+        var bodyFacing = Number.isFinite(Number(unit.bodyFacing)) ? Number(unit.bodyFacing) : facing;
+        var lookFacing = Number.isFinite(Number(unit.lookFacing)) ? Number(unit.lookFacing) : facing;
+        var moveFacing = Number.isFinite(Number(unit.moveFacing)) ? Number(unit.moveFacing) : bodyFacing;
         var current = r.getHeadAnchor ? r.getHeadAnchor() : null;
         var dxCanvas = current ? p.x - current.x : 0;
         var dyCanvas = current ? p.y - current.y : 0;
         var distCanvas = Math.hypot(dxCanvas, dyCanvas);
         var maxSpeed = Math.max(1, Number(r.MAX_SPEED) || 1);
-        var speedScale = Math.max(profile.speedScale || 1, Math.min(1.25, 0.75 + distCanvas / Math.max(1, maxSpeed * 9)));
+        var speedScale = Math.max(profile.speedScale || 1, Math.min(1.35, 0.75 + distCanvas / Math.max(1, maxSpeed * 9)));
+        if (distCanvas > maxSpeed * 12) speedScale = Math.max(speedScale, 1.55);
+        if (distCanvas > maxSpeed * 20) speedScale = Math.max(speedScale, 2.1);
         if (unit.motionProgress != null) speedScale = Math.max(speedScale, 1.05);
-        if (distCanvas > maxSpeed * 20 && r.spine && r.spine.length) {
+        if (distCanvas > maxSpeed * 56 && r.spine && r.spine.length) {
             for (var i = 0; i < r.spine.length; i++) {
-                r.spine[i].x += dxCanvas;
-                r.spine[i].y += dyCanvas;
+                r.spine[i].x += dxCanvas * 0.72;
+                r.spine[i].y += dyCanvas * 0.72;
             }
             r.prevHeadX = r.spine[0].x;
             r.prevHeadY = r.spine[0].y;
             if (r._initLegs) r._initLegs();
-            speedScale = profile.speedScale || 1;
+            speedScale = Math.max(profile.speedScale || 1, 1.35);
         }
         if (r.setExternalMoveTarget) {
             r.setExternalMoveTarget({
                 x: p.x,
                 y: p.y,
-                facing: facing,
+                facing: lookFacing,
+                bodyFacing: bodyFacing,
+                moveFacing: moveFacing,
                 speedScale: speedScale,
-                action: { id: profile.actionId, pose: profile.pose, progress: profile.progress }
+                action: { id: profile.actionId, pose: profile.pose, progress: profile.progress, type: profile.type }
             });
         }
         this._syncActionEffect(r, profile, unit);
@@ -327,9 +369,26 @@
         ctx.font = '12px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText((unit.st || side) + ' HP ' + Math.round(unit.hp || 0), p.x, p.y - 130);
-        if (unit.actionId) {
-            ctx.fillStyle = '#58a6ff';
-            ctx.fillText(unit.actionId + ' ' + Math.round((unit.actionProgress || 0) * 100) + '%', p.x, p.y - 144);
+        if (shouldShowSkillName(unit.actionId)) {
+            var label = skillDisplayName(unit.actionId);
+            var progress = Math.round((unit.actionProgress || 0) * 100);
+            var y = p.y - 154;
+            ctx.font = 'bold 15px sans-serif';
+            var text = label + ' ' + progress + '%';
+            var textW = ctx.measureText(text).width;
+            var padX = 10;
+            ctx.fillStyle = side === 'left' ? 'rgba(22, 101, 52, 0.82)' : 'rgba(127, 29, 29, 0.82)';
+            ctx.strokeStyle = side === 'left' ? 'rgba(126, 231, 135, 0.9)' : 'rgba(248, 113, 113, 0.9)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            drawRoundRect(ctx, p.x - textW / 2 - padX, y - 17, textW + padX * 2, 24, 8);
+            ctx.fill();
+            ctx.stroke();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.strokeText(text, p.x, y);
+            ctx.fillStyle = '#fff7cc';
+            ctx.fillText(text, p.x, y);
         }
         ctx.restore();
     };

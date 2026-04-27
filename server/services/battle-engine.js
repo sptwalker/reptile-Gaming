@@ -115,6 +115,34 @@ function _defenseState(unit, frame) {
     };
 }
 
+function _addFear(unit, amount, frame, windowed = true) {
+    const gain = Math.max(0, Number(amount || 0));
+    if (!unit || gain <= 0) return 0;
+    if (!windowed) {
+        unit.fear += gain;
+        return gain;
+    }
+    const windowFrames = Math.max(1, rules.BATTLE_FEAR_HIT_WINDOW_FRAMES || rules.BATTLE_FPS * 3);
+    const cap = Math.max(1, rules.BATTLE_FEAR_HIT_WINDOW_CAP || 14);
+    if (!Number.isFinite(unit.fearWindowFrame) || frame - unit.fearWindowFrame > windowFrames) {
+        unit.fearWindowFrame = frame;
+        unit.fearWindowGain = 0;
+    }
+    const room = Math.max(0, cap - Number(unit.fearWindowGain || 0));
+    const applied = Math.min(gain, room);
+    unit.fearWindowGain = Number(unit.fearWindowGain || 0) + applied;
+    unit.fear += applied;
+    return applied;
+}
+
+function _reduceFear(unit, amount) {
+    const relief = Math.max(0, Number(amount || 0));
+    if (!unit || relief <= 0) return 0;
+    const before = Number(unit.fear || 0);
+    unit.fear = Math.max(0, before - relief);
+    return before - unit.fear;
+}
+
 function _actionContract(code) {
     return getActionContract(code);
 }
@@ -221,6 +249,8 @@ function _observeOpponentAction(observer, decision) {
 function _strategyDecision(unit, decision, intent, reason, frame) {
     const normalized = STRATEGY_INTENTS.includes(intent) ? intent : 'pressure';
     const changed = unit.strategyIntent !== normalized || unit.strategyReason !== reason;
+    if (unit.strategyIntent === normalized) unit.strategyRepeatCount = (unit.strategyRepeatCount || 0) + 1;
+    else unit.strategyRepeatCount = 0;
     unit.strategyIntent = normalized;
     unit.strategyReason = reason || normalized;
     unit.strategyFrame = frame;
@@ -246,7 +276,8 @@ function _skillStrategyIntent(effect) {
 
 function _decisionForSkill(unit, skill, frame, fallbackIntent = 'pressure', reason = 'skill_score') {
     const effect = skill && rules.BATTLE_SKILL_EFFECTS[skill.code];
-    return _strategyDecision(unit, { action: 'skill', skill }, effect ? _skillStrategyIntent(effect) : fallbackIntent, `${reason}:${skill && skill.code || 'unknown'}`, frame);
+    const intent = effect && fallbackIntent === 'pressure' ? _skillStrategyIntent(effect) : fallbackIntent;
+    return _strategyDecision(unit, { action: 'skill', skill }, effect ? intent : fallbackIntent, `${reason}:${skill && skill.code || 'unknown'}`, frame);
 }
 
 function _skillScore(unit, opponent, effect, dist, hpRatio, code) {
@@ -285,6 +316,10 @@ function _skillScore(unit, opponent, effect, dist, hpRatio, code) {
 
     const cost = _actionStaminaCost(code, effect);
     if (cost > 0 && staminaRatio < 0.3 && cost > rules.BATTLE_STA_LOW_ACTION_LIMIT) score -= 22 + cost * 2;
+    const strategyIntent = _skillStrategyIntent(effect);
+    if (unit.strategyIntent === strategyIntent && (unit.strategyRepeatCount || 0) > (rules.BATTLE_STRATEGY_REPEAT_LIMIT || 75)) {
+        score -= rules.BATTLE_STRATEGY_REPEAT_SCORE_PENALTY || 18;
+    }
     return score + p.skill * 18 + secureRandomFloat() * 6;
 }
 
@@ -582,6 +617,8 @@ function _battleSkillList(fighter) {
     }
     if (!byCode.has('quick_snap')) byCode.set('quick_snap', { code: 'quick_snap', level: 1, cooldownLeft: 0, virtual: true });
     if (!byCode.has('bite')) byCode.set('bite', { code: 'bite', level: 1, cooldownLeft: 0, virtual: true });
+    if (!byCode.has('guard')) byCode.set('guard', { code: 'guard', level: 1, cooldownLeft: 0, virtual: true });
+    if (!byCode.has('brace')) byCode.set('brace', { code: 'brace', level: 1, cooldownLeft: 0, virtual: true });
     return Array.from(byCode.values());
 }
 
@@ -635,6 +672,7 @@ function _createUnit(fighter, side, map) {
         strategyReason: 'spawn',
         strategyFrame: 0,
         strategyChanged: false,
+        strategyRepeatCount: 0,
         strategyTrace: _emptyStrategyTrace(),
         opponentModel: _emptyOpponentModel(),
         bodyNoiseSize: Math.max(1, (Number(fighter.attr.str_base || 0) + Number(fighter.attr.vit_base || 0)) / 2 + Number(fighter.stage || 0) * 4),
@@ -654,6 +692,8 @@ function _createUnit(fighter, side, map) {
         // 原始六维
         attr: fighter.attr,
         fear: 0,
+        fearWindowFrame: -Infinity,
+        fearWindowGain: 0,
         fleePressure: 0,
         stuckFrames: 0,
         lastMoveX: spawn.x,
@@ -943,9 +983,20 @@ function _aiDecide(unit, opponent, frame, map) {
     }
 
     const readySkill = _pickSkill(unit, opponent, dist);
-    if (readySkill && unit.aiSubState !== 'flanking') return _decisionForSkill(unit, readySkill, frame);
-
     const fallbackSkill = _pickBasicAttack(unit, opponent, dist);
+    const defenseSkill = _pickDefenseSkill(unit);
+    const exploreRoll = secureRandomFloat();
+    if (readySkill && unit.aiSubState !== 'flanking') return _decisionForSkill(unit, readySkill, frame);
+    if (exploreRoll < (rules.BATTLE_AI_EXPLORE_CHANCE || 0.12)) {
+        if (defenseSkill && unit.strategyIntent === 'pressure' && dist <= 145) return _decisionForSkill(unit, defenseSkill, frame, 'defend', 'explore_guard');
+        if (fallbackSkill && unit.strategyIntent === 'defend' && dist <= meleeRange + 28) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'explore_counterpoke');
+        if (p.cunning > 0.45 && dist <= rules.BATTLE_FLANK_MAX_DIST) {
+            const flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
+            unit.flankTarget = flankTarget;
+            unit.aiSubState = 'flanking';
+            return _strategyDecision(unit, { action: 'move', toward: true, targetX: flankTarget.x, targetY: flankTarget.y }, 'ambush', 'explore_flank', frame);
+        }
+    }
 
     switch (unit.aiState) {
         case 'aggressive':
@@ -973,10 +1024,11 @@ function _aiDecide(unit, opponent, frame, map) {
 
         case 'defensive':
             unit.aiSubState = null;
-            if (readySkill && (readySkill.code === 'guard' || readySkill.code === 'brace')) return _decisionForSkill(unit, readySkill, frame, 'defend', 'guard_ready');
+            if (defenseSkill && dist <= 155) return _decisionForSkill(unit, defenseSkill, frame, 'defend', 'guard_ready');
             if (dist < 95 + p.caution * 45) return _strategyDecision(unit, { action: 'move', toward: false }, 'defend', 'retreat_defense', frame);
             if (dist > 105 + p.aggression * 35) return _strategyDecision(unit, { action: 'move', toward: true }, 'pressure', 'reengage_defense', frame);
             if (fallbackSkill && p.risk > 0.28) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'defensive_counterpoke');
+            if (defenseSkill) return _decisionForSkill(unit, defenseSkill, frame, 'defend', 'hold_guard_space');
             return _strategyDecision(unit, { action: 'idle' }, 'defend', 'hold_guard_space', frame);
 
         case 'alert': {
@@ -1003,6 +1055,8 @@ function _aiDecide(unit, opponent, frame, map) {
 
         case 'fear':
             unit.aiSubState = null;
+            if (defenseSkill && dist <= 145 && unit.fear < rules.BATTLE_FEAR_ESCAPE * 1.15) return _decisionForSkill(unit, defenseSkill, frame, 'defend', 'fear_guard');
+            if (fallbackSkill && dist <= meleeRange && p.ferocity + p.risk > 0.95) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'fear_snap_back');
             return _strategyDecision(unit, { action: 'move', toward: false }, 'fear', 'fear_state_escape', frame);
 
         default:
@@ -1044,6 +1098,17 @@ function _pickSkill(unit, opponent, dist) {
         }
     }
     return bestScore >= 55 ? best : null;
+}
+
+function _pickDefenseSkill(unit) {
+    if (!unit.canUseSkills) return null;
+    const preferred = ['brace', 'guard'];
+    for (const code of preferred) {
+        const sk = unit.skills.find(item => item.code === code && item.cooldownLeft <= 0);
+        const effect = rules.BATTLE_SKILL_EFFECTS[code];
+        if (sk && effect && _hasActionStamina(unit, code, effect)) return sk;
+    }
+    return null;
 }
 
 function _pickBasicAttack(unit, opponent, dist) {
@@ -1869,8 +1934,8 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                 events.push({ type: 'buff', src: unit.side, skill: sk.code, effect: effect.effect });
                 events.push(animationMapper.mapSkillAction({ actor: unit, target: unit, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else if (effect.type === 'fear_skill') {
-                opponent.fear += rules.BATTLE_FEAR_SKILL;
-                events.push({ type: 'fear', src: unit.side, tgt: opponent.side, skill: sk.code, fear: rules.BATTLE_FEAR_SKILL });
+                const fearApplied = _addFear(opponent, rules.BATTLE_FEAR_SKILL, frame, true);
+                events.push({ type: 'fear', src: unit.side, tgt: opponent.side, skill: sk.code, fear: fearApplied });
                 events.push(animationMapper.mapSkillAction({ actor: unit, target: opponent, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else {
                 // 攻击型技能
@@ -1889,7 +1954,8 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                     events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, skill: sk.code, part: result.part, attackZone: result.attackZone, flankScore: result.flankScore });
                 } else {
                     events.push(..._applyPartDamage(opponent, targetPart, result.damage));
-                    opponent.fear += effect.fear;
+                    const fearApplied = _addFear(opponent, effect.fear, frame, true);
+                    const attackerRelief = _reduceFear(unit, rules.BATTLE_FEAR_ATTACK_SUCCESS_RELIEF || 0);
                     statTracker.totalDamage += result.damage;
                     statTracker.hits++;
                     if (result.crit) statTracker.crits++;
@@ -1907,18 +1973,21 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                             blockedDamage: result.blockedDamage || 0,
                             dmg: result.damage,
                             part: targetPart,
+                            relief: _reduceFear(opponent, rules.BATTLE_FEAR_BLOCK_SUCCESS_RELIEF || 0),
                         });
                         if (result.countered) {
                             statTracker.counters++;
                             opponent.defenseStats.counters++;
-                            unit.fear += Math.max(1, Math.floor((effect.fear || 0) * 0.5));
+                            const counterFear = _addFear(unit, Math.max(1, Math.floor((effect.fear || 0) * 0.5)), frame, true);
+                            const counterRelief = _reduceFear(opponent, rules.BATTLE_FEAR_COUNTER_RELIEF || 0);
                             events.push({
                                 type: 'counter',
                                 src: opponent.side,
                                 tgt: unit.side,
                                 actionId: result.defenseAction,
                                 against: sk.code,
-                                fear: Math.max(1, Math.floor((effect.fear || 0) * 0.5)),
+                                fear: counterFear,
+                                relief: counterRelief,
                             });
                         }
                     }
@@ -1933,6 +2002,8 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                         blockedDamage: result.blockedDamage || 0,
                         countered: !!result.countered,
                         defenseAction: result.defenseAction || null,
+                        fear: fearApplied,
+                        relief: attackerRelief,
                         crit: result.crit,
                         part: targetPart,
                         targetTactic,
