@@ -216,6 +216,10 @@
 
     function audioKeyForEvent(e) {
         if (!e) return null;
+        if (e.type === 'action_phase') return prefix + sideName(src) + '进入动作阶段：' + skillName(e.actionId) + '，起手/命中/恢复帧 ' + e.startFrame + '/' + e.impactFrame + '/' + e.endFrame + '。';
+        if (e.type === 'strategy_intent') return prefix + sideName(src) + '策略意图切换为' + strategyName(e.intent) + '（' + (e.reason || '-') + '）。';
+        if (e.type === 'guard_block') return prefix + sideName(tgt) + '使用' + skillName(e.defenseAction) + '格挡' + sideName(src) + '，减免 ' + fmt(e.blockedDamage || 0) + ' 点伤害。';
+        if (e.type === 'counter') return prefix + sideName(tgt) + '抓住反制窗口，反制' + sideName(src) + '。';
         if (e.type === 'sound') {
             if (e.soundType === 'footstep') return 'footstep_' + (e.surface || 'grass');
             return e.soundType;
@@ -446,13 +450,21 @@
             return;
         }
         var sec = (state.frame / state.fps).toFixed(1);
+        var left = state.units && state.units.left || {};
+        var right = state.units && state.units.right || {};
+        var ls = state.stats && state.stats.left || {};
+        var rs = state.stats && state.stats.right || {};
         battleMetrics.innerHTML = [
             metric('帧 / 秒', state.frame + ' / ' + sec + 's'),
             metric('地图', state.map),
-            metric('左伤害', state.stats.left.totalDamage),
-            metric('右伤害', state.stats.right.totalDamage),
-            metric('左技能', state.stats.left.skillsUsed),
-            metric('右技能', state.stats.right.skillsUsed)
+            metric('左伤害 / 技能', (ls.totalDamage || 0) + ' / ' + (ls.skillsUsed || 0)),
+            metric('右伤害 / 技能', (rs.totalDamage || 0) + ' / ' + (rs.skillsUsed || 0)),
+            metric('左体力经济', economyText(left.actionEconomy)),
+            metric('右体力经济', economyText(right.actionEconomy)),
+            metric('左防御/反制', (left.defenseStats && left.defenseStats.blocks || 0) + ' / ' + (left.defenseStats && left.defenseStats.counters || 0)),
+            metric('右防御/反制', (right.defenseStats && right.defenseStats.blocks || 0) + ' / ' + (right.defenseStats && right.defenseStats.counters || 0)),
+            metric('左策略', strategyName(left.strategy && left.strategy.intent)),
+            metric('右策略', strategyName(right.strategy && right.strategy.intent))
         ].join('');
     }
 
@@ -483,16 +495,27 @@
 
     function renderUnit(el, unit) {
         if (!unit) { el.innerHTML = '<div class="muted">无数据</div>'; return; }
-        var skills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return s.code + ':' + s.cooldownLeft; }).join(' / ') : '无';
+        var skills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return s.code + ':' + s.cooldownLeft + '/' + s.cooldown + ' STA' + s.staminaCost + (s.ready ? '✓' : '×'); }).join(' / ') : '无';
+        var active = unit.activeAction;
         var html = '';
         html += line('HP', fmt(unit.hp) + ' / ' + fmt(unit.maxHp));
         html += '<div class="bar"><i style="width:' + pct(unit.hp, unit.maxHp) + '%"></i></div>';
-        html += line('恐惧 / 体力', fmt(unit.fear) + ' / ' + fmt(unit.sta));
+        html += line('恐惧 / 体力', fmt(unit.fear) + ' / ' + fmt(unit.sta) + ' / ' + fmt(unit.maxSta || 0));
+        html += line('动作阶段', active ? (skillName(active.actionId) + ' · ' + active.phase + ' · ' + active.startFrame + '-' + active.endFrame) : '空闲');
+        if (active) html += line('护甲 / 反制窗', fmt(active.armor || 0) + ' / ' + (active.counterWindow ? active.counterWindow.start + '-' + active.counterWindow.end : '-'));
+        html += line('体力经济', economyText(unit.actionEconomy));
+        html += line('防御统计', '格挡' + (unit.defenseStats && unit.defenseStats.blocks || 0) + ' / 减伤' + fmt(unit.defenseStats && unit.defenseStats.blockedDamage || 0) + ' / 反制' + (unit.defenseStats && unit.defenseStats.counters || 0));
+        html += line('策略意图', strategyName(unit.strategy && unit.strategy.intent) + ' / ' + (unit.strategy && unit.strategy.reason || '-'));
+        html += line('策略分布', traceText(unit.strategyTrace));
+        html += line('对手模型', modelText(unit.opponentModel));
+        html += line('对手意图', traceText(unit.opponentModel && unit.opponentModel.intentTrace));
+        html += line('信息统计', keyedText(unit.infoStats));
         html += line('AI / 子状态', unit.st + ' / ' + (unit.aiSubState || '-'));
         html += line('朝向 / 角速', fmt(unit.facing) + ' / ' + fmt(unit.angularVelocity || 0));
         if (unit.flankTarget) html += line('绕后目标', 'x=' + unit.flankTarget.x + ' y=' + unit.flankTarget.y);
         if (unit.protectTarget) html += line('保护目标', 'x=' + unit.protectTarget.x + ' y=' + unit.protectTarget.y);
         if (unit.weakExposure) html += line('弱点暴露', unit.weakExposure.part + ' ' + fmt(unit.weakExposure.exposure) + ' / HP ' + fmt(unit.weakExposure.hpRatio));
+        if (unit.lastTargetTactic) html += line('最近部位战术', tacticName(unit.lastTargetTactic));
         if (unit.personality) html += line('战斗性格', (unit.personality.name || unit.personality.code) + ' / ' + (unit.personality.code || 'custom'));
         html += line('攻 / 防 / 速', fmt(unit.atk) + ' / ' + fmt(unit.def) + ' / ' + fmt(unit.effectiveSpd));
         html += line('视野 / 转头', fmt(unit.vision) + ' / ' + fmt(unit.headTurn));
@@ -522,7 +545,9 @@
 
     function skillName(code) {
         var names = {
-            bite: '撕咬', move: '移动', fast_move: '快速突进', flee: '撤退', dodge: '闪避',
+            quick_snap: '快速咬击', bite: '撕咬', combo_bite: '连击撕咬', heavy_bite: '重咬', guard: '防御架势', brace: '稳固防御',
+            retreat_step: '后撤步', flank_step: '绕后步', fake_sound: '假声诱导', tail_decoy: '断尾诱饵', listen_alert: '警觉聆听', search_sound: '声音搜索',
+            move: '移动', fast_move: '快速突进', flee: '撤退', dodge: '闪避',
             scratch: '利爪抓击', tail_whip: '尾鞭横扫', camouflage: '伪装潜伏', venom_spit: '毒液喷吐',
             iron_hide: '铁皮硬化', dragon_rush: '龙形冲撞', regen: '再生恢复', predator_eye: '掠食者凝视',
             flame_breath: '火焰吐息', gale_slash: '疾风斩', shadow_step: '影步', heal: '治疗'
@@ -552,6 +577,10 @@
         var src = e.src || e.actor || '';
         var tgt = e.tgt || e.target || '';
         var prefix = '[' + frame + '] ';
+        if (e.type === 'action_phase') return prefix + sideName(src) + '进入动作阶段：' + skillName(e.actionId) + '，起手/命中/恢复帧 ' + e.startFrame + '/' + e.impactFrame + '/' + e.endFrame + '。';
+        if (e.type === 'strategy_intent') return prefix + sideName(src) + '策略意图切换为' + strategyName(e.intent) + '（' + (e.reason || '-') + '）。';
+        if (e.type === 'guard_block') return prefix + sideName(tgt) + '使用' + skillName(e.defenseAction) + '格挡' + sideName(src) + '，减免 ' + fmt(e.blockedDamage || 0) + ' 点伤害。';
+        if (e.type === 'counter') return prefix + sideName(tgt) + '抓住反制窗口，反制' + sideName(src) + '。';
         if (e.type === 'sound') {
             return prefix + sideName(e.realSource || src) + (e.fake ? '制造' : '发出') + soundName(e.soundType) + '，音量 ' + fmt(e.volume || 0) + '，传播半径 ' + fmt(e.radius || 0) + (e.fake ? '，试图误导对手。' : '。');
         }
@@ -567,13 +596,13 @@
             var action = skillName(e.actionId);
             if (result.dodged) return prefix + sideName(src) + '发动' + action + '，但' + sideName(tgt) + (result.decoy ? '用断尾诱饵骗过攻击。' : '成功闪避。');
             if (!result.hit) return prefix + sideName(src) + '尝试' + action + '，没有造成有效伤害。';
-            return prefix + sideName(src) + '发动' + action + '，' + (result.crit ? '暴击' : '命中') + sideName(tgt) + '的' + partName(result.part || e.targetPart) + '，造成 ' + fmt(result.damage || 0) + ' 点伤害' + (result.attackZone ? '（' + zoneName(result.attackZone) + '攻击）' : '') + '。';
+            return prefix + sideName(src) + '发动' + action + '，' + (result.crit ? '暴击' : '命中') + sideName(tgt) + '的' + partName(result.part || e.targetPart) + '，造成 ' + fmt(result.damage || 0) + ' 点伤害' + (result.blocked ? '（格挡减免' + fmt(result.blockedDamage || 0) + '）' : '') + (result.countered ? '（触发反制）' : '') + (result.attackZone ? '（' + zoneName(result.attackZone) + '攻击）' : '') + (e.targetTactic ? '，战术：' + tacticName(e.targetTactic) : '') + '。';
         }
         if (e.type === 'hit' || e.type === 'crit') {
             return prefix + sideName(src) + (e.type === 'crit' ? '打出暴击，' : '命中，') + '击中' + sideName(tgt) + '的' + partName(e.part) + '，造成 ' + fmt(e.dmg || 0) + ' 点伤害' + (e.attackZone ? '（' + zoneName(e.attackZone) + '）' : '') + '。';
         }
         if (e.type === 'skill_hit') {
-            return prefix + sideName(src) + '释放' + skillName(e.skill) + '，' + (e.crit ? '暴击命中' : '命中') + sideName(tgt) + '的' + partName(e.part) + '，造成 ' + fmt(e.dmg || 0) + ' 点技能伤害' + (e.attackZone ? '（' + zoneName(e.attackZone) + '攻击）' : '') + '。';
+            return prefix + sideName(src) + '释放' + skillName(e.skill) + '，' + (e.crit ? '暴击命中' : '命中') + sideName(tgt) + '的' + partName(e.part) + '，造成 ' + fmt(e.dmg || 0) + ' 点技能伤害' + (e.blocked ? '（格挡减免' + fmt(e.blockedDamage || 0) + '）' : '') + (e.countered ? '（触发反制）' : '') + (e.attackZone ? '（' + zoneName(e.attackZone) + '攻击）' : '') + (e.targetTactic ? '，战术：' + tacticName(e.targetTactic) : '') + '。';
         }
         if (e.type === 'heal') return prefix + sideName(src) + '释放' + skillName(e.skill) + '，恢复约 ' + fmt(e.amt || 0) + ' 点生命。';
         if (e.type === 'buff') return prefix + sideName(src) + '释放' + skillName(e.skill) + '，获得' + (e.effect || '强化') + '效果。';
@@ -612,6 +641,45 @@
         return Object.keys(trace || {}).map(function (k) { return k + ':' + trace[k]; }).join(' / ');
     }
 
+    function topEntries(obj, limit) {
+        return Object.keys(obj || {}).map(function (k) {
+            var v = obj[k];
+            var score = typeof v === 'object' ? (Number(v.avgDamage || v.damage || 0) + Number(v.avgAttempts || v.attempts || 0)) : Number(v || 0);
+            return { key: k, value: v, score: score };
+        }).sort(function (a, b) { return b.score - a.score; }).slice(0, limit || 4);
+    }
+
+    function keyedText(obj, limit) {
+        var rows = topEntries(obj, limit || 6).map(function (item) { return item.key + ':' + fmt(item.value); });
+        return rows.length ? rows.join(' / ') : '-';
+    }
+
+    function targetPartsText(obj) {
+        var rows = topEntries(obj, 5).map(function (item) {
+            var v = item.value || {};
+            return partName(item.key) + ' 次' + fmt(v.avgAttempts || v.attempts || 0) + ' 伤' + fmt(v.avgDamage || v.damage || 0);
+        });
+        return rows.length ? rows.join(' / ') : '-';
+    }
+
+    function economyText(e) {
+        e = e || {};
+        return '耗' + fmt(e.spent || 0) + ' / 回' + fmt(e.recovered || 0) + ' / 拦' + fmt(e.blockedByStamina || 0);
+    }
+
+    function modelText(m) {
+        m = m || {};
+        return '攻' + fmt(m.aggression || 0) + ' 防' + fmt(m.defense || 0) + ' 机' + fmt(m.mobility || 0) + ' 诈' + fmt(m.deception || 0) + ' 察' + fmt(m.observation || 0);
+    }
+
+    function strategyName(code) {
+        return ({ pressure: '压制', execute: '处决', defend: '防御', kite: '拉扯', ambush: '绕后', bait: '诱骗', observe: '观察', recover: '恢复', fear: '恐惧', idle: '待机' }[code]) || code || '-';
+    }
+
+    function tacticName(code) {
+        return ({ core_kill: '核心击杀', disable_sense: '破坏感知', cripple_mobility: '削弱机动', remove_decoy: '移除诱饵' }[code]) || code || '-';
+    }
+
     function renderBattleReport(data) {
         if (!battleReport || !data) return;
         var left = data.detail && data.detail.left || {};
@@ -628,11 +696,24 @@
             '<div><b>左均命中/暴击/技能</b><span>' + fmt(left.avgHits || 0) + ' / ' + fmt(left.avgCrits || 0) + ' / ' + fmt(left.avgSkills || 0) + '</span></div>',
             '<div><b>右均命中/暴击/技能</b><span>' + fmt(right.avgHits || 0) + ' / ' + fmt(right.avgCrits || 0) + ' / ' + fmt(right.avgSkills || 0) + '</span></div>',
             '<div><b>左均剩余HP</b><span>' + fmt(left.avgHpLeft || 0) + '</span></div>',
+            '<div><b>右均剩余HP</b><span>' + fmt(right.avgHpLeft || 0) + '</span></div>',
+            '<div><b>左防御/反制</b><span>格挡 ' + fmt(left.avgBlocks || 0) + ' · 减伤 ' + fmt(left.avgBlockedDamage || 0) + ' · 反制 ' + fmt(left.avgCounters || 0) + '</span></div>',
+            '<div><b>右防御/反制</b><span>格挡 ' + fmt(right.avgBlocks || 0) + ' · 减伤 ' + fmt(right.avgBlockedDamage || 0) + ' · 反制 ' + fmt(right.avgCounters || 0) + '</span></div>',
+            '<div><b>左体力经济</b><span>消耗 ' + fmt(left.avgStaminaSpent || 0) + ' · 不足拦截 ' + fmt(left.avgStaminaBlocked || 0) + '</span></div>',
+            '<div><b>右体力经济</b><span>消耗 ' + fmt(right.avgStaminaSpent || 0) + ' · 不足拦截 ' + fmt(right.avgStaminaBlocked || 0) + '</span></div>',
             '<div><b>左攻击角度</b><span>前/侧/后 ' + ((left.angle && left.angle.front) || 0) + ' / ' + ((left.angle && left.angle.side) || 0) + ' / ' + ((left.angle && left.angle.rear) || 0) + ' · 绕后均分 ' + fmt(left.angle && left.angle.avgFlankScore || 0) + '</span></div>',
             '<div><b>右攻击角度</b><span>前/侧/后 ' + ((right.angle && right.angle.front) || 0) + ' / ' + ((right.angle && right.angle.side) || 0) + ' / ' + ((right.angle && right.angle.rear) || 0) + ' · 绕后均分 ' + fmt(right.angle && right.angle.avgFlankScore || 0) + '</span></div>',
             '</div>',
             '<div class="report-line"><b>左AI状态分布</b><span>' + traceText(left.aiTraceAvg) + '</span></div>',
             '<div class="report-line"><b>右AI状态分布</b><span>' + traceText(right.aiTraceAvg) + '</span></div>',
+            '<div class="report-line"><b>左策略意图</b><span>' + traceText(left.strategyAvg) + '</span></div>',
+            '<div class="report-line"><b>右策略意图</b><span>' + traceText(right.strategyAvg) + '</span></div>',
+            '<div class="report-line"><b>左部位战术</b><span>' + keyedText(left.targetTacticsAvg) + ' · ' + targetPartsText(left.targetPartsAvg) + '</span></div>',
+            '<div class="report-line"><b>右部位战术</b><span>' + keyedText(right.targetTacticsAvg) + ' · ' + targetPartsText(right.targetPartsAvg) + '</span></div>',
+            '<div class="report-line"><b>左信息博弈</b><span>' + keyedText(left.infoAvg) + '</span></div>',
+            '<div class="report-line"><b>右信息博弈</b><span>' + keyedText(right.infoAvg) + '</span></div>',
+            '<div class="report-line"><b>左对手模型</b><span>' + modelText(left.opponentModelAvg) + ' · 意图 ' + traceText(left.opponentModelAvg && left.opponentModelAvg.intentTraceAvg) + '</span></div>',
+            '<div class="report-line"><b>右对手模型</b><span>' + modelText(right.opponentModelAvg) + ' · 意图 ' + traceText(right.opponentModelAvg && right.opponentModelAvg.intentTraceAvg) + '</span></div>',
             '<div class="report-line"><b>角度收益</b><span>左后方伤害 ' + fmt(left.angle && left.angle.rearDamage || 0) + ' / 右后方伤害 ' + fmt(right.angle && right.angle.rearDamage || 0) + '</span></div>',
             '<div class="report-line"><b>平衡提示</b><span>' + balance + '</span></div>',
             '<div class="sample-list">' + samples.map(function (s) { return '<span>#' + s.index + ' ' + s.leftAi + ' vs ' + s.rightAi + ' → ' + s.winner + ' ' + s.duration + 's 伤害 ' + s.leftDamage + '/' + s.rightDamage + '</span>'; }).join('') + '</div>'
@@ -1348,7 +1429,7 @@
         payload.count = Number(document.getElementById('batchCount').value || 20);
         var data = await request('/batch', payload);
         lastBatchReport = data;
-        batchResult.innerHTML = '总场次：' + data.count + '<br>左胜率：' + data.leftRate + '% (' + data.left + ')<br>右胜率：' + data.rightRate + '% (' + data.right + ')<br>平局率：' + data.drawRate + '% (' + data.draw + ')<br>平均时长：' + data.avgDuration + 's<br>左/右均伤：' + data.avgDamageLeft + ' / ' + data.avgDamageRight + '<br>左/右均闪避：' + data.avgDodgesLeft + ' / ' + data.avgDodgesRight + '<br>左角度 前/侧/后：' + (data.detail.left.angle.front || 0) + ' / ' + (data.detail.left.angle.side || 0) + ' / ' + (data.detail.left.angle.rear || 0) + '<br>右角度 前/侧/后：' + (data.detail.right.angle.front || 0) + ' / ' + (data.detail.right.angle.side || 0) + ' / ' + (data.detail.right.angle.rear || 0);
+        batchResult.innerHTML = '总场次：' + data.count + '<br>左胜率：' + data.leftRate + '% (' + data.left + ')<br>右胜率：' + data.rightRate + '% (' + data.right + ')<br>平局率：' + data.drawRate + '% (' + data.draw + ')<br>平均时长：' + data.avgDuration + 's<br>左/右均伤：' + data.avgDamageLeft + ' / ' + data.avgDamageRight + '<br>左/右均闪避：' + data.avgDodgesLeft + ' / ' + data.avgDodgesRight + '<br>左/右体力消耗：' + fmt(data.detail.left.avgStaminaSpent || 0) + ' / ' + fmt(data.detail.right.avgStaminaSpent || 0) + '<br>左/右格挡反制：' + fmt(data.detail.left.avgBlocks || 0) + '+' + fmt(data.detail.left.avgCounters || 0) + ' / ' + fmt(data.detail.right.avgBlocks || 0) + '+' + fmt(data.detail.right.avgCounters || 0) + '<br>左/右主策略：' + keyedText(data.detail.left.strategyAvg, 3) + ' / ' + keyedText(data.detail.right.strategyAvg, 3) + '<br>左角度 前/侧/后：' + (data.detail.left.angle.front || 0) + ' / ' + (data.detail.left.angle.side || 0) + ' / ' + (data.detail.left.angle.rear || 0) + '<br>右角度 前/侧/后：' + (data.detail.right.angle.front || 0) + ' / ' + (data.detail.right.angle.side || 0) + ' / ' + (data.detail.right.angle.rear || 0);
         renderBattleReport(data);
     };
 

@@ -83,6 +83,65 @@ function _avgTrace(trace, total) {
     return out;
 }
 
+function _avgStrategy(trace, total) {
+    const keys = ['pressure', 'execute', 'defend', 'kite', 'ambush', 'bait', 'observe', 'recover', 'fear', 'idle'];
+    const out = {};
+    for (const key of keys) out[key] = Number(((trace && trace[key] || 0) / Math.max(1, total)).toFixed(1));
+    return out;
+}
+
+function _addStrategy(sum, trace) {
+    if (!trace) return;
+    for (const [key, value] of Object.entries(trace)) sum[key] = (sum[key] || 0) + (value || 0);
+}
+
+function _addKeyed(sum, src) {
+    if (!src) return;
+    for (const [key, value] of Object.entries(src)) sum[key] = (sum[key] || 0) + (Number(value) || 0);
+}
+
+function _avgKeyed(src, total) {
+    const out = {};
+    for (const [key, value] of Object.entries(src || {})) out[key] = Number(((Number(value) || 0) / Math.max(1, total)).toFixed(1));
+    return out;
+}
+
+function _addTargetParts(sum, src) {
+    if (!src) return;
+    for (const [key, value] of Object.entries(src)) {
+        if (!sum[key]) sum[key] = { attempts: 0, damage: 0 };
+        sum[key].attempts += value && value.attempts || 0;
+        sum[key].damage += value && value.damage || 0;
+    }
+}
+
+function _avgTargetParts(src, total) {
+    const out = {};
+    for (const [key, value] of Object.entries(src || {})) {
+        out[key] = {
+            avgAttempts: Number(((value.attempts || 0) / Math.max(1, total)).toFixed(1)),
+            avgDamage: Number(((value.damage || 0) / Math.max(1, total)).toFixed(1)),
+        };
+    }
+    return out;
+}
+
+function _addInfoStats(sum, src) {
+    if (!src) return;
+    for (const key of ['heard', 'fakeHeard', 'misled', 'infoSkills']) sum[key] = (sum[key] || 0) + (src[key] || 0);
+}
+
+function _addOpponentModel(sum, src) {
+    if (!src) return;
+    for (const key of ['actions', 'skills', 'attacks', 'defenses', 'movement', 'tricks', 'perceptions', 'aggression', 'defense', 'mobility', 'deception', 'observation']) {
+        sum[key] = (sum[key] || 0) + (src[key] || 0);
+    }
+    sum.lastIntent = src.lastIntent || sum.lastIntent || 'idle';
+    sum.lastSkill = src.lastSkill || sum.lastSkill || null;
+    if (!sum.intentTrace) sum.intentTrace = {};
+    _addStrategy(sum.intentTrace, src.intentTrace);
+}
+
 function _addTrace(sum, trace) {
     for (const key of rules.AI_STATES) sum[key] = (sum[key] || 0) + (trace && trace[key] || 0);
 }
@@ -129,6 +188,32 @@ function _sideReport(side, total) {
         avgSkills: Number((side.skills / total).toFixed(1)),
         avgHpLeft: Number((side.hpLeft / total).toFixed(1)),
         aiTraceAvg: _avgTrace(side.trace, total),
+        strategyAvg: _avgStrategy(side.strategy, total),
+        targetPartsAvg: _avgTargetParts(side.targetParts, total),
+        targetTacticsAvg: _avgKeyed(side.targetTactics, total),
+        infoAvg: _avgKeyed(side.infoStats, total),
+        opponentModelAvg: {
+            actions: Number(((side.opponentModel.actions || 0) / total).toFixed(1)),
+            skills: Number(((side.opponentModel.skills || 0) / total).toFixed(1)),
+            attacks: Number(((side.opponentModel.attacks || 0) / total).toFixed(1)),
+            defenses: Number(((side.opponentModel.defenses || 0) / total).toFixed(1)),
+            movement: Number(((side.opponentModel.movement || 0) / total).toFixed(1)),
+            tricks: Number(((side.opponentModel.tricks || 0) / total).toFixed(1)),
+            perceptions: Number(((side.opponentModel.perceptions || 0) / total).toFixed(1)),
+            aggression: Number(((side.opponentModel.aggression || 0) / total).toFixed(3)),
+            defense: Number(((side.opponentModel.defense || 0) / total).toFixed(3)),
+            mobility: Number(((side.opponentModel.mobility || 0) / total).toFixed(3)),
+            deception: Number(((side.opponentModel.deception || 0) / total).toFixed(3)),
+            observation: Number(((side.opponentModel.observation || 0) / total).toFixed(3)),
+            intentTraceAvg: _avgStrategy(side.opponentModel.intentTrace, total),
+            lastIntent: side.opponentModel.lastIntent || 'idle',
+            lastSkill: side.opponentModel.lastSkill || null,
+        },
+        avgBlocks: Number(((side.blocks || 0) / total).toFixed(1)),
+        avgBlockedDamage: Number(((side.blockedDamage || 0) / total).toFixed(1)),
+        avgCounters: Number(((side.counters || 0) / total).toFixed(1)),
+        avgStaminaSpent: Number(((side.staminaSpent || 0) / total).toFixed(1)),
+        avgStaminaBlocked: Number(((side.staminaBlocked || 0) / total).toFixed(1)),
         angle: _angleReport(side.angle)
     };
 }
@@ -204,8 +289,8 @@ function batchTest({ pet1Id, pet2Id, mapId, count, leftPersonality, rightPersona
         leftPersonality: fixedLeftAi || { code: 'random', name: '随机性格' },
         rightPersonality: fixedRightAi || { code: 'random', name: '随机性格' },
         detail: {
-            left: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, angle: _emptyAngleStats() },
-            right: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, angle: _emptyAngleStats() },
+            left: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, strategy: {}, blocks: 0, blockedDamage: 0, counters: 0, staminaSpent: 0, staminaBlocked: 0, angle: _emptyAngleStats(), targetParts: {}, targetTactics: {}, infoStats: {}, opponentModel: { intentTrace: {} } },
+            right: { damage: 0, hits: 0, crits: 0, dodges: 0, skills: 0, hpLeft: 0, trace: {}, strategy: {}, blocks: 0, blockedDamage: 0, counters: 0, staminaSpent: 0, staminaBlocked: 0, angle: _emptyAngleStats(), targetParts: {}, targetTactics: {}, infoStats: {}, opponentModel: { intentTrace: {} } },
             samples: []
         }
     };
@@ -230,10 +315,30 @@ function batchTest({ pet1Id, pet2Id, mapId, count, leftPersonality, rightPersona
         stat.detail.right.dodges += result.summary.right.dodges;
         stat.detail.left.skills += result.summary.left.skillsUsed;
         stat.detail.right.skills += result.summary.right.skillsUsed;
+        stat.detail.left.blocks += result.summary.left.blocks || 0;
+        stat.detail.right.blocks += result.summary.right.blocks || 0;
+        stat.detail.left.blockedDamage += result.summary.left.blockedDamage || 0;
+        stat.detail.right.blockedDamage += result.summary.right.blockedDamage || 0;
+        stat.detail.left.counters += result.summary.left.counters || 0;
+        stat.detail.right.counters += result.summary.right.counters || 0;
+        stat.detail.left.staminaSpent += result.summary.left.actionEconomy && result.summary.left.actionEconomy.spent || 0;
+        stat.detail.right.staminaSpent += result.summary.right.actionEconomy && result.summary.right.actionEconomy.spent || 0;
+        stat.detail.left.staminaBlocked += result.summary.left.actionEconomy && result.summary.left.actionEconomy.blockedByStamina || 0;
+        stat.detail.right.staminaBlocked += result.summary.right.actionEconomy && result.summary.right.actionEconomy.blockedByStamina || 0;
         stat.detail.left.hpLeft += result.summary.left.hpRemaining;
         stat.detail.right.hpLeft += result.summary.right.hpRemaining;
         _addTrace(stat.detail.left.trace, result.summary.left.personalityTrace);
         _addTrace(stat.detail.right.trace, result.summary.right.personalityTrace);
+        _addStrategy(stat.detail.left.strategy, result.summary.left.strategyTrace || result.summary.left.strategy);
+        _addStrategy(stat.detail.right.strategy, result.summary.right.strategyTrace || result.summary.right.strategy);
+        _addTargetParts(stat.detail.left.targetParts, result.summary.left.targetParts);
+        _addTargetParts(stat.detail.right.targetParts, result.summary.right.targetParts);
+        _addKeyed(stat.detail.left.targetTactics, result.summary.left.targetTactics);
+        _addKeyed(stat.detail.right.targetTactics, result.summary.right.targetTactics);
+        _addInfoStats(stat.detail.left.infoStats, result.summary.left.infoStats);
+        _addInfoStats(stat.detail.right.infoStats, result.summary.right.infoStats);
+        _addOpponentModel(stat.detail.left.opponentModel, result.summary.left.opponentModel);
+        _addOpponentModel(stat.detail.right.opponentModel, result.summary.right.opponentModel);
         _addAngleStats(stat.detail.left.angle, result.summary.left.angle);
         _addAngleStats(stat.detail.right.angle, result.summary.right.angle);
         if (stat.detail.samples.length < 8) {

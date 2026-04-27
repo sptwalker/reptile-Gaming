@@ -1,5 +1,110 @@
 # Reptile Gaming - 蜥蜴模拟器 开发文档
 
+## 2026-04-28 - P11 完善 battle-debug 验证面板
+
+- 修改 `server/services/battle-debug-service.js`，批量测试报告补齐 `targetPartsAvg`、`targetTacticsAvg`、`infoAvg` 与 `opponentModelAvg`，覆盖部位战术、信息博弈和对手建模统计。
+- 修改 `client/js/battle-debug.js`，实时指标面板新增体力经济、防御/反制与策略意图，单位详情新增 `activeAction` 阶段、护甲/反制窗、技能冷却/体力、策略分布、信息统计和对手模型。
+- 事件日志新增 `action_phase`、`strategy_intent`、`guard_block`、`counter` 描述，并在命中/技能命中日志展示格挡减免、反制和 `targetTactic` 部位战术。
+- 批量测试简报与详细报告新增策略意图、防御反制、体力经济、部位战术、信息博弈和对手模型聚合展示，便于集中验证 P1-P10 新系统。
+- 验证：`node --check server/services/battle-debug-service.js`、`node --check client/js/battle-debug.js` 通过；battle-debug smoke test 可生成含 `targetPartsAvg`、`infoAvg`、`opponentModelAvg` 的批量报告。
+- 下一阶段计划：P1-P11 已完成后进入最终全量验证，确认无新增语法/运行错误后按用户要求提交 Git。
+
+## 2026-04-28 - P10 实现对手建模与适应性 AI
+
+- 修改 `server/services/battle-engine.js`，新增 `_emptyOpponentModel()` 与 `_observeOpponentAction()`，每帧根据对手决策记录动作、技能、攻击、防御、机动、欺骗、感知和意图分布。
+- 单位新增 `opponentModel`，单位快照和战斗摘要均输出对手画像，包括 `aggression`、`defense`、`mobility`、`deception`、`observation` 等动态指标。
+- `_skillScore()` 接入对手模型：高攻击型对手提高防御/拉扯评分，高防御型对手提高绕后评分，高欺骗型对手降低盲目进攻评分。
+- `_aiDecide()` 接入对手模型：对高攻击对手主动保护弱点，对高防御对手主动寻找绕后路径。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 可产生双方 `opponentModel` 动态画像统计。
+- 下一阶段计划：进入 P11，完善 `battle-debug` 验证面板，集中展示 P1-P10 新系统指标。
+
+## 2026-04-28 - P9 强化信息博弈系统
+
+- 修改 `server/services/battle-engine.js`，新增 `_pickInfoSkill()`，AI 在低置信声音、疑似假声或搜索状态下会优先使用 `listen_alert` / `search_sound`。
+- `_skillScore()` 的 `observe` 评分加入 `misledByFakeSound` 与 `soundConfidence`，听觉不确定时更倾向感知确认。
+- 单位新增 `infoStats`，记录 `heard`、`fakeHeard`、`misled`、`infoSkills`，单位快照和战斗摘要均输出该统计。
+- `alert` 与 `searching` 决策路径现在能基于声音置信度选择确认、搜索、反诱导或追踪最后已知位置。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 可产生假声误导、感知技能使用和 `observe` 策略统计。
+- 下一阶段计划：进入 P10，实现对手建模与适应性 AI，让双方根据对手行动历史动态调整防御、绕后、诱骗和追击倾向。
+
+## 2026-04-28 - P8 增强部位伤害战术化
+
+- 修改 `server/services/battle-engine.js`，新增 `_targetPartIntent()`、`_partTacticalWeight()` 与 `_recordTargetPart()`，将部位选择从基础权重升级为战术权重。
+- 部位选择现在结合当前策略意图、绕后角度、部位剩余 HP、防御值、核心部位属性、性格 `skill/cunning` 等因素。
+- 新增部位战术分类：`core_kill`、`disable_sense`、`cripple_mobility`、`remove_decoy`，并在命中事件中输出 `targetTactic`。
+- 战斗摘要和 `session.stats` 新增 `targetParts` / `targetTactics`，可统计各部位攻击次数、伤害与战术倾向。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 可产生 `targetParts` 与 `targetTactics` 统计。
+- 下一阶段计划：进入 P9，强化信息博弈系统，让听觉捕获、假声诱导和目标记忆进一步影响策略与行动选择。
+
+## 2026-04-28 - P7 实现高层策略意图系统
+
+- 修改 `server/services/battle-engine.js`，新增 `STRATEGY_INTENTS`、`_emptyStrategyTrace()`、`_strategyDecision()`、`_skillStrategyIntent()` 与 `_decisionForSkill()`。
+- AI 决策现在为移动、技能、恐惧逃跑、绕后、保护弱点、听觉搜索和空闲路径记录高层策略意图与原因。
+- 单位快照新增 `strategy` 与 `strategyTrace`，战斗摘要新增 `strategyTrace` / `currentStrategy`，`session.stats` 同步记录策略分布。
+- 修改 `server/services/battle-debug-service.js`，批量测试报告新增策略意图均值、防御统计均值和体力经济均值。
+- 验证：`node --check server/services/battle-engine.js`、`node --check server/services/battle-debug-service.js` 通过；smoke test 可产生 `strategy_intent` 事件与左右双方策略分布统计。
+- 下一阶段计划：进入 P8，增强部位伤害战术化，让 AI 更明确地围绕弱点、残肢和关键部位制定攻击/保护策略。
+
+## 2026-04-28 - P6 增强 AI 技能评分系统
+
+- 修改 `server/services/battle-engine.js`，将 `_skillIntent()` 改为优先读取 `BATTLE_SKILL_EFFECTS.intent`，覆盖攻击、防御、机动、欺骗、感知、恢复、处决等动作意图。
+- 重写 `_skillScore()`，按血量、敌方血量、体力比例、距离、暴露弱点、绕后评分、性格参数、动作标签和体力成本综合评分。
+- 防御 AI 可主动选择 `guard` / `brace`，低体力时更偏向低成本快攻，重击在敌方低血量时获得处决加权。
+- 补齐非伤害动作执行：`defense` 进入防御准备，`movement` 执行位移，`perception` 增加感知锁定，`trick` 支持主动 `tail_decoy`。
+- 修复 `skillsUsed` 未计数问题，技能使用统计现在覆盖所有动作技能。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 可产生 `defense_ready`、`tail_decoy_ready`、`perception` 和技能使用统计。
+- 下一阶段计划：进入 P7，加入高层策略意图追踪，让 AI 决策在战斗摘要和 debug 中可解释。
+
+## 2026-04-28 - P5 实现防御与反制系统
+
+- 修复 `server/services/battle-engine.js` 中 `_actionContract()` 被误替换破坏的语法结构。
+- 新增 `_defenseState()`，基于 `activeAction` 的 `armor` 与 `counterWindow` 判断防御状态和反制窗口。
+- 攻击命中防御中目标时按 `armor` 进行减伤，并在结果中记录 `rawDamage`、`blockedDamage`、`blocked`、`countered`、`defenseAction`。
+- 新增 `guard_block` 与 `counter` 事件，战斗摘要和单位快照新增 `blocks`、`blockedDamage`、`counters` / `defenseStats`。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 可产生格挡与反制统计。
+- 下一阶段计划：进入 P6，增强 AI 技能评分，使攻击、防御、机动、欺骗和感知动作选择更符合战斗局势。
+
+## 2026-04-28 - P4 实现动作阶段与打断窗口
+
+- 修改 `server/services/battle-engine.js`，新增 `activeAction` 战斗状态。
+- 新增 `_startActiveAction()`、`_tickActiveAction()`、`_actionPhase()`、`_canStartAction()`，按动作协议生成 `windup / impact / recover` 阶段。
+- AI 在已有动作未结束时不会启动新动作，避免同一单位多动作重叠。
+- 技能执行时发送 `action_phase` 事件，包含 `startFrame`、`impactFrame`、`endFrame`、`interruptible`、`counterWindow`。
+- `getBattleState()` 单位快照暴露 `activeAction`，供 `battle-debug` 面板展示当前动作阶段、护甲和反制窗口。
+- 验证：`node --check server/services/battle-engine.js` 通过；smoke test 已捕获 `action_phase` 事件与 `activeAction` 快照。
+- 下一阶段计划：进入 P5，在现有 `guard` / `brace` / `counterWindow` 基础上实现防御减伤、格挡统计和反制事件。
+
+## 2026-04-28 - P3 接入动作体力与冷却系统
+
+- 修改 `server/services/battle-engine.js`，新增 `_actionCooldown()`、`_actionStaminaCost()`、`_hasActionStamina()`、`_actionMaxRange()`，统一从动作协议/技能效果读取冷却、体力和范围。
+- `BATTLE_SKILL_EFFECTS` 中的 `staminaCost` 现在参与真实战斗扣除；不足体力的动作会被 AI 过滤并计入 `actionEconomy.blockedByStamina`。
+- 新增战斗体力自然恢复：`BATTLE_STA_REGEN_PER_SEC`，并保留 `BATTLE_STA_LOW_ACTION_LIMIT` 作为低体力动作限制阈值。
+- `getBattleState()` 的单位快照增加 `maxSta`、`actionEconomy`，技能快照增加 `cooldown`、`staminaCost`、`ready`、`virtual`，用于 `battle-debug` 验证动作经济。
+- 战斗摘要增加 `actionEconomy`，可用于批量测试统计体力消耗/恢复/体力拦截。
+- 修复一次开发中误替换导致的 `unit` 未定义和括号缺失问题，已通过语法检查。
+- 验证：`node --check server/services/battle-engine.js`、`node --check server/models/game-rules.js` 通过；战斗模拟 smoke test 可完成并输出体力消耗统计。
+- 下一阶段计划：进入 P4，实现动作阶段状态、起手/命中/恢复窗口与可打断信息在战斗快照中的暴露。
+
+## 2026-04-28 - P2 移除无成本普通攻击
+
+- 修改 `server/services/battle-engine.js`，移除独立 `attackCooldown` 和 `case 'attack'` 普通攻击执行分支。
+- 新增 `_battleSkillList()`，确保每个战斗单位默认具备 `quick_snap` 与 `bite` 基础动作技能，避免无技能宠物无法战斗。
+- 新增 `_pickBasicAttack()`，AI 的基础攻击回退改为选择可用动作技能，而非无成本普通攻击。
+- `aggressive`、`kiting`、`defensive`、`alert` 状态中的攻击决策已改为 `{ action: 'skill' }`。
+- 技能执行统一扣除 `effect.staminaCost` / 动作协议 `staminaCost`，并按动作协议范围校验攻击距离。
+- 验证：`node --check server/services/battle-engine.js` 通过；`attackCooldown` / `case 'attack'` / `action: 'attack'` 搜索结果为 0；基础模拟 smoke test 可完成并产生技能使用统计。
+- 下一阶段计划：进入 P3，完善所有动作的体力可用性、冷却来源和前端调试可视化字段。
+
+## 2026-04-28 - P1 统一动作技能协议与基础技能池
+
+- 扩展 `server/models/battle-action-contracts.js`，以后端动作协议作为权威来源。
+- 新增第一批基础战斗动作：`quick_snap`、`combo_bite`、`heavy_bite`、`guard`、`brace`、`retreat_step`、`flank_step`、`fake_sound`、`tail_decoy`。
+- 为动作协议补充 `staminaCost`、`cooldown`、`tags`、`interruptible`、`armor`、`counterWindow` 等字段，为后续体力、打断、防御反制和策略系统预留统一入口。
+- 扩展 `server/models/game-rules.js` 的 `BATTLE_SKILL_EFFECTS`，补齐第一批动作的基础效果、冷却、体力消耗和策略意图。
+- 同步 `client/js/battle-action-contracts.js` 作为展示镜像；前端不作为可信判定源。
+- 验证：`node --check` 已通过 `server/models/battle-action-contracts.js`、`server/models/game-rules.js`、`client/js/battle-action-contracts.js`；对应文件 lints 为 0。
+- 下一阶段计划：进入 P2，移除服务端战斗中的无成本普通攻击路径，改为由技能动作承担基础攻击。
+
 ## 项目概述
 一个基于 HTML5 Canvas 的交互式蜥蜴生物模拟器，单文件实现（`game.html`），包含完整的物理模拟、IK骨骼动画、AI行为系统和参数调节面板。
 

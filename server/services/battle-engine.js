@@ -11,6 +11,7 @@
 
 const { secureRandomFloat } = require('../utils/random');
 const rules = require('../models/game-rules');
+const { getActionContract } = require('../models/battle-action-contracts');
 const animationMapper = require('./battle-animation-mapper');
 
 function _clamp01(v, fallback = 0.5) {
@@ -61,32 +62,230 @@ function normalizePersonality(input) {
     };
 }
 
-function _skillIntent(effect) {
-    if (!effect) return 'attack';
-    if (effect.type === 'heal') return 'heal';
-    if (effect.type === 'buff') {
-        if (effect.effect === 'dodge_up' || effect.sound) return 'trick';
-        if (effect.effect === 'crit_up') return 'focus';
-        return 'guard';
-    }
-    if (effect.type === 'fear_skill') return 'fear';
-    if (effect.type === 'ranged') return 'ranged';
-    return 'melee';
+function _actionPhase(activeAction, frame) {
+    if (!activeAction) return null;
+    const local = Math.max(0, frame - activeAction.startFrame);
+    if (local < activeAction.windup) return 'windup';
+    if (local <= activeAction.impact) return 'impact';
+    if (frame < activeAction.endFrame) return 'recover';
+    return 'done';
 }
 
-function _skillScore(unit, opponent, effect, dist, hpRatio) {
-    const p = unit.personality;
-    const effectiveDist = dist / Math.max(0.1, unit.visionMult);
-    let score = 0;
+function _startActiveAction(unit, actionId, frame) {
+    const contract = _actionContract(actionId);
+    unit.activeAction = {
+        actionId,
+        type: contract.type,
+        startFrame: frame,
+        windup: contract.windup || 0,
+        impact: contract.impact || 0,
+        recover: contract.recover || 0,
+        endFrame: frame + (contract.duration || 1),
+        phase: 'windup',
+        interruptible: contract.interruptible !== false,
+        armor: Number(contract.armor || 0),
+        counterWindow: contract.counterWindow || null,
+    };
+    return unit.activeAction;
+}
+
+function _tickActiveAction(unit, frame) {
+    if (!unit.activeAction) return;
+    const phase = _actionPhase(unit.activeAction, frame);
+    if (!phase || phase === 'done') {
+        unit.activeAction = null;
+        return;
+    }
+    unit.activeAction.phase = phase;
+}
+
+function _canStartAction(unit) {
+    return !unit.activeAction;
+}
+
+function _defenseState(unit, frame) {
+    const action = unit.activeAction;
+    if (!action || action.type !== 'defense') return null;
+    const local = Math.max(0, frame - action.startFrame);
+    const inCounter = !!(action.counterWindow && local >= action.counterWindow.start && local <= action.counterWindow.end);
+    return {
+        actionId: action.actionId,
+        armor: Number(action.armor || 0),
+        inCounter,
+    };
+}
+
+function _actionContract(code) {
+    return getActionContract(code);
+}
+
+function _actionCooldown(code, effect) {
+    const contract = _actionContract(code);
+    return Math.max(0, Number(effect && effect.cooldown != null ? effect.cooldown : contract.cooldown || 0));
+}
+
+function _actionStaminaCost(code, effect) {
+    const contract = _actionContract(code);
+    return Math.max(0, Number(effect && effect.staminaCost != null ? effect.staminaCost : contract.staminaCost || rules.BATTLE_STA_PER_ATK));
+}
+
+function _hasActionStamina(unit, code, effect) {
+    const cost = _actionStaminaCost(code, effect);
+    if (cost <= 0) return true;
+    if (unit.battleStamina <= 0) return cost <= rules.BATTLE_STA_LOW_ACTION_LIMIT;
+    return unit.battleStamina >= cost;
+}
+
+function _actionMaxRange(unit, code, effect) {
+    const contract = _actionContract(code);
+    return Number(contract.maxRange || (effect && effect.type === 'ranged' ? 300 : 100)) * Math.max(0.1, unit.visionMult);
+}
+
+function _skillIntent(effect) {
+    if (!effect) return 'attack';
+    if (effect.intent) return effect.intent;
+    if (effect.type === 'heal') return 'recover';
+    if (effect.type === 'defense') return 'defend';
+    if (effect.type === 'movement') return 'kite';
+    if (effect.type === 'perception') return 'observe';
+    if (effect.type === 'trick') return 'bait';
+    if (effect.type === 'buff') {
+        if (effect.effect === 'dodge_up' || effect.sound) return 'bait';
+        if (effect.effect === 'crit_up') return 'execute';
+        return 'defend';
+    }
+    if (effect.type === 'fear_skill') return 'fear';
+    if (effect.type === 'ranged') return 'kite';
+    return 'attack';
+}
+
+const STRATEGY_INTENTS = ['pressure', 'execute', 'defend', 'kite', 'ambush', 'bait', 'observe', 'recover', 'fear', 'idle'];
+
+function _emptyStrategyTrace() {
+    return STRATEGY_INTENTS.reduce((out, key) => {
+        out[key] = 0;
+        return out;
+    }, {});
+}
+
+function _emptyOpponentModel() {
+    return {
+        actions: 0,
+        skills: 0,
+        attacks: 0,
+        defenses: 0,
+        movement: 0,
+        tricks: 0,
+        perceptions: 0,
+        lastIntent: 'idle',
+        lastSkill: null,
+        intentTrace: _emptyStrategyTrace(),
+        aggression: 0,
+        defense: 0,
+        mobility: 0,
+        deception: 0,
+        observation: 0,
+    };
+}
+
+function _observeOpponentAction(observer, decision) {
+    if (!observer || !decision) return;
+    if (!observer.opponentModel) observer.opponentModel = _emptyOpponentModel();
+    const model = observer.opponentModel;
+    const intent = STRATEGY_INTENTS.includes(decision.strategyIntent) ? decision.strategyIntent : 'idle';
+    model.actions++;
+    model.lastIntent = intent;
+    model.intentTrace[intent] = (model.intentTrace[intent] || 0) + 1;
+
+    if (decision.action === 'skill' && decision.skill) {
+        model.skills++;
+        model.lastSkill = decision.skill.code;
+        const effect = rules.BATTLE_SKILL_EFFECTS[decision.skill.code] || {};
+        if (effect.type === 'melee' || effect.type === 'ranged' || effect.type === 'fear_skill') model.attacks++;
+        else if (effect.type === 'defense') model.defenses++;
+        else if (effect.type === 'movement') model.movement++;
+        else if (effect.type === 'trick' || effect.sound && effect.sound.fakeSound) model.tricks++;
+        else if (effect.type === 'perception') model.perceptions++;
+    } else if (decision.action === 'move') {
+        model.movement++;
+    }
+
+    const total = Math.max(1, model.actions);
+    model.aggression = Number(((model.intentTrace.pressure + model.intentTrace.execute + model.intentTrace.fear + model.attacks) / total).toFixed(3));
+    model.defense = Number(((model.intentTrace.defend + model.defenses) / total).toFixed(3));
+    model.mobility = Number(((model.intentTrace.kite + model.intentTrace.ambush + model.movement) / total).toFixed(3));
+    model.deception = Number(((model.intentTrace.bait + model.tricks) / total).toFixed(3));
+    model.observation = Number(((model.intentTrace.observe + model.perceptions) / total).toFixed(3));
+}
+
+function _strategyDecision(unit, decision, intent, reason, frame) {
+    const normalized = STRATEGY_INTENTS.includes(intent) ? intent : 'pressure';
+    const changed = unit.strategyIntent !== normalized || unit.strategyReason !== reason;
+    unit.strategyIntent = normalized;
+    unit.strategyReason = reason || normalized;
+    unit.strategyFrame = frame;
+    unit.strategyChanged = changed;
+    if (!unit.strategyTrace) unit.strategyTrace = _emptyStrategyTrace();
+    unit.strategyTrace[normalized] = (unit.strategyTrace[normalized] || 0) + 1;
+    return { ...decision, strategyIntent: normalized, strategyReason: unit.strategyReason };
+}
+
+function _skillStrategyIntent(effect) {
     const intent = _skillIntent(effect);
-    if (intent === 'heal') score = hpRatio < 0.72 - p.risk * 0.28 ? 65 + p.caution * 35 : 0;
-    else if (intent === 'guard') score = hpRatio > 0.2 ? 38 + p.caution * 42 : 15;
-    else if (intent === 'trick') score = 34 + p.cunning * 55 + p.caution * 12;
-    else if (intent === 'focus') score = 32 + p.skill * 45 + p.aggression * 16;
-    else if (intent === 'fear') score = opponent.fear > 30 + p.ferocity * 28 ? 42 + p.ferocity * 45 : 8;
-    else if (intent === 'ranged') score = effectiveDist <= 300 ? 38 + p.skill * 26 + p.cunning * 20 : 0;
-    else score = effectiveDist <= 100 ? 42 + p.aggression * 32 + p.ferocity * 18 : 0;
-    return score + p.skill * 25 + secureRandomFloat() * 6;
+    if (intent === 'attack' || intent === 'pressure' || intent === 'control' || intent === 'harass') return 'pressure';
+    if (intent === 'execute') return 'execute';
+    if (intent === 'defend') return 'defend';
+    if (intent === 'kite') return 'kite';
+    if (intent === 'ambush') return 'ambush';
+    if (intent === 'bait') return 'bait';
+    if (intent === 'observe') return 'observe';
+    if (intent === 'recover') return 'recover';
+    if (intent === 'fear') return 'fear';
+    return 'pressure';
+}
+
+function _decisionForSkill(unit, skill, frame, fallbackIntent = 'pressure', reason = 'skill_score') {
+    const effect = skill && rules.BATTLE_SKILL_EFFECTS[skill.code];
+    return _strategyDecision(unit, { action: 'skill', skill }, effect ? _skillStrategyIntent(effect) : fallbackIntent, `${reason}:${skill && skill.code || 'unknown'}`, frame);
+}
+
+function _skillScore(unit, opponent, effect, dist, hpRatio, code) {
+    const p = unit.personality;
+    const contract = _actionContract(code);
+    const effectiveDist = dist / Math.max(0.1, unit.visionMult);
+    const staminaRatio = unit.battleStamina / Math.max(1, unit.maxBattleStamina);
+    const opponentHpRatio = opponent.hp / Math.max(1, opponent.maxHp);
+    const exposure = unit.weakExposure || weakPointExposure(unit, opponent);
+    const flank = flankScore(unit, opponent);
+    const intent = _skillIntent(effect);
+    let score = 0;
+
+    if (intent === 'recover') score = hpRatio < 0.72 - p.risk * 0.28 ? 65 + p.caution * 35 + (1 - hpRatio) * 40 : 0;
+    else if (intent === 'defend') score = 18 + p.caution * 48 + Math.max(0, 1 - hpRatio) * 44 + Math.max(0, exposure.exposure || 0) * 26 + (dist < 120 ? 18 : -10);
+    else if (intent === 'bait') score = 28 + p.cunning * 50 + p.caution * 14 + (opponent.aiState === 'aggressive' ? 14 : 0) + (dist < 150 ? 10 : 0);
+    else if (intent === 'execute') score = 22 + p.skill * 42 + p.aggression * 18 + (1 - opponentHpRatio) * 45;
+    else if (intent === 'fear') score = opponent.fear > 30 + p.ferocity * 28 ? 42 + p.ferocity * 45 : 10 + p.ferocity * 18;
+    else if (intent === 'kite') score = 28 + p.mobility * 35 + p.caution * 26 + (dist < 130 ? 28 : -6);
+    else if (intent === 'ambush') score = 25 + p.cunning * 44 + p.mobility * 26 + (flank < 0.55 ? 22 : 4);
+    else if (intent === 'observe') score = unit.perception.awareness < 35 || unit.perception.misledByFakeSound ? 30 + p.hearing * 48 + p.caution * 22 + (1 - unit.perception.soundConfidence) * 20 : 4;
+    else if (intent === 'pressure' || intent === 'control') score = effectiveDist <= 125 ? 38 + p.aggression * 24 + p.skill * 20 + opponent.fear * 0.12 : 0;
+    else if (intent === 'harass') score = effectiveDist <= 105 ? 34 + p.aggression * 18 + p.mobility * 18 + (staminaRatio < 0.28 ? 14 : 0) : 0;
+    else if (effect.type === 'ranged') score = effectiveDist <= 300 ? 38 + p.skill * 26 + p.cunning * 20 + (dist > 120 ? 16 : 0) : 0;
+    else score = effectiveDist <= 115 ? 42 + p.aggression * 32 + p.ferocity * 18 + (1 - opponentHpRatio) * 20 : 0;
+
+    if (contract.tags && contract.tags.includes('heavy')) score += opponentHpRatio < 0.45 ? 24 : -8;
+    if (contract.tags && contract.tags.includes('fast')) score += staminaRatio < 0.35 ? 12 : 4;
+    if (contract.tags && contract.tags.includes('counter_ready')) score += opponent.aiState === 'aggressive' ? 12 : 0;
+    const model = unit.opponentModel || {};
+    if (intent === 'defend' && model.aggression > 0.75) score += 18;
+    if (intent === 'kite' && model.aggression > 0.65) score += 12 + p.mobility * 8;
+    if (intent === 'ambush' && model.defense > 0.45) score += 14 + p.cunning * 10;
+    if (intent === 'bait' && model.observation < 0.25) score += 10 + p.cunning * 8;
+    if ((intent === 'pressure' || intent === 'attack' || intent === 'execute') && model.deception > 0.5) score -= 10;
+
+    const cost = _actionStaminaCost(code, effect);
+    if (cost > 0 && staminaRatio < 0.3 && cost > rules.BATTLE_STA_LOW_ACTION_LIMIT) score -= 22 + cost * 2;
+    return score + p.skill * 18 + secureRandomFloat() * 6;
 }
 
 /* ═══════════════════════════════════════════
@@ -252,30 +451,72 @@ function weakPointExposure(unit, attacker) {
     return { part: weakKey, exposure: Number(exposure.toFixed(3)), hpRatio: Number(weakRatio.toFixed(3)) };
 }
 
+function _targetPartIntent(partKey) {
+    if (partKey === 'head') return 'disable_sense';
+    if (partKey === 'torso') return 'core_kill';
+    if (partKey === 'tail') return 'remove_decoy';
+    return 'cripple_mobility';
+}
+
+function _partTacticalWeight(attacker, defender, partKey, cfg, flank) {
+    const part = defender.bodyParts[partKey];
+    if (!part || part.detached || part.hp <= 0) return null;
+    const p = attacker.personality || {};
+    const strategy = attacker.strategyIntent || 'pressure';
+    const hpRatio = Math.max(0, part.hp) / Math.max(1, part.maxHp);
+    const loss = 1 - hpRatio;
+    const lowDefBonus = Math.max(0, 1 - part.def / Math.max(1, defender.def + part.def));
+    const coreBonus = cfg.core ? 1.12 : 0.95;
+    let weight = cfg.weight * coreBonus * (1 + Math.min(1.15, loss * 1.2) + lowDefBonus * 0.35);
+
+    if (flank > 0.7 && (partKey === 'head' || partKey === 'torso')) weight *= 1.75;
+    if (flank < 0.3 && (partKey === 'foreLeft' || partKey === 'foreRight')) weight *= 1.28;
+    if (flank >= 0.35 && flank <= 0.75 && (partKey === 'foreLeft' || partKey === 'foreRight' || partKey === 'hindLeft' || partKey === 'hindRight')) weight *= 1.22;
+
+    if (strategy === 'execute') weight *= (cfg.core ? 1.5 : 0.72) * (1 + loss * 1.4);
+    else if (strategy === 'ambush') weight *= partKey === 'head' || partKey === 'torso' ? 1.45 + flank * 0.45 : 0.88;
+    else if (strategy === 'kite' || strategy === 'harass') weight *= partKey === 'hindLeft' || partKey === 'hindRight' || partKey === 'tail' ? 1.4 : 0.95;
+    else if (strategy === 'defend') weight *= partKey === 'foreLeft' || partKey === 'foreRight' ? 1.25 : 0.9;
+    else if (strategy === 'bait') weight *= partKey === 'tail' ? 1.35 : 1;
+
+    weight *= 1 + (p.skill || 0.5) * loss * 0.75 + (p.cunning || 0.5) * flank * 0.45;
+    return [partKey, Math.max(0.001, weight)];
+}
+
+function _recordTargetPart(statTracker, partKey, tactic, damage) {
+    if (!statTracker || !partKey) return;
+    if (!statTracker.targetParts) statTracker.targetParts = {};
+    if (!statTracker.targetParts[partKey]) statTracker.targetParts[partKey] = { attempts: 0, damage: 0 };
+    statTracker.targetParts[partKey].attempts++;
+    statTracker.targetParts[partKey].damage += Math.max(0, Number(damage || 0));
+    if (!statTracker.targetTactics) statTracker.targetTactics = {};
+    statTracker.targetTactics[tactic] = (statTracker.targetTactics[tactic] || 0) + 1;
+}
+
 function _pickTargetPart(defender, attacker) {
     const flank = attacker ? flankScore(attacker, defender) : 0;
     const candidates = Object.entries(rules.BATTLE_BODY_PARTS)
-        .map(([key, cfg]) => {
-            const part = defender.bodyParts[key];
-            if (!part || part.detached || part.hp <= 0) return null;
-            let weight = cfg.weight;
-            if (flank > 0.7 && (key === 'head' || key === 'torso')) weight *= 1.5;
-            if (flank < 0.3 && (key === 'foreLeft' || key === 'foreRight')) weight *= 1.3;
-            if (flank >= 0.35 && flank <= 0.75 && (key === 'foreLeft' || key === 'foreRight' || key === 'hindLeft' || key === 'hindRight')) weight *= 1.18;
-            const hpRatio = Math.max(0, part.hp) / Math.max(1, part.maxHp);
-            const vulnerabilityBonus = Math.min(0.9, Math.max(0, 1 - hpRatio) * 0.85);
-            const lowDefBonus = Math.max(0, 1 - part.def / Math.max(1, defender.def + part.def));
-            weight *= 1 + vulnerabilityBonus + lowDefBonus * 0.35;
-            return [key, Math.max(0.001, weight)];
-        })
+        .map(([key, cfg]) => _partTacticalWeight(attacker || {}, defender, key, cfg, flank))
         .filter(Boolean);
     const total = candidates.reduce((sum, item) => sum + item[1], 0);
     let roll = secureRandomFloat() * total;
+    let chosen = candidates.length ? candidates[candidates.length - 1][0] : 'torso';
     for (const item of candidates) {
         roll -= item[1];
-        if (roll <= 0) return item[0];
+        if (roll <= 0) {
+            chosen = item[0];
+            break;
+        }
     }
-    return candidates.length ? candidates[candidates.length - 1][0] : 'torso';
+    if (attacker) {
+        attacker.lastTargetTactic = {
+            part: chosen,
+            intent: _targetPartIntent(chosen),
+            flank: Number(flank.toFixed(3)),
+            strategy: attacker.strategyIntent || 'pressure',
+        };
+    }
+    return chosen;
 }
 
 function _recoverBodyParts(unit) {
@@ -329,15 +570,26 @@ function _snapshotBodyParts(unit) {
  * 战斗单位状态
  * ═══════════════════════════════════════════ */
 
+function _battleSkillList(fighter) {
+    const byCode = new Map();
+    for (const item of fighter.skills || []) {
+        if (!item || !item.skill_code) continue;
+        byCode.set(item.skill_code, {
+            code: item.skill_code,
+            level: item.skill_level || 1,
+            cooldownLeft: 0,
+        });
+    }
+    if (!byCode.has('quick_snap')) byCode.set('quick_snap', { code: 'quick_snap', level: 1, cooldownLeft: 0, virtual: true });
+    if (!byCode.has('bite')) byCode.set('bite', { code: 'bite', level: 1, cooldownLeft: 0, virtual: true });
+    return Array.from(byCode.values());
+}
+
 function _createUnit(fighter, side, map) {
     const stats = _calcCombatStats(fighter);
     const personality = normalizePersonality(fighter.personality);
     const hearingMult = 1 + (personality.hearing - 0.5) * 0.28;
-    const skillList = (fighter.skills || []).map(s => ({
-        code: s.skill_code,
-        level: s.skill_level || 1,
-        cooldownLeft: 0,
-    }));
+    const skillList = _battleSkillList(fighter);
 
     const spawn = _spawnPoint(map, side);
     return {
@@ -379,6 +631,12 @@ function _createUnit(fighter, side, map) {
         baseHearingMult: hearingMult,
         personality,
         personalityTrace: { aggressive: 0, kiting: 0, defensive: 0, fear: 0, alert: 0, searching: 0 },
+        strategyIntent: 'idle',
+        strategyReason: 'spawn',
+        strategyFrame: 0,
+        strategyChanged: false,
+        strategyTrace: _emptyStrategyTrace(),
+        opponentModel: _emptyOpponentModel(),
         bodyNoiseSize: Math.max(1, (Number(fighter.attr.str_base || 0) + Number(fighter.attr.vit_base || 0)) / 2 + Number(fighter.stage || 0) * 4),
         perception: {
             hearingRange: 0,
@@ -391,6 +649,7 @@ function _createUnit(fighter, side, map) {
             soundConfidence: 0,
             misledByFakeSound: false,
         },
+        infoStats: { heard: 0, fakeHeard: 0, misled: 0, infoSkills: 0 },
 
         // 原始六维
         attr: fighter.attr,
@@ -413,8 +672,9 @@ function _createUnit(fighter, side, map) {
         protectTarget: null,
         weakExposure: null,
 
-        // 攻击冷却（基于速度）
-        attackCooldown: 0,
+        actionEconomy: { spent: 0, recovered: 0, blockedByStamina: 0 },
+        activeAction: null,
+        defenseStats: { blocks: 0, blockedDamage: 0, counters: 0 },
         moveTarget: null,
     };
 }
@@ -627,11 +887,12 @@ function _shouldPanicMove(unit) {
 }
 
 function _aiDecide(unit, opponent, frame, map) {
+    if (!_canStartAction(unit)) return _strategyDecision(unit, { action: 'idle' }, unit.strategyIntent || 'idle', 'action_locked', frame);
     if (_shouldPanicMove(unit)) {
         unit.aiSubState = null;
         unit.flankTarget = null;
         unit.protectTarget = null;
-        return { action: 'move', toward: false, panic: true };
+        return _strategyDecision(unit, { action: 'move', toward: false, panic: true }, 'fear', 'panic_escape', frame);
     }
 
     const p = unit.personality;
@@ -649,9 +910,18 @@ function _aiDecide(unit, opponent, frame, map) {
         unit.aiSubState = null;
         unit.protectTarget = null;
     }
+    const model = unit.opponentModel || {};
+    if (!unit.aiSubState && model.aggression > 0.82 && p.caution > 0.35 && unit.hp / Math.max(1, unit.maxHp) < 0.92) {
+        unit.aiSubState = 'protecting';
+        unit.protectTarget = _calcProtectPosition(unit, opponent, map);
+        unit.flankTarget = null;
+    } else if (!unit.aiSubState && model.defense > 0.55 && p.cunning > 0.5 && dist <= rules.BATTLE_FLANK_MAX_DIST) {
+        unit.aiSubState = 'flanking';
+        unit.flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
+    }
 
     if (unit.aiSubState === 'protecting' && unit.protectTarget) {
-        return { action: 'move', toward: false, targetX: unit.protectTarget.x, targetY: unit.protectTarget.y };
+        return _strategyDecision(unit, { action: 'move', toward: false, targetX: unit.protectTarget.x, targetY: unit.protectTarget.y }, 'defend', `protect_weak:${exposure.part}`, frame);
     }
 
     const score = flankScore(unit, opponent);
@@ -668,81 +938,106 @@ function _aiDecide(unit, opponent, frame, map) {
         if (targetDist <= 24 || score >= 0.72) {
             unit.aiSubState = 'flank_attack';
         } else {
-            return { action: 'move', toward: true, targetX: unit.flankTarget.x, targetY: unit.flankTarget.y };
+            return _strategyDecision(unit, { action: 'move', toward: true, targetX: unit.flankTarget.x, targetY: unit.flankTarget.y }, 'ambush', `seek_flank:${score.toFixed(2)}`, frame);
         }
     }
 
     const readySkill = _pickSkill(unit, opponent, dist);
-    if (readySkill && unit.aiSubState !== 'flanking') return { action: 'skill', skill: readySkill };
+    if (readySkill && unit.aiSubState !== 'flanking') return _decisionForSkill(unit, readySkill, frame);
+
+    const fallbackSkill = _pickBasicAttack(unit, opponent, dist);
 
     switch (unit.aiState) {
         case 'aggressive':
-            if (unit.aiSubState === 'flank_attack' && unit.attackCooldown <= 0 && dist <= meleeRange + 35) return { action: 'attack' };
+            if (unit.aiSubState === 'flank_attack' && fallbackSkill && dist <= meleeRange + 35) return _decisionForSkill(unit, fallbackSkill, frame, 'ambush', 'flank_attack');
             if (isInFrontArc(unit, opponent) && dist > meleeRange * 0.8 && p.cunning > 0.4 && p.mobility > 0.4) {
                 const flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
                 unit.flankTarget = flankTarget;
                 unit.aiSubState = 'flanking';
-                return { action: 'move', toward: true, targetX: flankTarget.x, targetY: flankTarget.y };
+                return _strategyDecision(unit, { action: 'move', toward: true, targetX: flankTarget.x, targetY: flankTarget.y }, 'ambush', 'open_flank_route', frame);
             }
-            if (dist > meleeRange) return { action: 'move', toward: true };
-            if (unit.attackCooldown <= 0) return { action: 'attack' };
-            if (p.ferocity > 0.82 && dist < 140) return { action: 'move', toward: true };
-            return { action: 'idle' };
+            if (dist > meleeRange) return _strategyDecision(unit, { action: 'move', toward: true }, 'pressure', 'close_distance', frame);
+            if (fallbackSkill) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'basic_attack');
+            if (p.ferocity > 0.82 && dist < 140) return _strategyDecision(unit, { action: 'move', toward: true }, 'pressure', 'ferocity_chase', frame);
+            return _strategyDecision(unit, { action: 'idle' }, 'idle', 'no_aggressive_option', frame);
 
         case 'kiting': {
             if (dist < kiteRange) {
                 const kite = _calcKitePosition(unit, opponent, map);
-                return { action: 'move', toward: false, targetX: kite.x, targetY: kite.y };
+                return _strategyDecision(unit, { action: 'move', toward: false, targetX: kite.x, targetY: kite.y }, 'kite', 'keep_spacing', frame);
             }
-            if (unit.attackCooldown <= 0 && dist < kiteRange + 55) return { action: 'attack' };
+            if (fallbackSkill && dist < kiteRange + 55) return _decisionForSkill(unit, fallbackSkill, frame, 'kite', 'kite_poke');
             const known = _knownTargetDecision(unit, true);
-            return p.cunning > 0.68 && known ? known : { action: 'idle' };
+            return p.cunning > 0.68 && known ? _strategyDecision(unit, known, 'observe', 'track_known_target', frame) : _strategyDecision(unit, { action: 'idle' }, 'idle', 'hold_kite_range', frame);
         }
 
         case 'defensive':
             unit.aiSubState = null;
-            if (dist < 95 + p.caution * 45) return { action: 'move', toward: false };
-            if (dist > 105 + p.aggression * 35) return { action: 'move', toward: true };
-            if (unit.attackCooldown <= 0 && p.risk > 0.28) return { action: 'attack' };
-            return { action: 'idle' };
+            if (readySkill && (readySkill.code === 'guard' || readySkill.code === 'brace')) return _decisionForSkill(unit, readySkill, frame, 'defend', 'guard_ready');
+            if (dist < 95 + p.caution * 45) return _strategyDecision(unit, { action: 'move', toward: false }, 'defend', 'retreat_defense', frame);
+            if (dist > 105 + p.aggression * 35) return _strategyDecision(unit, { action: 'move', toward: true }, 'pressure', 'reengage_defense', frame);
+            if (fallbackSkill && p.risk > 0.28) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'defensive_counterpoke');
+            return _strategyDecision(unit, { action: 'idle' }, 'defend', 'hold_guard_space', frame);
 
         case 'alert': {
             unit.aiSubState = null;
-            if (dist <= 95 + p.aggression * 35 && unit.attackCooldown <= 0) return { action: 'attack' };
-            return _knownTargetDecision(unit, true) || { action: 'move', toward: true };
+            const infoSkill = unit.perception.soundConfidence < 0.55 ? _pickInfoSkill(unit) : null;
+            if (infoSkill) return _decisionForSkill(unit, infoSkill, frame, 'observe', 'confirm_sound');
+            if (dist <= 95 + p.aggression * 35 && fallbackSkill) return _decisionForSkill(unit, fallbackSkill, frame, 'pressure', 'alert_contact');
+            const known = _knownTargetDecision(unit, true);
+            return _strategyDecision(unit, known || { action: 'move', toward: true }, 'observe', 'sound_lock', frame);
         }
 
         case 'searching': {
             unit.aiSubState = null;
+            const infoSkill = _pickInfoSkill(unit);
+            if (infoSkill && unit.perception.soundConfidence < 0.8) return _decisionForSkill(unit, infoSkill, frame, 'observe', 'disambiguate_fake_sound');
             const known = _knownTargetDecision(unit, p.cunning < 0.25);
-            if (!known) return { action: 'idle' };
+            if (!known) return _strategyDecision(unit, { action: 'idle' }, 'observe', 'lost_target', frame);
             if (p.cunning >= 0.25) {
                 const target = _targetPointFor(unit, { x: known.targetX, y: known.targetY }, { toward: false }, map);
-                return { action: 'move', toward: false, targetX: target.x, targetY: target.y };
+                return _strategyDecision(unit, { action: 'move', toward: false, targetX: target.x, targetY: target.y }, 'bait', 'fake_sound_suspected', frame);
             }
-            return known;
+            return _strategyDecision(unit, known, 'observe', 'search_last_known', frame);
         }
 
         case 'fear':
             unit.aiSubState = null;
-            return { action: 'move', toward: false };
+            return _strategyDecision(unit, { action: 'move', toward: false }, 'fear', 'fear_state_escape', frame);
 
         default:
-            return { action: 'idle' };
+            return _strategyDecision(unit, { action: 'idle' }, 'idle', 'unknown_state', frame);
     }
 }
 
 /** 选择可用技能 */
+function _pickInfoSkill(unit) {
+    if (!unit.canUseSkills) return null;
+    const preferred = unit.perception.misledByFakeSound ? ['search_sound', 'listen_alert'] : ['listen_alert', 'search_sound'];
+    for (const code of preferred) {
+        const sk = unit.skills.find(item => item.code === code && item.cooldownLeft <= 0);
+        const effect = rules.BATTLE_SKILL_EFFECTS[code];
+        if (sk && effect && _hasActionStamina(unit, code, effect)) return sk;
+    }
+    return null;
+}
+
 function _pickSkill(unit, opponent, dist) {
     if (!unit.canUseSkills) return null;
     let best = null;
     let bestScore = 0;
     const hpRatio = unit.hp / unit.maxHp;
+    unit.actionEconomy = unit.actionEconomy || { spent: 0, recovered: 0, blockedByStamina: 0 };
     for (const sk of unit.skills) {
         if (sk.cooldownLeft > 0) continue;
         const effect = rules.BATTLE_SKILL_EFFECTS[sk.code];
         if (!effect) continue;
-        const score = _skillScore(unit, opponent, effect, dist, hpRatio);
+        if (!_hasActionStamina(unit, sk.code, effect)) {
+            unit.actionEconomy.blockedByStamina++;
+            continue;
+        }
+        if ((effect.type === 'melee' || effect.type === 'ranged') && dist > _actionMaxRange(unit, sk.code, effect)) continue;
+        const score = _skillScore(unit, opponent, effect, dist, hpRatio, sk.code);
         if (score > bestScore) {
             bestScore = score;
             best = sk;
@@ -751,11 +1046,36 @@ function _pickSkill(unit, opponent, dist) {
     return bestScore >= 55 ? best : null;
 }
 
+function _pickBasicAttack(unit, opponent, dist) {
+    const candidates = ['quick_snap', 'bite'];
+    const hpRatio = unit.hp / Math.max(1, unit.maxHp);
+    let best = null;
+    let bestScore = 0;
+    for (const code of candidates) {
+        const sk = unit.skills.find(item => item.code === code && item.cooldownLeft <= 0);
+        const effect = rules.BATTLE_SKILL_EFFECTS[code];
+        if (!sk || !effect) continue;
+        const maxRange = _actionMaxRange(unit, code, effect);
+        if (dist > maxRange) continue;
+        if (!_hasActionStamina(unit, code, effect)) {
+            unit.actionEconomy = unit.actionEconomy || { spent: 0, recovered: 0, blockedByStamina: 0 };
+            unit.actionEconomy.blockedByStamina++;
+            continue;
+        }
+        const score = _skillScore(unit, opponent, effect, dist, hpRatio, code) + (code === 'quick_snap' ? 8 : 0);
+        if (score > bestScore) {
+            bestScore = score;
+            best = sk;
+        }
+    }
+    return best;
+}
+
 /* ═══════════════════════════════════════════
  * 伤害计算
  * ═══════════════════════════════════════════ */
 
-function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey) {
+function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey, frame) {
     const angleBonus = angleAttackBonus(attacker, defender, targetPartKey);
     if (defender.tailDecoyFrames > 0 && secureRandomFloat() < rules.BATTLE_TAIL_DECOY_HIT_CHANCE) {
         return { damage: 0, dodged: true, crit: false, part: 'tail_decoy', decoy: true, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
@@ -792,8 +1112,29 @@ function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey) {
         return { damage: 0, dodged: true, crit: false, part: targetPartKey, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
     }
 
-    const damage = Math.max(1, Math.floor(baseAtk * defReduction * float * rageMulti * staPenalty * critMulti));
-    return { damage, dodged: false, crit: isCrit, part: targetPartKey, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
+    const rawDamage = Math.max(1, Math.floor(baseAtk * defReduction * float * rageMulti * staPenalty * critMulti));
+    const defense = _defenseState(defender, frame);
+    if (defense && defense.armor > 0) {
+        const blockRate = Math.max(0, Math.min(0.9, defense.armor));
+        const damage = Math.max(1, Math.floor(rawDamage * (1 - blockRate)));
+        return {
+            damage,
+            rawDamage,
+            blockedDamage: rawDamage - damage,
+            blocked: true,
+            countered: defense.inCounter,
+            defenseAction: defense.actionId,
+            dodged: false,
+            crit: isCrit,
+            part: targetPartKey,
+            angleBonus,
+            attackZone: angleBonus.zone,
+            flankScore: angleBonus.flankScore,
+            flankAngle: angleBonus.angle,
+        };
+    }
+
+    return { damage: rawDamage, rawDamage, dodged: false, crit: isCrit, part: targetPartKey, angleBonus, attackZone: angleBonus.zone, flankScore: angleBonus.flankScore, flankAngle: angleBonus.angle };
 }
 
 function _applyPartDamage(defender, partKey, damage) {
@@ -893,6 +1234,11 @@ function _applySoundPerception(listener, sound, frame, map) {
     listener.perception.detectedBySound = true;
     listener.perception.soundConfidence = Number(confidence.toFixed(2));
     listener.perception.misledByFakeSound = !!sound.fake;
+    listener.infoStats.heard++;
+    if (sound.fake) {
+        listener.infoStats.fakeHeard++;
+        listener.infoStats.misled++;
+    }
 
     return {
         type: 'perception',
@@ -1008,8 +1354,8 @@ function createBattle({ pet1, pet2, mapId, leftPersonality, rightPersonality }) 
         finishReason: null,
         frames: [],
         stats: {
-            left:  { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, angle: _emptyAngleStats() },
-            right: { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, angle: _emptyAngleStats() },
+            left:  { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, blocks: 0, blockedDamage: 0, counters: 0, angle: _emptyAngleStats(), strategy: _emptyStrategyTrace(), targetParts: {}, targetTactics: {} },
+            right: { totalDamage: 0, hits: 0, crits: 0, dodges: 0, skillsUsed: 0, blocks: 0, blockedDamage: 0, counters: 0, angle: _emptyAngleStats(), strategy: _emptyStrategyTrace(), targetParts: {}, targetTactics: {} },
         },
     };
 }
@@ -1042,12 +1388,24 @@ function _snapshotUnit(unit) {
         flankTarget: unit.flankTarget ? { x: Math.round(unit.flankTarget.x), y: Math.round(unit.flankTarget.y) } : null,
         protectTarget: unit.protectTarget ? { x: Math.round(unit.protectTarget.x), y: Math.round(unit.protectTarget.y) } : null,
         weakExposure: unit.weakExposure,
+        lastTargetTactic: unit.lastTargetTactic || null,
+        strategy: {
+            intent: unit.strategyIntent || 'idle',
+            reason: unit.strategyReason || 'idle',
+            frame: unit.strategyFrame || 0,
+        },
+        strategyTrace: { ...unit.strategyTrace },
+        opponentModel: { ...unit.opponentModel, intentTrace: { ...(unit.opponentModel && unit.opponentModel.intentTrace || {}) } },
         hp: unit.hp,
         maxHp: unit.maxHp,
         fear: unit.fear,
         st: unit.aiState,
-        sta: unit.battleStamina,
-        atk: unit.atk,
+        sta: Math.round(unit.battleStamina),
+        maxSta: unit.maxBattleStamina,
+        actionEconomy: { ...unit.actionEconomy },
+        defenseStats: { ...unit.defenseStats },
+        infoStats: { ...unit.infoStats },
+        activeAction: unit.activeAction ? { ...unit.activeAction, phase: unit.activeAction.phase } : null,
         def: unit.def,
         spd: unit.spd,
         effectiveSpd: unit.effectiveSpd,
@@ -1072,7 +1430,14 @@ function _snapshotUnit(unit) {
             lastHeardSource: unit.perception.lastHeardSource,
             misledByFakeSound: unit.perception.misledByFakeSound,
         },
-        skills: unit.skills.map(s => ({ code: s.code, cooldownLeft: s.cooldownLeft })),
+        skills: unit.skills.map(s => ({
+            code: s.code,
+            cooldownLeft: s.cooldownLeft,
+            cooldown: _actionCooldown(s.code, rules.BATTLE_SKILL_EFFECTS[s.code]),
+            staminaCost: _actionStaminaCost(s.code, rules.BATTLE_SKILL_EFFECTS[s.code]),
+            ready: s.cooldownLeft <= 0 && _hasActionStamina(unit, s.code, rules.BATTLE_SKILL_EFFECTS[s.code]),
+            virtual: !!s.virtual,
+        })),
     };
 }
 
@@ -1121,6 +1486,9 @@ function _buildSummary(session) {
             hpRemaining: Math.max(0, unitA.hp),
             personality: unitA.personality,
             personalityTrace: { ...unitA.personalityTrace },
+            strategyTrace: { ...unitA.strategyTrace },
+            currentStrategy: { intent: unitA.strategyIntent, reason: unitA.strategyReason, frame: unitA.strategyFrame },
+            opponentModel: { ...unitA.opponentModel, intentTrace: { ...unitA.opponentModel.intentTrace } },
             hpMax: unitA.maxHp,
             bodyParts: _snapshotBodyParts(unitA),
             impairments: {
@@ -1131,6 +1499,8 @@ function _buildSummary(session) {
                 moveControl: unitA.moveControl,
                 canUseSkills: unitA.canUseSkills,
             },
+            actionEconomy: { ...unitA.actionEconomy },
+            infoStats: { ...unitA.infoStats },
             ...session.stats.left,
         },
         right: {
@@ -1139,6 +1509,9 @@ function _buildSummary(session) {
             hpRemaining: Math.max(0, unitB.hp),
             personality: unitB.personality,
             personalityTrace: { ...unitB.personalityTrace },
+            strategyTrace: { ...unitB.strategyTrace },
+            currentStrategy: { intent: unitB.strategyIntent, reason: unitB.strategyReason, frame: unitB.strategyFrame },
+            opponentModel: { ...unitB.opponentModel, intentTrace: { ...unitB.opponentModel.intentTrace } },
             hpMax: unitB.maxHp,
             bodyParts: _snapshotBodyParts(unitB),
             impairments: {
@@ -1149,6 +1522,8 @@ function _buildSummary(session) {
                 moveControl: unitB.moveControl,
                 canUseSkills: unitB.canUseSkills,
             },
+            actionEconomy: { ...unitB.actionEconomy },
+            infoStats: { ...unitB.infoStats },
             ...session.stats.right,
         },
     };
@@ -1183,6 +1558,13 @@ function stepBattle(session, frameCount = 1, options = {}) {
             _decayPerception(unitB);
             _recoverBodyParts(unitA);
             _recoverBodyParts(unitB);
+            for (const unit of [unitA, unitB]) {
+                const regen = rules.BATTLE_STA_REGEN_PER_SEC || 0;
+                if (regen > 0 && unit.battleStamina < unit.maxBattleStamina) {
+                    unit.battleStamina = Math.min(unit.maxBattleStamina, unit.battleStamina + regen);
+                    unit.actionEconomy.recovered += regen;
+                }
+            }
         }
 
         if (unitA.tailDecoyFrames > 0) unitA.tailDecoyFrames--;
@@ -1195,16 +1577,19 @@ function stepBattle(session, frameCount = 1, options = {}) {
         _tickBuffs(unitA);
         _tickBuffs(unitB);
 
-        unitA.attackCooldown = Math.max(0, unitA.attackCooldown - 1);
-        unitB.attackCooldown = Math.max(0, unitB.attackCooldown - 1);
         for (const sk of unitA.skills) sk.cooldownLeft = Math.max(0, sk.cooldownLeft - 1);
         for (const sk of unitB.skills) sk.cooldownLeft = Math.max(0, sk.cooldownLeft - 1);
+
+        _tickActiveAction(unitA, frame);
+        _tickActiveAction(unitB, frame);
 
         _updateAIState(unitA, unitB, frame);
         _updateAIState(unitB, unitA, frame);
 
         const decA = _aiDecide(unitA, unitB, frame, session.map);
         const decB = _aiDecide(unitB, unitA, frame, session.map);
+        _observeOpponentAction(unitA, decB);
+        _observeOpponentAction(unitB, decA);
         const eventsA = _executeAction(unitA, unitB, decA, rageMulti, session.stats.left, frame, session.map);
         const eventsB = _executeAction(unitB, unitA, decB, rageMulti, session.stats.right, frame, session.map);
         lastEvents = animationMapper.appendDerivedAnimationEvents([...eventsA, ...eventsB], frame);
@@ -1300,6 +1685,14 @@ function _compressFrames(frames) {
 
 function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame, map) {
     const events = [];
+    if (decision && statTracker && statTracker.strategy) {
+        const intent = decision.strategyIntent || unit.strategyIntent || 'idle';
+        statTracker.strategy[intent] = (statTracker.strategy[intent] || 0) + 1;
+        if (unit.strategyChanged) {
+            events.push({ type: 'strategy_intent', src: unit.side, intent, reason: decision.strategyReason || unit.strategyReason || intent, frame });
+            unit.strategyChanged = false;
+        }
+    }
 
     switch (decision.action) {
         case 'move': {
@@ -1377,59 +1770,33 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
             break;
         }
 
-        case 'attack': {
-            const dist = _battleDist(unit, opponent);
-            if (dist > 100 * Math.max(0.1, unit.visionMult)) break;
-
-            const targetPart = _pickTargetPart(opponent, unit);
-            const result = _calcDamage(unit, opponent, rageMulti, 1.0, targetPart);
-            _trackAngleStats(statTracker, result);
-            unit.attackCooldown = Math.max(10, 30 - Math.floor(unit.effectiveSpd / 5));
-            unit.battleStamina -= rules.BATTLE_STA_PER_ATK;
-
-            if (result.dodged) {
-                statTracker.dodges++;
-                events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, part: result.part, attackZone: result.attackZone, flankScore: result.flankScore });
-            } else {
-                events.push(..._applyPartDamage(opponent, targetPart, result.damage));
-                opponent.fear += rules.BATTLE_FEAR_PER_HIT;
-                statTracker.totalDamage += result.damage;
-                statTracker.hits++;
-                if (result.crit) statTracker.crits++;
-                events.push({
-                    type: result.crit ? 'crit' : 'hit',
-                    src: unit.side,
-                    tgt: opponent.side,
-                    dmg: result.damage,
-                    part: targetPart,
-                    attackZone: result.attackZone,
-                    flankScore: result.flankScore,
-                    angleBonus: result.angleBonus,
-                });
-            }
-            if (unit.aiSubState === 'flank_attack') {
-                unit.aiSubState = null;
-                unit.flankTarget = null;
-            }
-            events.push(animationMapper.mapAttackAction({
-                actor: unit,
-                target: opponent,
-                frame,
-                result,
-                targetPart,
-                actionId: 'bite',
-            }));
-            break;
-        }
-
         case 'skill': {
             if (!unit.canUseSkills) break;
             const sk = decision.skill;
             const effect = rules.BATTLE_SKILL_EFFECTS[sk.code];
             if (!effect) break;
 
-            sk.cooldownLeft = effect.cooldown;
+            sk.cooldownLeft = _actionCooldown(sk.code, effect);
             statTracker.skillsUsed++;
+            const staminaCost = _actionStaminaCost(sk.code, effect);
+            if (!_hasActionStamina(unit, sk.code, effect)) {
+                unit.actionEconomy.blockedByStamina++;
+                break;
+            }
+            unit.battleStamina = Math.max(0, unit.battleStamina - staminaCost);
+            unit.actionEconomy.spent += staminaCost;
+            const actionState = _startActiveAction(unit, sk.code, frame);
+            events.push({
+                type: 'action_phase',
+                src: unit.side,
+                actionId: sk.code,
+                phase: actionState.phase,
+                startFrame: actionState.startFrame,
+                impactFrame: actionState.startFrame + actionState.impact,
+                endFrame: actionState.endFrame,
+                interruptible: actionState.interruptible,
+                counterWindow: actionState.counterWindow,
+            });
             if (effect.sound && effect.sound.fakeSound) {
                 const fakePoint = _clampPoint(map, {
                     x: unit.x - (opponent.x - unit.x) / Math.max(1, _battleDist(unit, opponent)) * 120,
@@ -1454,6 +1821,49 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                 _updateBodyImpairments(unit);
                 events.push({ type: 'heal', src: unit.side, amt: healAmt, skill: sk.code });
                 events.push(animationMapper.mapSkillAction({ actor: unit, target: unit, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
+            } else if (effect.type === 'defense') {
+                events.push({
+                    type: 'defense_ready',
+                    src: unit.side,
+                    skill: sk.code,
+                    actionId: sk.code,
+                    armor: actionState.armor,
+                    counterWindow: actionState.counterWindow,
+                    endFrame: actionState.endFrame,
+                });
+                events.push(animationMapper.mapSkillAction({ actor: unit, target: unit, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
+            } else if (effect.type === 'movement') {
+                const rootMotion = _actionContract(sk.code).rootMotion || {};
+                const away = sk.code === 'retreat_step' || effect.effect === 'retreat';
+                const sideStep = sk.code === 'flank_step' || effect.effect === 'flank';
+                const dx = opponent.x - unit.x;
+                const dy = opponent.y - unit.y;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const nx = dx / len;
+                const ny = dy / len;
+                const side = unit.side === 'left' ? 1 : -1;
+                const step = Number(effect.value || rootMotion.retreat || rootMotion.sidestep || 28);
+                const from = { x: Math.round(unit.x), y: Math.round(unit.y) };
+                const next = _clampPoint(map, {
+                    x: unit.x + (away ? -nx * step : 0) + (sideStep ? -ny * side * step : 0),
+                    y: unit.y + (away ? -ny * step : 0) + (sideStep ? nx * side * step : 0),
+                });
+                unit.x = next.x;
+                unit.y = next.y;
+                events.push(animationMapper.mapMovementAction({ actor: unit, from, to: { x: Math.round(unit.x), y: Math.round(unit.y) }, speed: step, frame, map, actionId: sk.code }));
+            } else if (effect.type === 'perception') {
+                unit.infoStats.infoSkills++;
+                unit.perception.awareness = Math.min(100, unit.perception.awareness + (sk.code === 'listen_alert' ? 18 : 28));
+                unit.perception.lastKnownTargetX = opponent.x;
+                unit.perception.lastKnownTargetY = opponent.y;
+                unit.perception.lastHeardSource = opponent.side;
+                events.push({ type: 'perception', subtype: sk.code, src: unit.side, tgt: opponent.side, frame, confidence: sk.code === 'listen_alert' ? 0.7 : 0.85, lastKnownX: Math.round(opponent.x), lastKnownY: Math.round(opponent.y) });
+            } else if (effect.type === 'trick') {
+                if (effect.effect === 'tail_decoy') {
+                    unit.tailDecoyFrames = Math.max(unit.tailDecoyFrames, effect.duration || rules.BATTLE_TAIL_DECOY_FRAMES);
+                    events.push({ type: 'tail_decoy_ready', src: unit.side, skill: sk.code, duration: unit.tailDecoyFrames });
+                }
+                events.push(animationMapper.mapSkillAction({ actor: unit, target: opponent, frame, skillCode: sk.code, effect, result: { damage: 0 }, targetPart: null }));
             } else if (effect.type === 'buff') {
                 _applyBuff(unit, effect, sk.code);
                 events.push({ type: 'buff', src: unit.side, skill: sk.code, effect: effect.effect });
@@ -1465,13 +1875,14 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
             } else {
                 // 攻击型技能
                 const dist = _battleDist(unit, opponent);
-                const maxRange = (effect.type === 'ranged' ? 300 : 100) * Math.max(0.1, unit.visionMult);
+                const maxRange = _actionMaxRange(unit, sk.code, effect);
                 if (dist > maxRange) break;
 
                 const targetPart = _pickTargetPart(opponent, unit);
-                const result = _calcDamage(unit, opponent, rageMulti, effect.dmg_multi, targetPart);
+                const result = _calcDamage(unit, opponent, rageMulti, effect.dmg_multi, targetPart, frame);
+                const targetTactic = unit.lastTargetTactic || { part: targetPart, intent: _targetPartIntent(targetPart), strategy: unit.strategyIntent || 'pressure' };
+                _recordTargetPart(statTracker, targetPart, targetTactic.intent, result.damage);
                 _trackAngleStats(statTracker, result);
-                unit.battleStamina -= rules.BATTLE_STA_PER_ATK * 2;
 
                 if (result.dodged) {
                     statTracker.dodges++;
@@ -1482,14 +1893,49 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                     statTracker.totalDamage += result.damage;
                     statTracker.hits++;
                     if (result.crit) statTracker.crits++;
+                    if (result.blocked) {
+                        statTracker.blocks++;
+                        statTracker.blockedDamage += result.blockedDamage || 0;
+                        opponent.defenseStats.blocks++;
+                        opponent.defenseStats.blockedDamage += result.blockedDamage || 0;
+                        events.push({
+                            type: 'guard_block',
+                            src: opponent.side,
+                            tgt: unit.side,
+                            skill: sk.code,
+                            actionId: result.defenseAction,
+                            blockedDamage: result.blockedDamage || 0,
+                            dmg: result.damage,
+                            part: targetPart,
+                        });
+                        if (result.countered) {
+                            statTracker.counters++;
+                            opponent.defenseStats.counters++;
+                            unit.fear += Math.max(1, Math.floor((effect.fear || 0) * 0.5));
+                            events.push({
+                                type: 'counter',
+                                src: opponent.side,
+                                tgt: unit.side,
+                                actionId: result.defenseAction,
+                                against: sk.code,
+                                fear: Math.max(1, Math.floor((effect.fear || 0) * 0.5)),
+                            });
+                        }
+                    }
                     events.push({
                         type: 'skill_hit',
                         src: unit.side,
                         tgt: opponent.side,
                         skill: sk.code,
                         dmg: result.damage,
+                        rawDmg: result.rawDamage || result.damage,
+                        blocked: !!result.blocked,
+                        blockedDamage: result.blockedDamage || 0,
+                        countered: !!result.countered,
+                        defenseAction: result.defenseAction || null,
                         crit: result.crit,
                         part: targetPart,
+                        targetTactic,
                         attackZone: result.attackZone,
                         flankScore: result.flankScore,
                         angleBonus: result.angleBonus,
