@@ -73,16 +73,18 @@
             </aside>
 
             <section class="stage-card">
-                <div id="battleTopHud" class="battle-top-hud hidden" aria-label="双方血量与恐惧值">
+                <div id="battleTopHud" class="battle-top-hud hidden" aria-label="双方血量、体力与恐惧值">
                     <div class="hud-side hud-left">
                         <div class="hud-head"><span id="hudLeftName">左方</span><strong id="hudLeftHpText">0 / 0</strong></div>
                         <div class="hud-hp"><i id="hudLeftHpBar"></i></div>
+                        <div class="hud-stamina"><span>体力</span><strong id="hudLeftStaText">0 / 0</strong><div><i id="hudLeftStaBar"></i></div></div>
                         <div class="hud-fear"><span>恐惧</span><strong id="hudLeftFearText">0</strong><div><i id="hudLeftFearBar"></i></div></div>
                     </div>
                     <div class="hud-vs">VS</div>
                     <div class="hud-side hud-right">
                         <div class="hud-head"><span id="hudRightName">右方</span><strong id="hudRightHpText">0 / 0</strong></div>
                         <div class="hud-hp"><i id="hudRightHpBar"></i></div>
+                        <div class="hud-stamina"><span>体力</span><strong id="hudRightStaText">0 / 0</strong><div><i id="hudRightStaBar"></i></div></div>
                         <div class="hud-fear"><span>恐惧</span><strong id="hudRightFearText">0</strong><div><i id="hudRightFearBar"></i></div></div>
                     </div>
                 </div>
@@ -90,7 +92,17 @@
                 <div id="winnerBadge" class="winner hidden"></div>
                 <section class="battle-log-dock" aria-label="战斗文字信息">
                     <div class="battle-log-title">战斗文字信息</div>
-                    <div id="eventLog" class="event-log"></div>
+                    <div class="battle-log-columns">
+                        <section class="battle-log-column battle-log-left" aria-label="左方宠物战斗文字">
+                            <h3>左方宠物</h3>
+                            <div id="eventLogLeft" class="event-log"></div>
+                        </section>
+                        <section class="battle-log-column battle-log-right" aria-label="右方宠物战斗文字">
+                            <h3>右方宠物</h3>
+                            <div id="eventLogRight" class="event-log"></div>
+                        </section>
+                    </div>
+                    <div id="eventLog" class="event-log hidden"></div>
                 </section>
             </section>
 

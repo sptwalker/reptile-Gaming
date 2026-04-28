@@ -13,6 +13,8 @@
     var leftState = document.getElementById('leftState');
     var rightState = document.getElementById('rightState');
     var eventLog = document.getElementById('eventLog');
+    var eventLogLeft = document.getElementById('eventLogLeft');
+    var eventLogRight = document.getElementById('eventLogRight');
     var winnerBadge = document.getElementById('winnerBadge');
     var batchResult = document.getElementById('batchResult');
     var toggleMotionDebug = document.getElementById('toggleMotionDebug');
@@ -34,6 +36,10 @@
     var hudRightHpText = document.getElementById('hudRightHpText');
     var hudLeftHpBar = document.getElementById('hudLeftHpBar');
     var hudRightHpBar = document.getElementById('hudRightHpBar');
+    var hudLeftStaText = document.getElementById('hudLeftStaText');
+    var hudRightStaText = document.getElementById('hudRightStaText');
+    var hudLeftStaBar = document.getElementById('hudLeftStaBar');
+    var hudRightStaBar = document.getElementById('hudRightStaBar');
     var hudLeftFearText = document.getElementById('hudLeftFearText');
     var hudRightFearText = document.getElementById('hudRightFearText');
     var hudLeftFearBar = document.getElementById('hudLeftFearBar');
@@ -41,6 +47,7 @@
 
     var sessionId = '';
     var state = null;
+    var previewState = null;
     var running = false;
     var raf = 0;
     var lastTick = 0;
@@ -64,6 +71,8 @@
     var stepWatchdogShown = false;
     var sameFrameResponses = 0;
     var eventLogRows = [];
+    var eventLogRowsLeft = [];
+    var eventLogRowsRight = [];
     var summaryShownKey = '';
     var renderDegradedUntil = 0;
     var animator = window.BattleAnimator ? new window.BattleAnimator({ contracts: window.BattleActionContracts }) : null;
@@ -146,6 +155,11 @@
         return typeof n === 'number' ? (Math.round(n * 10) / 10) : n;
     }
 
+    function fmtRegen(n) {
+        var num = Number(n);
+        return Number.isFinite(num) ? num.toFixed(2) : n;
+    }
+
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
     }
@@ -188,7 +202,7 @@
     }
 
     function previewPayloadKey() {
-        return Number(pet1Id.value || 0) + ':' + Number(pet2Id.value || 0);
+        return Number(pet1Id.value || 0) + ':' + Number(pet2Id.value || 0) + ':' + (mapId && mapId.value || 'grassland');
     }
 
     async function loadPreview() {
@@ -196,9 +210,15 @@
         if (key === previewKey || Number(pet1Id.value) <= 0 || Number(pet2Id.value) <= 0) return;
         previewKey = key;
         rememberPetIds();
-        var data = await request('/preview', { pet1Id: Number(pet1Id.value), pet2Id: Number(pet2Id.value) });
+        var data = await request('/preview', { pet1Id: Number(pet1Id.value), pet2Id: Number(pet2Id.value), mapId: mapId && mapId.value });
         if (state || running) return;
         applyAppearance(data.appearance);
+        previewState = data.state || null;
+        if (previewState && previewState.units) {
+            renderUnit(leftState, previewState.units.left);
+            renderUnit(rightState, previewState.units.right);
+        }
+        updateTopHud();
         previewActive = true;
         ensureIdleLoop();
         draw();
@@ -474,12 +494,13 @@
 
     function updateTopHud() {
         if (!battleTopHud) return;
-        if (!state || !state.units) {
+        var hudState = state || previewState;
+        if (!hudState || !hudState.units) {
             battleTopHud.classList.add('hidden');
             return;
         }
-        var left = state.units.left || {};
-        var right = state.units.right || {};
+        var left = hudState.units.left || {};
+        var right = hudState.units.right || {};
         battleTopHud.classList.remove('hidden');
         hudLeftName.textContent = left.name || '左方宠物';
         hudRightName.textContent = right.name || '右方宠物';
@@ -487,6 +508,10 @@
         hudRightHpText.textContent = fmt(right.hp) + ' / ' + fmt(right.maxHp);
         hudLeftHpBar.style.width = pct(left.hp, left.maxHp) + '%';
         hudRightHpBar.style.width = pct(right.hp, right.maxHp) + '%';
+        if (hudLeftStaText) hudLeftStaText.textContent = fmt(left.sta || 0) + ' / ' + fmt(left.maxSta || 0);
+        if (hudRightStaText) hudRightStaText.textContent = fmt(right.sta || 0) + ' / ' + fmt(right.maxSta || 0);
+        if (hudLeftStaBar) hudLeftStaBar.style.width = pct(left.sta || 0, left.maxSta || 0) + '%';
+        if (hudRightStaBar) hudRightStaBar.style.width = pct(right.sta || 0, right.maxSta || 0) + '%';
         hudLeftFearText.textContent = fmt(left.fear || 0);
         hudRightFearText.textContent = fmt(right.fear || 0);
         hudLeftFearBar.style.width = Math.max(0, Math.min(100, Number(left.fear || 0))) + '%';
@@ -495,44 +520,51 @@
 
     function renderUnit(el, unit) {
         if (!unit) { el.innerHTML = '<div class="muted">无数据</div>'; return; }
-        var skills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return s.code + ':' + s.cooldownLeft + '/' + s.cooldown + ' STA' + s.staminaCost + (s.ready ? '✓' : '×'); }).join(' / ') : '无';
+        var skills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return skillName(s.code) + ':' + s.cooldownLeft + '/' + s.cooldown + ' STA' + s.staminaCost + (s.ready ? '✓' : '×'); }).join(' / ') : '无';
+        var ownedSkills = unit.skills && unit.skills.length ? unit.skills.map(function (s) { return skillName(s.code); }).join(' / ') : '无';
         var active = unit.activeAction;
-        var html = '';
-        html += line('HP', fmt(unit.hp) + ' / ' + fmt(unit.maxHp));
-        html += '<div class="bar"><i style="width:' + pct(unit.hp, unit.maxHp) + '%"></i></div>';
-        html += line('恐惧 / 体力', fmt(unit.fear) + ' / ' + fmt(unit.sta) + ' / ' + fmt(unit.maxSta || 0));
-        html += line('动作阶段', active ? (skillName(active.actionId) + ' · ' + active.phase + ' · ' + active.startFrame + '-' + active.endFrame) : '空闲');
-        if (active) html += line('护甲 / 反制窗', fmt(active.armor || 0) + ' / ' + (active.counterWindow ? active.counterWindow.start + '-' + active.counterWindow.end : '-'));
-        html += line('体力经济', economyText(unit.actionEconomy));
-        html += line('防御统计', '格挡' + (unit.defenseStats && unit.defenseStats.blocks || 0) + ' / 减伤' + fmt(unit.defenseStats && unit.defenseStats.blockedDamage || 0) + ' / 反制' + (unit.defenseStats && unit.defenseStats.counters || 0));
-        html += line('策略意图', strategyName(unit.strategy && unit.strategy.intent) + ' / ' + (unit.strategy && unit.strategy.reason || '-'));
-        html += line('策略分布', traceText(unit.strategyTrace));
-        html += line('对手模型', modelText(unit.opponentModel));
-        html += line('对手意图', traceText(unit.opponentModel && unit.opponentModel.intentTrace));
-        html += line('信息统计', keyedText(unit.infoStats));
-        html += line('AI / 子状态', unit.st + ' / ' + (unit.aiSubState || '-'));
-        html += line('朝向 / 角速', fmt(unit.facing) + ' / ' + fmt(unit.angularVelocity || 0));
-        if (unit.flankTarget) html += line('绕后目标', 'x=' + unit.flankTarget.x + ' y=' + unit.flankTarget.y);
-        if (unit.protectTarget) html += line('保护目标', 'x=' + unit.protectTarget.x + ' y=' + unit.protectTarget.y);
-        if (unit.weakExposure) html += line('弱点暴露', unit.weakExposure.part + ' ' + fmt(unit.weakExposure.exposure) + ' / HP ' + fmt(unit.weakExposure.hpRatio));
-        if (unit.lastTargetTactic) html += line('最近部位战术', tacticName(unit.lastTargetTactic));
-        if (unit.personality) html += line('战斗性格', (unit.personality.name || unit.personality.code) + ' / ' + (unit.personality.code || 'custom'));
-        html += line('攻 / 防 / 速', fmt(unit.atk) + ' / ' + fmt(unit.def) + ' / ' + fmt(unit.effectiveSpd));
-        html += line('视野 / 转头', fmt(unit.vision) + ' / ' + fmt(unit.headTurn));
-        html += line('步幅 / 肢体', fmt(unit.step) + ' / ' + fmt(unit.limbMove));
-        html += line('控制 / 转圈', fmt(unit.moveControl) + ' / ' + fmt(unit.spin));
-        if (unit.perception) {
-            html += line('听力 / 警觉', fmt(unit.perception.hearingRange) + ' / ' + fmt(unit.perception.awareness));
-            html += line('声音感知', (unit.perception.detectedBySound ? '捕获' : '未捕获') + ' / 置信' + fmt(unit.perception.soundConfidence || 0));
-            html += line('声音方位', unit.perception.lastKnownTargetX == null ? '未知' : ('x=' + unit.perception.lastKnownTargetX + ' y=' + (unit.perception.lastKnownTargetY == null ? '?' : unit.perception.lastKnownTargetY) + (unit.perception.misledByFakeSound ? ' 假声' : '')));
-        }
-        html += line('断尾诱饵', unit.decoy ? unit.tailDecoyFrames + '帧' : '无');
-        html += line('技能CD', skills);
-        html += '<div class="parts">' + Object.keys(unit.body || {}).map(function (key) {
+        var healthHtml = '';
+        var textHtml = '';
+        healthHtml += stateHealth('HP', fmt(unit.hp) + ' / ' + fmt(unit.maxHp), pct(unit.hp, unit.maxHp));
+        healthHtml += stateHealth('体力', fmt(unit.sta || 0) + ' / ' + fmt(unit.maxSta || 0), pct(unit.sta || 0, unit.maxSta || 0));
+        healthHtml += stateHealth('恐惧', fmt(unit.fear || 0), Math.max(0, Math.min(100, Number(unit.fear || 0))));
+        healthHtml += '<div class="parts">' + Object.keys(unit.body || {}).map(function (key) {
             var p = unit.body[key];
-            return '<div class="part ' + (p.detached ? 'detached' : '') + '"><strong>' + (bodyPartNames[key] || key) + '</strong> HP ' + p.hp + '/' + p.max + ' DEF ' + p.def + ' REG ' + p.regen + (p.detached ? ' 已脱落' : '') + '<div class="bar"><i style="width:' + pct(p.hp, p.max) + '%"></i></div></div>';
+            return '<div class="part ' + (p.detached ? 'detached' : '') + '"><strong>' + (bodyPartNames[key] || key) + '</strong> HP ' + p.hp + '/' + p.max + ' DEF ' + p.def + ' REG ' + fmtRegen(p.regen) + (p.detached ? ' 已脱落' : '') + '<div class="bar"><i style="width:' + pct(p.hp, p.max) + '%"></i></div></div>';
         }).join('') + '</div>';
-        el.innerHTML = html;
+        textHtml += line('动作阶段', active ? (skillName(active.actionId) + ' · ' + active.phase + ' · ' + active.startFrame + '-' + active.endFrame) : '空闲');
+        if (active) textHtml += line('护甲 / 反制窗', fmt(active.armor || 0) + ' / ' + (active.counterWindow ? active.counterWindow.start + '-' + active.counterWindow.end : '-'));
+        textHtml += line('体力经济', economyText(unit.actionEconomy));
+        textHtml += line('防御统计', '格挡' + (unit.defenseStats && unit.defenseStats.blocks || 0) + ' / 减伤' + fmt(unit.defenseStats && unit.defenseStats.blockedDamage || 0) + ' / 反制' + (unit.defenseStats && unit.defenseStats.counters || 0));
+        textHtml += line('策略意图', strategyName(unit.strategy && unit.strategy.intent) + ' / ' + (unit.strategy && unit.strategy.reason || '-'));
+        textHtml += line('策略分布', traceText(unit.strategyTrace));
+        textHtml += line('对手模型', modelText(unit.opponentModel));
+        textHtml += line('对手意图', traceText(unit.opponentModel && unit.opponentModel.intentTrace));
+        textHtml += line('信息统计', keyedText(unit.infoStats));
+        textHtml += line('AI / 子状态', unit.st + ' / ' + (unit.aiSubState || '-'));
+        textHtml += line('朝向 / 角速', fmt(unit.facing) + ' / ' + fmt(unit.angularVelocity || 0));
+        if (unit.flankTarget) textHtml += line('绕后目标', 'x=' + unit.flankTarget.x + ' y=' + unit.flankTarget.y);
+        if (unit.protectTarget) textHtml += line('保护目标', 'x=' + unit.protectTarget.x + ' y=' + unit.protectTarget.y);
+        if (unit.weakExposure) textHtml += line('弱点暴露', unit.weakExposure.part + ' ' + fmt(unit.weakExposure.exposure) + ' / HP ' + fmt(unit.weakExposure.hpRatio));
+        if (unit.lastTargetTactic) textHtml += line('最近部位战术', tacticName(unit.lastTargetTactic));
+        if (unit.personality) textHtml += line('战斗性格', (unit.personality.name || unit.personality.code) + ' / ' + (unit.personality.code || 'custom'));
+        textHtml += line('攻 / 防 / 速', fmt(unit.atk) + ' / ' + fmt(unit.def) + ' / ' + fmt(unit.effectiveSpd));
+        textHtml += line('视野 / 转头', fmt(unit.vision) + ' / ' + fmt(unit.headTurn));
+        textHtml += line('步幅 / 肢体', fmt(unit.step) + ' / ' + fmt(unit.limbMove));
+        textHtml += line('控制 / 转圈', fmt(unit.moveControl) + ' / ' + fmt(unit.spin));
+        if (unit.perception) {
+            textHtml += line('听力 / 警觉', fmt(unit.perception.hearingRange) + ' / ' + fmt(unit.perception.awareness));
+            textHtml += line('声音感知', (unit.perception.detectedBySound ? '捕获' : '未捕获') + ' / 置信' + fmt(unit.perception.soundConfidence || 0));
+            textHtml += line('声音方位', unit.perception.lastKnownTargetX == null ? '未知' : ('x=' + unit.perception.lastKnownTargetX + ' y=' + (unit.perception.lastKnownTargetY == null ? '?' : unit.perception.lastKnownTargetY) + (unit.perception.misledByFakeSound ? ' 假声' : '')));
+        }
+        textHtml += line('断尾诱饵', unit.decoy ? unit.tailDecoyFrames + '帧' : '无');
+        textHtml += line('拥有技能', ownedSkills);
+        textHtml += line('技能CD', skills);
+        el.innerHTML = '<div class="unit-health-stack">' + healthHtml + '</div><div class="unit-text-stack">' + textHtml + '</div>';
+    }
+
+    function stateHealth(k, v, percent) {
+        return '<div class="state-health"><div class="state-health-head"><span>' + k + '</span><strong>' + v + '</strong></div><div class="bar"><i style="width:' + percent + '%"></i></div></div>';
     }
 
     function line(k, v) {
@@ -722,6 +754,7 @@
 
     function currentMapConfig() {
         if (state && state.mapConfig) return state.mapConfig;
+        if (previewState && previewState.mapConfig) return previewState.mapConfig;
         var id = state && state.map || (mapId && mapId.value) || 'grassland';
         return mapConfigs[id] || mapList[0] || { id: id, name: id, width: 800, height: 600, margin: 20, terrain: 'grass', soundSurface: 'grass' };
     }
@@ -783,6 +816,25 @@
             var gpY = worldToCanvas({ x: 0, y: gy }, w, h, r.map).y;
             ctx.beginPath(); ctx.moveTo(r.x, gpY); ctx.lineTo(r.x + r.w, gpY); ctx.stroke();
         }
+        var obstacles = Array.isArray(r.map.obstacles) ? r.map.obstacles : [];
+        obstacles.forEach(function (o) {
+            if (!o || o.type !== 'circle') return;
+            var cp = worldToCanvas({ x: o.x, y: o.y }, w, h, r.map);
+            var radius = Math.max(2, Number(o.r || 0) * r.scale);
+            ctx.save();
+            ctx.fillStyle = 'rgba(125, 92, 45, .86)';
+            ctx.strokeStyle = 'rgba(242, 204, 96, .55)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(cp.x, cp.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,255,.12)';
+            ctx.beginPath();
+            ctx.arc(cp.x - radius * .25, cp.y - radius * .3, radius * .28, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        });
         ctx.fillStyle = '#8b949e';
         ctx.font = '12px sans-serif';
         ctx.textAlign = 'left';
@@ -1015,12 +1067,55 @@
     }
 
     function shouldLogEvent(e) {
-        return !!e && !isSoundWaveEvent(e);
+        if (!e) return false;
+        var keyEvents = {
+            skill_hit: true,
+            guard_block: true,
+            counter: true,
+            dodge: true,
+            tail_decoy: true,
+            defense_ready: true,
+            heal: true,
+            buff: true,
+            fear: true,
+            tail_detach: true,
+            limb_detach: true,
+            flee: true
+        };
+        if (keyEvents[e.type]) return true;
+        if (e.type === 'combat_action') return !!(e.result && (e.result.hit || e.result.dodged || e.result.blocked || e.result.countered));
+        if (e.type === 'strategy_intent') return e.intent === 'pressure' || e.intent === 'execute' || e.intent === 'defend' || e.intent === 'fear';
+        return false;
     }
 
     function eventLogKey(e) {
         if (!e) return '';
         return [e.type, e.src || e.actor || '', e.tgt || e.target || '', e.part || '', e.dmg || '', e.actionId || e.fxId || ''].join('|');
+    }
+
+    function eventLogSide(e) {
+        if (!e) return 'both';
+        var side = e.src || e.actor || e.realSource || '';
+        if (!side && (e.type === 'guard_block' || e.type === 'counter' || e.type === 'dodge' || e.type === 'tail_decoy')) side = e.tgt || e.target || '';
+        return side === 'left' || side === 'right' ? side : 'both';
+    }
+
+    function renderEventLogs() {
+        if (eventLogLeft) eventLogLeft.innerHTML = eventLogRowsLeft.join('');
+        if (eventLogRight) eventLogRight.innerHTML = eventLogRowsRight.join('');
+        if (eventLog) eventLog.innerHTML = eventLogRows.join('');
+    }
+
+    function addEventRows(side, rows) {
+        if (!rows.length) return;
+        if (side === 'left' || side === 'both') {
+            Array.prototype.unshift.apply(eventLogRowsLeft, rows);
+            eventLogRowsLeft = eventLogRowsLeft.slice(0, 80);
+        }
+        if (side === 'right' || side === 'both') {
+            Array.prototype.unshift.apply(eventLogRowsRight, rows);
+            eventLogRowsRight = eventLogRowsRight.slice(0, 80);
+        }
     }
 
     function pushEvents(events) {
@@ -1029,16 +1124,18 @@
         if (!visibleEvents.length) return;
         var existingHead = eventLogRows.slice(0, 8).join('\n');
         var rows = visibleEvents.map(function (e) {
-            return { key: eventLogKey(e), html: '<div class="event">' + esc(describeEvent(e)) + '</div>' };
+            return { side: eventLogSide(e), key: eventLogKey(e), html: '<div class="event">' + esc(describeEvent(e)) + '</div>' };
         }).filter(function (row, idx, arr) {
             if (!row.key) return true;
             if (idx > 0 && arr[idx - 1].key === row.key) return false;
             return existingHead.indexOf(row.html) < 0;
-        }).map(function (row) { return row.html; });
+        });
         if (!rows.length) return;
-        Array.prototype.unshift.apply(eventLogRows, rows);
+        var htmlRows = rows.map(function (row) { return row.html; });
+        Array.prototype.unshift.apply(eventLogRows, htmlRows);
         eventLogRows = eventLogRows.slice(0, 80);
-        eventLog.innerHTML = eventLogRows.join('');
+        rows.forEach(function (row) { addEventRows(row.side, [row.html]); });
+        renderEventLogs();
     }
 
     function winnerName(winner) {
@@ -1092,7 +1189,9 @@
             '<div class="event">右方剩余生命：' + esc(fmt(right.hpRemaining != null ? right.hpRemaining : right.hp)) + ' / ' + esc(fmt(right.hpMax || right.maxHp || 0)) + '</div>'
         ];
         eventLogRows = rows.concat(eventLogRows).slice(0, 90);
-        eventLog.innerHTML = eventLogRows.join('');
+        eventLogRowsLeft = rows.concat(eventLogRowsLeft).slice(0, 90);
+        eventLogRowsRight = rows.concat(eventLogRowsRight).slice(0, 90);
+        renderEventLogs();
     }
 
     function applyAppearance(appearance) {
@@ -1243,6 +1342,7 @@
         flashEvents = [];
         resetScreenImpact();
         edgeHints = [];
+        previewState = null;
         applyAppearance(null);
         updateTopHud();
         if (animator) animator.reset();
@@ -1407,6 +1507,7 @@
         if (sessionId) await request('/end', { sessionId: sessionId });
         sessionId = '';
         state = null;
+        previewState = null;
         updateTopHud();
         summaryShownKey = '';
         flashEvents = [];
@@ -1434,8 +1535,9 @@
     };
 
     if (toggleMotionDebug) toggleMotionDebug.onchange = draw;
-    if (pet1Id) pet1Id.onchange = function () { state = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
-    if (pet2Id) pet2Id.onchange = function () { state = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
+    if (pet1Id) pet1Id.onchange = function () { state = null; previewState = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
+    if (pet2Id) pet2Id.onchange = function () { state = null; previewState = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); };
+    if (mapId) mapId.onchange = function () { previewState = null; updateTopHud(); previewKey = ''; loadPreview().catch(showError); draw(); };
     bindPanelToggle('toggleControlsPanel', 'controlsPanel', 'rg_battle_controls_collapsed');
     bindPanelToggle('toggleInspectPanel', 'inspectPanel', 'rg_battle_inspect_collapsed');
     if (leftPersonality) leftPersonality.onchange = function () { rememberPersonalities(); renderPersonalityEditors(); };

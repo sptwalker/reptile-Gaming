@@ -448,12 +448,14 @@ function _sideReport(side, total) {
     };
 }
 
-function previewPets({ pet1Id, pet2Id }) {
+function previewPets({ pet1Id, pet2Id, mapId }) {
     const left = _loadFighter(pet1Id, '左方');
     if (!left.ok) return { code: 8020, msg: left.msg };
     const right = _loadFighter(pet2Id, '右方');
     if (!right.ok) return { code: 8020, msg: right.msg };
-    return { code: 0, data: { appearance: { left: left.appearance, right: right.appearance } } };
+    const session = battleEngine.createBattle({ pet1: left.fighter, pet2: right.fighter, mapId: mapId || 'grassland', leftPersonality: 'balanced', rightPersonality: 'balanced' });
+    const state = battleEngine.getBattleState(session);
+    return { code: 0, data: { state, appearance: { left: left.appearance, right: right.appearance } } };
 }
 
 function startBattle({ pet1Id, pet2Id, mapId, leftPersonality, rightPersonality, randomPersonality }) {

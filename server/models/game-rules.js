@@ -184,10 +184,10 @@ module.exports = {
     BATTLE_DODGE_BASE: 0.05,
 
     /* ── 狂暴系统 ── */
-    /** 狂暴倍率增长（每秒+2%） */
-    BATTLE_RAGE_PER_SEC: 0.02,
-    /** 狂暴起始时间（帧）= 60秒后开始 */
-    BATTLE_RAGE_START_FRAME: 1800,
+    /** 狂暴倍率增长（每秒+4%） */
+    BATTLE_RAGE_PER_SEC: 0.04,
+    /** 狂暴起始时间（帧）= 35秒后开始 */
+    BATTLE_RAGE_START_FRAME: 1050,
 
     /* ── 恐惧系统 ── */
     /** 每次被击中恐惧值+4：降低普通命中带来的恐惧堆叠 */
@@ -243,19 +243,22 @@ module.exports = {
     /** SPD = AGI×3 + PER×1 */
     BATTLE_SPD_AGI: 3,
     BATTLE_SPD_PER: 1,
-    /** 防御减伤公式: 1 - DEF/(DEF+200) */
-    BATTLE_DEF_CONSTANT: 200,
+    /** 防御减伤公式: 1 - DEF/(DEF+560) */
+    BATTLE_DEF_CONSTANT: 560,
 
     /* ── 身体部位战斗属性 ── */
     BATTLE_BODY_LEVEL_GROWTH: 0.1,
-    BATTLE_BODY_BASE_REGEN: 1,
+    /** 战斗中部位每秒基础自愈：仅用于拉长残局，避免抵消持续输出 */
+    BATTLE_BODY_BASE_REGEN: 0.08,
+    /** 战斗中每阶段额外部位自愈 */
+    BATTLE_BODY_STAGE_REGEN: 0.12,
     BATTLE_BODY_PARTS: {
         head:      { name: '头部',   hp_base: 100, hp_vit: 10, def_base: 50,  def_agi: 50, weight: 0.16, core: true  },
         torso:     { name: '躯干',   hp_base: 100, hp_vit: 10, def_base: 100, def_agi: 10, weight: 0.28, core: true  },
-        foreLeft:  { name: '左前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
-        foreRight: { name: '右前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
-        hindLeft:  { name: '左后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
-        hindRight: { name: '右后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: true  },
+        foreLeft:  { name: '左前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: false },
+        foreRight: { name: '右前肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: false },
+        hindLeft:  { name: '左后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: false },
+        hindRight: { name: '右后肢', hp_base: 50,  hp_vit: 5,  def_base: 50,  def_agi: 5,  weight: 0.11, core: false },
         tail:      { name: '尾部',   hp_base: 30,  hp_vit: 2,  def_base: 30,  def_agi: 2,  weight: 0.12, core: false },
     },
     BATTLE_INJURY_HALF: 0.5,
@@ -364,7 +367,12 @@ module.exports = {
 
     /* ── 地图定义 ── */
     ARENA_MAPS: [
-        { id: 'grassland', name: '草原', width: 800, height: 600, terrain: 'grass', soundSurface: 'grass', buff: null },
+        { id: 'grassland', name: '草原', width: 800, height: 600, terrain: 'grass', soundSurface: 'grass', buff: null, obstacles: [
+            { type: 'circle', x: 310, y: 220, r: 34 },
+            { type: 'circle', x: 490, y: 220, r: 34 },
+            { type: 'circle', x: 310, y: 380, r: 34 },
+            { type: 'circle', x: 490, y: 380, r: 34 }
+        ] },
         { id: 'swamp',     name: '沼泽', width: 800, height: 600, terrain: 'mud',   soundSurface: 'water', buff: { stat: 'spd', mod: -0.2 } },
         { id: 'volcano',   name: '火山', width: 800, height: 600, terrain: 'stone', soundSurface: 'stone', buff: { stat: 'atk', mod: 0.1 } },
         { id: 'dune',      name: '沙地', width: 800, height: 600, terrain: 'sand',  soundSurface: 'sand',  buff: null },
@@ -378,8 +386,8 @@ module.exports = {
         heavy_bite:   { dmg_multi: 1.85, fear: 8,  cooldown: 105, staminaCost: 7, type: 'melee',  intent: 'execute', tags: ['heavy'] },
         scratch:      { dmg_multi: 1.0,  fear: 2,  cooldown: 60,  staminaCost: 3, type: 'melee',  intent: 'harass' },
         tail_whip:    { dmg_multi: 0.8,  fear: 6,  cooldown: 75,  staminaCost: 4, type: 'melee',  intent: 'control' },
-        guard:        { dmg_multi: 0,    fear: 0,  cooldown: 36,  staminaCost: 2, type: 'defense', effect: 'guard', value: 0.45, duration: 30, counter: 0.2, intent: 'defend' },
-        brace:        { dmg_multi: 0,    fear: 0,  cooldown: 60,  staminaCost: 3, type: 'defense', effect: 'brace', value: 0.65, duration: 38, counter: 0.12, intent: 'defend' },
+        guard:        { dmg_multi: 0,    fear: 0,  cooldown: 66,  staminaCost: 4, type: 'defense', effect: 'guard', value: 0.26, duration: 22, counter: 0.1, intent: 'defend' },
+        brace:        { dmg_multi: 0,    fear: 0,  cooldown: 96,  staminaCost: 5, type: 'defense', effect: 'brace', value: 0.38, duration: 26, counter: 0.06, intent: 'defend' },
         dodge:        { dmg_multi: 0,    fear: 0,  cooldown: 42,  staminaCost: 3, type: 'reaction', effect: 'dodge_up', value: 0.35, duration: 18, intent: 'evade' },
         retreat_step: { dmg_multi: 0,    fear: 0,  cooldown: 24,  staminaCost: 2, type: 'movement', effect: 'retreat', value: 34, duration: 20, intent: 'kite' },
         flank_step:   { dmg_multi: 0,    fear: 0,  cooldown: 30,  staminaCost: 2, type: 'movement', effect: 'flank', value: 36, duration: 22, intent: 'ambush' },

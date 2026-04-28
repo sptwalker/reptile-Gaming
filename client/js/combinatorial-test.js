@@ -326,21 +326,11 @@
   function setValue(field, value) {
     if (field.source === "seed") {
       bodySeed[field.key] = value;
-      if (field.key === "hue" || field.key === "lightness") {
-        delete bodySeed.headColor;
-        delete bodySeed.limbColor;
-        delete bodySeed.tailColor;
-      }
     }
     else if (field.source === "renderer") renderer.setActivity(value);
     else {
       renderParams[field.key] = value;
       if (field.key === "moveSpeed") renderParams.legFrequency = value;
-      if (field.key === "colorSaturation") {
-        delete bodySeed.headColor;
-        delete bodySeed.limbColor;
-        delete bodySeed.tailColor;
-      }
     }
   }
 

@@ -25,9 +25,9 @@ router.get('/meta', wrap((_req, res) => {
 }));
 
 router.post('/preview', wrap((req, res) => {
-    const { pet1Id, pet2Id } = req.body;
+    const { pet1Id, pet2Id, mapId } = req.body;
     if (!pet1Id || !pet2Id) return fail(res, 8023, '需要两只宠物ID');
-    const result = debug.previewPets({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id) });
+    const result = debug.previewPets({ pet1Id: Number(pet1Id), pet2Id: Number(pet2Id), mapId });
     result.code === 0 ? ok(res, result.data, result.msg) : fail(res, result.code, result.msg);
 }));
 

@@ -292,7 +292,7 @@ function _skillScore(unit, opponent, effect, dist, hpRatio, code) {
     let score = 0;
 
     if (intent === 'recover') score = hpRatio < 0.72 - p.risk * 0.28 ? 65 + p.caution * 35 + (1 - hpRatio) * 40 : 0;
-    else if (intent === 'defend') score = 18 + p.caution * 48 + Math.max(0, 1 - hpRatio) * 44 + Math.max(0, exposure.exposure || 0) * 26 + (dist < 120 ? 18 : -10);
+    else if (intent === 'defend') score = 8 + p.caution * 28 + Math.max(0, 1 - hpRatio) * 34 + Math.max(0, exposure.exposure || 0) * 18 + (dist < 115 ? 8 : -18);
     else if (intent === 'bait') score = 28 + p.cunning * 50 + p.caution * 14 + (opponent.aiState === 'aggressive' ? 14 : 0) + (dist < 150 ? 10 : 0);
     else if (intent === 'execute') score = 22 + p.skill * 42 + p.aggression * 18 + (1 - opponentHpRatio) * 45;
     else if (intent === 'fear') score = opponent.fear > 30 + p.ferocity * 28 ? 42 + p.ferocity * 45 : 10 + p.ferocity * 18;
@@ -306,12 +306,13 @@ function _skillScore(unit, opponent, effect, dist, hpRatio, code) {
 
     if (contract.tags && contract.tags.includes('heavy')) score += opponentHpRatio < 0.45 ? 24 : -8;
     if (contract.tags && contract.tags.includes('fast')) score += staminaRatio < 0.35 ? 12 : 4;
-    if (contract.tags && contract.tags.includes('counter_ready')) score += opponent.aiState === 'aggressive' ? 12 : 0;
+    if (contract.tags && contract.tags.includes('counter_ready')) score += opponent.aiState === 'aggressive' && hpRatio < 0.85 ? 5 : 0;
     const model = unit.opponentModel || {};
-    if (intent === 'defend' && model.aggression > 0.75) score += 18;
+    if (intent === 'defend' && model.aggression > 0.75 && hpRatio < 0.82) score += 8;
     if (intent === 'kite' && model.aggression > 0.65) score += 12 + p.mobility * 8;
     if (intent === 'ambush' && model.defense > 0.45) score += 14 + p.cunning * 10;
     if (intent === 'bait' && model.observation < 0.25) score += 10 + p.cunning * 8;
+    if ((intent === 'pressure' || intent === 'attack' || intent === 'execute' || intent === 'harass') && model.defense > 0.45) score += 10 + p.aggression * 8;
     if ((intent === 'pressure' || intent === 'attack' || intent === 'execute') && model.deception > 0.5) score -= 10;
 
     const cost = _actionStaminaCost(code, effect);
@@ -355,7 +356,7 @@ function _createBodyParts(fighter) {
     const lv = Math.max(1, Number(fighter.level || 1));
     const stage = Math.max(0, Number(fighter.stage || 0));
     const levelMul = 1 + (lv - 1) * rules.BATTLE_BODY_LEVEL_GROWTH;
-    const regen = rules.BATTLE_BODY_BASE_REGEN + stage;
+    const regen = Math.max(0, (rules.BATTLE_BODY_BASE_REGEN || 0) + stage * (rules.BATTLE_BODY_STAGE_REGEN || 0));
     const parts = {};
 
     for (const [code, cfg] of Object.entries(rules.BATTLE_BODY_PARTS)) {
@@ -501,18 +502,18 @@ function _partTacticalWeight(attacker, defender, partKey, cfg, flank) {
     const hpRatio = Math.max(0, part.hp) / Math.max(1, part.maxHp);
     const loss = 1 - hpRatio;
     const lowDefBonus = Math.max(0, 1 - part.def / Math.max(1, defender.def + part.def));
-    const coreBonus = cfg.core ? 1.12 : 0.95;
-    let weight = cfg.weight * coreBonus * (1 + Math.min(1.15, loss * 1.2) + lowDefBonus * 0.35);
+    const coreBonus = cfg.core ? (partKey === 'head' || partKey === 'torso' ? 2.35 : 0.7) : 0.38;
+    let weight = cfg.weight * coreBonus * (1 + Math.min(1.7, loss * 1.65) + lowDefBonus * 0.22);
 
-    if (flank > 0.7 && (partKey === 'head' || partKey === 'torso')) weight *= 1.75;
-    if (flank < 0.3 && (partKey === 'foreLeft' || partKey === 'foreRight')) weight *= 1.28;
-    if (flank >= 0.35 && flank <= 0.75 && (partKey === 'foreLeft' || partKey === 'foreRight' || partKey === 'hindLeft' || partKey === 'hindRight')) weight *= 1.22;
+    if (flank > 0.7 && (partKey === 'head' || partKey === 'torso')) weight *= 2.1;
+    if (flank < 0.3 && (partKey === 'foreLeft' || partKey === 'foreRight')) weight *= 0.82;
+    if (flank >= 0.35 && flank <= 0.75 && (partKey === 'foreLeft' || partKey === 'foreRight' || partKey === 'hindLeft' || partKey === 'hindRight')) weight *= 0.88;
 
-    if (strategy === 'execute') weight *= (cfg.core ? 1.5 : 0.72) * (1 + loss * 1.4);
-    else if (strategy === 'ambush') weight *= partKey === 'head' || partKey === 'torso' ? 1.45 + flank * 0.45 : 0.88;
-    else if (strategy === 'kite' || strategy === 'harass') weight *= partKey === 'hindLeft' || partKey === 'hindRight' || partKey === 'tail' ? 1.4 : 0.95;
-    else if (strategy === 'defend') weight *= partKey === 'foreLeft' || partKey === 'foreRight' ? 1.25 : 0.9;
-    else if (strategy === 'bait') weight *= partKey === 'tail' ? 1.35 : 1;
+    if (strategy === 'execute') weight *= (partKey === 'head' || partKey === 'torso' ? 2.35 : 0.36) * (1 + loss * 1.85);
+    else if (strategy === 'ambush') weight *= partKey === 'head' || partKey === 'torso' ? 1.9 + flank * 0.55 : 0.5;
+    else if (strategy === 'kite' || strategy === 'harass') weight *= partKey === 'hindLeft' || partKey === 'hindRight' || partKey === 'tail' ? 0.78 : 1.28;
+    else if (strategy === 'defend') weight *= partKey === 'foreLeft' || partKey === 'foreRight' ? 0.82 : 1.08;
+    else if (strategy === 'bait') weight *= partKey === 'tail' ? 0.82 : 1.08;
 
     weight *= 1 + (p.skill || 0.5) * loss * 0.75 + (p.cunning || 0.5) * flank * 0.45;
     return [partKey, Math.max(0.001, weight)];
@@ -965,7 +966,10 @@ function _aiDecide(unit, opponent, frame, map) {
     }
 
     const score = flankScore(unit, opponent);
-    if ((unit.aiState === 'aggressive' || unit.aiState === 'kiting') && dist <= rules.BATTLE_FLANK_MAX_DIST && p.cunning > 0.55 && p.mobility > 0.5 && score < 0.6) {
+    if (unit.aiSubState === 'flanking' && (dist <= meleeRange + 35 || score >= 0.5)) {
+        unit.aiSubState = 'flank_attack';
+    }
+    if ((unit.aiState === 'aggressive' || unit.aiState === 'kiting') && dist <= rules.BATTLE_FLANK_MAX_DIST && p.cunning > 0.55 && p.mobility > 0.5 && score < 0.6 && dist > meleeRange + 20) {
         if (unit.aiSubState !== 'flanking') {
             unit.flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
         }
@@ -975,7 +979,7 @@ function _aiDecide(unit, opponent, frame, map) {
     if (unit.aiSubState === 'flanking') {
         if (!unit.flankTarget) unit.flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
         const targetDist = _battleDist(unit, unit.flankTarget);
-        if (targetDist <= 24 || score >= 0.72) {
+        if (targetDist <= 24 || score >= 0.72 || dist <= meleeRange + 20) {
             unit.aiSubState = 'flank_attack';
         } else {
             return _strategyDecision(unit, { action: 'move', toward: true, targetX: unit.flankTarget.x, targetY: unit.flankTarget.y }, 'ambush', `seek_flank:${score.toFixed(2)}`, frame);
@@ -1001,7 +1005,7 @@ function _aiDecide(unit, opponent, frame, map) {
     switch (unit.aiState) {
         case 'aggressive':
             if (unit.aiSubState === 'flank_attack' && fallbackSkill && dist <= meleeRange + 35) return _decisionForSkill(unit, fallbackSkill, frame, 'ambush', 'flank_attack');
-            if (isInFrontArc(unit, opponent) && dist > meleeRange * 0.8 && p.cunning > 0.4 && p.mobility > 0.4) {
+            if (isInFrontArc(unit, opponent) && dist > meleeRange + 20 && p.cunning > 0.4 && p.mobility > 0.4) {
                 const flankTarget = _calcFlankPosition(unit, opponent, map, meleeRange);
                 unit.flankTarget = flankTarget;
                 unit.aiSubState = 'flanking';
@@ -1180,7 +1184,9 @@ function _calcDamage(attacker, defender, rageMulti, skillMulti, targetPartKey, f
     const rawDamage = Math.max(1, Math.floor(baseAtk * defReduction * float * rageMulti * staPenalty * critMulti));
     const defense = _defenseState(defender, frame);
     if (defense && defense.armor > 0) {
-        const blockRate = Math.max(0, Math.min(0.9, defense.armor));
+        const phase = _actionPhase(defender.activeAction, frame);
+        const phaseMult = phase === 'windup' ? 0.35 : phase === 'recover' ? 0.5 : 1;
+        const blockRate = Math.max(0, Math.min(0.65, defense.armor * phaseMult));
         const damage = Math.max(1, Math.floor(rawDamage * (1 - blockRate)));
         return {
             damage,
@@ -1440,6 +1446,7 @@ function _snapshotMap(map) {
         margin: map.margin || 20,
         terrain: map.terrain,
         soundSurface: map.soundSurface,
+        obstacles: Array.isArray(map.obstacles) ? map.obstacles.map(o => ({ ...o })) : [],
     };
 }
 
@@ -1954,6 +1961,8 @@ function _executeAction(unit, opponent, decision, rageMulti, statTracker, frame,
                     events.push({ type: result.decoy ? 'tail_decoy' : 'dodge', src: unit.side, tgt: opponent.side, skill: sk.code, part: result.part, attackZone: result.attackZone, flankScore: result.flankScore });
                 } else {
                     events.push(..._applyPartDamage(opponent, targetPart, result.damage));
+                    _syncBodyHp(opponent);
+                    _updateBodyImpairments(opponent);
                     const fearApplied = _addFear(opponent, effect.fear, frame, true);
                     const attackerRelief = _reduceFear(unit, rules.BATTLE_FEAR_ATTACK_SUCCESS_RELIEF || 0);
                     statTracker.totalDamage += result.damage;
