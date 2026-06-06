@@ -60,7 +60,7 @@
       target: { x: this._w * 0.5, y: this._h * 0.5 },
       pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null,
       food: null, foodTarget: null, foodSeeking: false, searching: false,
-      searchTimer: 100, eatFx: null, spotFx: null,
+      searchTimer: 100, searchHeading: null, searchDir: 1, eatFx: null, spotFx: null,
       prevHead: null, headSpeed: 0,
       headReady: false, headAngle: 0, moveAngle: null,
       lookOffset: 0, lookTarget: 0, lookSpeed: 0.03, lookHold: 0,
@@ -144,6 +144,8 @@
     this.state.foodSeeking = false;
     this.state.searching = false;
     this.state.searchTimer = 100;
+    this.state.searchHeading = null;
+    this.state.searchDir = 1;
     this.state.eatFx = null;
     this.state.spotFx = null;
     this.reset();
@@ -258,7 +260,8 @@
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
       var maxStep = 4.2 * SCALE * (this.features.battle && s.fx ? 1.8 : 1);
       var ease = 0.12;
-      if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 慢速爬向食物
+      if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 锁定后慢速爬向食物
+      else if (s.searching) { maxStep = 2.4 * SCALE; ease = 0.08; } // 搜索时缓慢踱步、转身张望
       if (d > 1) { var step = Math.min(maxStep, d * ease); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率与蛇形波幅）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
@@ -351,7 +354,7 @@
     var s = this.state;
     s.battleTimer -= dt;
     if (s.fx) { s.fx.t -= dt; if (s.fx.t <= 0) s.fx = null; }
-    if (s.battleTimer <= 0 && !s.foodSeeking) {
+    if (s.battleTimer <= 0 && !s.foodSeeking && !s.searching) {
       s.battleTimer = 150;
       s.pointerActive = false;
       s.target = { x: this._w * (0.3 + rand() * 0.4), y: this._h * (0.35 + rand() * 0.3) };
@@ -428,14 +431,22 @@
         s.foodSeeking = true;
       }
     } else if (s.food.length) {
-      s.searching = true; // 停下扫视（_update 暂停漫游，头部转入待机扫视）
-      if (!this.features.battle) { // 偶尔转身，让视野扫过更多角落（避免身后食物永远看不到）
-        s.searchTimer -= dt;
-        if (s.searchTimer <= 0) {
-          s.searchTimer = 110 + rand() * 120;
-          s.target = { x: this._w * (0.2 + rand() * 0.6), y: this._h * (0.25 + rand() * 0.5) };
-        }
+      // 搜索：缓慢转身张望——朝当前“张望方向”取一个较近目标点，让蜥蜴慢慢踱步并把
+      // 视野锥扫向四面八方（含身后）；只有视野真正停在食物上、累积满察觉度才会发现。
+      s.searching = true;
+      if (s.searchHeading == null) s.searchHeading = headAng;
+      s.searchTimer -= dt;
+      if (s.searchTimer <= 0) {
+        s.searchTimer = 55 + rand() * 70;
+        if (rand() < 0.25) s.searchDir = -s.searchDir; // 偶尔反向，避免一直单向打转
+        s.searchHeading += s.searchDir * (0.55 + rand() * 0.55); // 朝同向多转一截 → 形成扫视
       }
+      var R = 120, mg = 36 * SCALE;
+      var tx = h.x + Math.cos(s.searchHeading) * R, ty = h.y + Math.sin(s.searchHeading) * R;
+      s.target = {
+        x: Math.max(mg, Math.min(this._w - mg, tx)),
+        y: Math.max(mg, Math.min(this._h - mg, ty))
+      };
     }
   };
 

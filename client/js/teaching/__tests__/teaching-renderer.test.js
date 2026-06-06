@@ -137,6 +137,26 @@ test('视野阶段：视野锥外（正后方）的食物当帧不会被锁定',
   assert.equal(r.state.food[0].aware, 0, '视野外不累积察觉度');
 });
 
+test('视野阶段：身后的食物需先转身搜索发现，且不会瞬间锁定', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('vision'));
+  const head = r.state.spine[0];
+  r._addFood(head.x - 220, head.y); // 正后方
+  // 起步若干帧内必须仍处于“搜索而未锁定”（不能一放即追）
+  let lockedEarly = false;
+  for (let i = 0; i < 20; i++) { r.tick(1); if (r.state.foodTarget) lockedEarly = true; }
+  assert.equal(lockedEarly, false, '身后食物在最初转身阶段不应被锁定');
+  // 持续搜索/转身后最终应发现并吃掉（不会卡死）
+  let searchSeen = false, eaten = false;
+  for (let i = 0; i < 6000 && !eaten; i++) {
+    r.tick(1);
+    if (r.state.searching) searchSeen = true;
+    if (r.state.food.length === 0) eaten = true;
+  }
+  assert.ok(searchSeen, '应出现搜索状态');
+  assert.ok(eaten, '转身搜索发现后最终应吃掉身后的食物');
+});
+
 test('切换离开视野阶段会清空已放置的食物', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('vision'));
