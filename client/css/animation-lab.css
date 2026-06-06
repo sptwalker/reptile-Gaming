@@ -23,23 +23,20 @@ body {
 }
 .tb-left { display: flex; align-items: center; gap: 12px; }
 .tb-title { font-weight: 600; font-size: 15px; white-space: nowrap; }
-.genesis { position: relative; }
-.genesis summary { cursor: pointer; color: #8fb7e0; font-size: 12px; list-style: none; }
-.genesis summary::-webkit-details-marker { display: none; }
-.genesis pre {
-  position: absolute; top: 22px; left: 0; width: 540px; max-width: 80vw;
-  max-height: 320px; overflow: auto; padding: 12px;
-  background: #11151f; border: 1px solid #2a3344; border-radius: 6px;
-  font-size: 12px; line-height: 1.5; white-space: pre-wrap; z-index: 20;
-}
 .tb-timeline { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
 .tb-timeline button {
-  width: 26px; height: 26px; padding: 0; font-size: 12px;
+  height: 26px; padding: 0 9px; font-size: 12px; white-space: nowrap;
   background: #161d2b; color: #aab8c8; border: 1px solid #2a3344;
   border-radius: 13px; cursor: pointer;
 }
 .tb-timeline button.active { background: #2a6cc0; color: #fff; border-color: #3a7cd0; }
 .tb-controls { display: flex; align-items: center; gap: 8px; }
+.tb-switch {
+  display: flex; align-items: center; gap: 5px; font-size: 12px; color: #d7dee8;
+  padding: 4px 9px; background: #1a2230; border: 1px solid #2a3344; border-radius: 6px;
+  cursor: pointer; white-space: nowrap; user-select: none;
+}
+.tb-switch input { cursor: pointer; margin: 0; accent-color: #2a6cc0; }
 .tb-controls button, .tb-controls select {
   padding: 5px 11px; font-size: 12px; background: #1a2230; color: #d7dee8;
   border: 1px solid #2a3344; border-radius: 6px; cursor: pointer; white-space: nowrap;

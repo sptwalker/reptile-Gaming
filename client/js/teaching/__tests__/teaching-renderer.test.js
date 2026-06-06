@@ -73,6 +73,33 @@ test('_setPointer 把屏幕坐标映射为内部 target 并置 active', () => {
   assert.equal(r.state.pointerActive, true);
 });
 
+test('setAutoWander(false) 关闭自动漫游：蜥蜴原地待命；牵引仍有效', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('spine_ik'));
+  r.setAutoWander(false);
+  const before = { x: r.state.spine[0].x, y: r.state.spine[0].y };
+  for (let i = 0; i < 300; i++) r.tick(1); // 不牵引：关闭后头部不应自动漫游远离
+  const after = { x: r.state.spine[0].x, y: r.state.spine[0].y };
+  assert.ok(Math.hypot(after.x - before.x, after.y - before.y) < 6 * 3, '关闭自动后蜥蜴应基本原地不动');
+
+  // 牵引（pointerActive）仍应带动蜥蜴移动
+  r.state.pointerActive = true;
+  r.state.target = { x: 880, y: 120 };
+  for (let i = 0; i < 40; i++) r.tick(1);
+  const led = r.state.spine[0];
+  assert.ok(Math.hypot(880 - led.x, 120 - led.y) < Math.hypot(880 - after.x, 120 - after.y), '牵引应仍能移动蜥蜴');
+});
+
+test('setAutoWander(true) 时蜥蜴会自动漫游离开初始点', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('spine_ik'));
+  r.setAutoWander(true);
+  const before = { x: r.state.spine[0].x, y: r.state.spine[0].y };
+  for (let i = 0; i < 300; i++) r.tick(1);
+  const after = { x: r.state.spine[0].x, y: r.state.spine[0].y };
+  assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 20, '开启自动后蜥蜴应漫游移动');
+});
+
 test('setParams 改 spineNodes 触发重建', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('params'));

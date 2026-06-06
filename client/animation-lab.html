@@ -14,13 +14,12 @@
   <div id="topbar">
     <div class="tb-left">
       <span class="tb-title">🦎 蜥蜴动画教学实验室</span>
-      <details class="genesis">
-        <summary>创世提示词</summary>
-        <pre id="genesisText">加载中…</pre>
-      </details>
     </div>
     <div class="tb-timeline" id="timeline"></div>
     <div class="tb-controls">
+      <label class="tb-switch" title="开启后蜥蜴会自动缓慢漫游；关闭则原地待命，仅响应鼠标牵引/放置食物">
+        <input type="checkbox" id="chkAuto" checked> 自动游走
+      </label>
       <button id="btnPrev" title="上一步">⏮</button>
       <button id="btnNext" title="下一步">⏭</button>
       <button id="btnPlay">⏸ 暂停动画</button>

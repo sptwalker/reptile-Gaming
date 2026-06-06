@@ -15,6 +15,7 @@ test('每阶段含必填字段且非空', () => {
     assert.equal(typeof s.key, 'string', '#' + i + ' key');
     assert.ok(s.key.length > 0, '#' + i + ' key 非空');
     assert.ok(s.title && s.title.length > 0, '#' + i + ' title 非空');
+    assert.ok(s.short && s.short.length > 0, '#' + i + ' short 非空');
     assert.ok(s.spineNodes >= 1, '#' + i + ' spineNodes>=1');
     assert.ok(s.prompt && s.prompt.length > 0, '#' + i + ' prompt 非空');
     assert.ok(s.explanation && s.explanation.length > 0, '#' + i + ' explanation 非空');
@@ -26,6 +27,12 @@ test('每阶段含必填字段且非空', () => {
 test('key 唯一', () => {
   const keys = STAGES.map(s => s.key);
   assert.equal(new Set(keys).size, keys.length);
+});
+
+test('时间轴简短标题与设计一致', () => {
+  const expected = ['光点', '短链', '长链', 'IK关节', '皮肤', '体形', '防自碰',
+    '蛇形', '四肢&花纹', '头部', '视野', '捕食', '自定义外观'];
+  assert.deepEqual(STAGES.map(s => s.short), expected);
 });
 
 test('每个特性开关一旦开启不再关闭（逐步完善，单调非降）', () => {

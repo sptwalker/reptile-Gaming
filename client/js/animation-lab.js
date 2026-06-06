@@ -1,7 +1,7 @@
 /**
  * animation-lab.js — 教学页控制器
- * 编排 TeachingRenderer + 13 阶段：时间轴、上一步/下一步、播放/暂停、调速、
- * 自动演进、第12步参数面板、创世提示词加载。不含任何游戏/网络逻辑。
+ * 编排 TeachingRenderer + 13 阶段：时间轴(带简短标题)、上一步/下一步、播放/暂停、
+ * 调速、自动演进、第12步参数面板。不含任何游戏/网络逻辑。
  */
 (function () {
   'use strict';
@@ -28,12 +28,12 @@
     selSpeed: document.getElementById('selSpeed'),
     paramPanel: document.getElementById('paramPanel'),
     serpPanel: document.getElementById('serpPanel'),
-    genesis: document.getElementById('genesisText')
+    chkAuto: document.getElementById('chkAuto')
   };
 
   STAGES.forEach(function (s, i) {
     var b = document.createElement('button');
-    b.textContent = i;
+    b.textContent = i + ' ' + s.short;
     b.title = s.title;
     b.addEventListener('click', function () { goTo(i); });
     el.timeline.appendChild(b);
@@ -114,13 +114,9 @@
   bindSerp('pSerpFreq', 'serpentineFreq', 'vSerpFreq', 2);
   bindSerp('pSerpSpeed', 'serpentineSpeed', 'vSerpSpeed', 2);
 
-  var fallbackGenesis =
-    '我想在此玩法基础上设计一套灵活的可供玩家自由拼装、自我AI进化的爬虫生物生成网络游戏系统……\n' +
-    '（完整内容见项目根目录 prompt.txt）';
-  fetch('../prompt.txt')
-    .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.text(); })
-    .then(function (t) { el.genesis.textContent = t; })
-    .catch(function () { el.genesis.textContent = fallbackGenesis; });
+  // 顶部“自动游走”开关：关闭则蜥蜴原地待命（仅响应鼠标牵引/放置食物），打开才会自动漫游
+  el.chkAuto.addEventListener('change', function () { renderer.setAutoWander(el.chkAuto.checked); });
+  renderer.setAutoWander(el.chkAuto.checked);
 
   // 全屏自适应：匹配画布绘制缓冲到视口尺寸
   function fit() { renderer.resize(); }

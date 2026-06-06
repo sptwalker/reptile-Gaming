@@ -62,6 +62,7 @@
     };
     this.features = Object.assign({}, DEFAULT_FEATURES);
     this.speed = 1;
+    this.autoWander = true; // 顶部“自动游走”开关：false 时蜥蜴原地待命，不自动漫游/突进
     this._rafId = null;
     this.state = {
       time: 0, serpentinePhase: 0, gaitPhase: 0,
@@ -185,6 +186,9 @@
 
   TeachingRenderer.prototype.setSpeed = function (m) { this.speed = Math.max(0.1, Number(m) || 1); };
 
+  // 自动游走开关：关闭后蜥蜴不再自动漫游/战斗突进；鼠标牵引与放置食物（搜索/捕食）仍有效。
+  TeachingRenderer.prototype.setAutoWander = function (on) { this.autoWander = !!on; };
+
   // 把屏幕(client)坐标换算为画布内部坐标（绘制缓冲已是 CSS 像素，故按矩形等比映射）
   TeachingRenderer.prototype._toCanvas = function (clientX, clientY) {
     var rect = this.canvas.getBoundingClientRect
@@ -266,7 +270,7 @@
     s.time += dt;
     // 视野阶段：管理“光点食物”——锁定视野内的食物并慢速爬过去吃掉
     if (this.features.vision) this._updateFood(dt);
-    if (!s.pointerActive && !s.foodSeeking && !s.searching && !s.pouncing && !s.windup) {
+    if (this.autoWander && !s.pointerActive && !s.foodSeeking && !s.searching && !s.pouncing && !s.windup) {
       s.wanderTimer -= dt;
       if (s.wanderTimer <= 0) {
         s.wanderTimer = 90 + rand() * 120;
@@ -383,7 +387,7 @@
     var s = this.state;
     s.battleTimer -= dt;
     if (s.fx) { s.fx.t -= dt; if (s.fx.t <= 0) s.fx = null; }
-    if (s.battleTimer <= 0 && !s.foodTarget && !s.searching) {
+    if (s.battleTimer <= 0 && this.autoWander && !s.foodTarget && !s.searching) {
       s.battleTimer = 150;
       s.pointerActive = false;
       s.target = { x: this._w * (0.3 + rand() * 0.4), y: this._h * (0.35 + rand() * 0.3) };
