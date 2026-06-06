@@ -101,9 +101,9 @@
     {
       key: 'battle', title: '11 · 战斗动作', spineNodes: 20,
       features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn', 'vision', 'battle']),
-      prompt: '让蜥蜴周期性地朝一个目标发起一次扑咬/突进，命中瞬间在头部迸发一圈黄色冲击特效。',
-      explanation: '动作驱动 + 特效：由外部动作目标驱动一次冲刺位移，配合命中帧的环形特效，串起"战斗表现"。',
-      codeRef: 'lizard-renderer.js: setExternalMoveTarget / _applyTestEffect / triggerSkillTest'
+      prompt: '右键放置一只扭动的小虫作为猎物：蜥蜴用视野发现它后进入战斗状态，先压低速度悄悄潜近，进入扑咬距离便短暂蓄力，再猛地扑上去命中捕食，命中瞬间在头部迸发冲击特效。',
+      explanation: '感知驱动战斗：复用视野发现，发现后转入“潜近→蓄力→猛扑”状态机——远处慢速接近缩短距离，近身后短暂蓄力盯住猎物再爆发突进，接触即捕获并触发命中环。',
+      codeRef: 'lizard-renderer.js: _computeAITarget(alert慢接近/clear突进) / _applyTestEffect(命中环)'
     },
     {
       key: 'params', title: '12 · 参数化', spineNodes: 20,

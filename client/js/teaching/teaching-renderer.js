@@ -16,6 +16,12 @@
   var FOV_CONE_SCALE = 0.5 * 1.7 * 2; // 视野锥可视范围放大系数（绘制与感知共用，保持一致）
   var FOOD_AWARE_GAIN = 0.06;  // 食物落在视野锥内时每帧累积的“察觉度”（约 0.3s 充满）
   var FOOD_AWARE_DECAY = 0.012; // 食物离开视野时“察觉度”的衰减（远慢于累积，便于扫视中逐步发现）
+  // 第11步“战斗捕食”参数（参考 lizard-renderer.js 的 alert 接近 + clear 突进 + _applyTestEffect 命中环）
+  var POUNCE_RANGE = 46 * SCALE; // 进入此距离即由“缓慢接近”转“蓄力→猛扑”
+  var POUNCE_CATCH = 13 * SCALE; // 猛扑命中（捕获）距离
+  var POUNCE_WINDUP = 10;        // 蓄力帧（原地盯住猎物）
+  var POUNCE_FRAMES = 16;        // 猛扑突进帧
+  var WORM_SPEED = 0.45;         // 小虫爬行速度（远慢于蜥蜴，扭动着缓慢移动）
 
   var DEFAULT_FEATURES = {
     spine: false, legs: false, head: false, body: false, bodyCurve: false,
@@ -60,7 +66,8 @@
       target: { x: this._w * 0.5, y: this._h * 0.5 },
       pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null,
       food: null, foodTarget: null, foodSeeking: false, searching: false,
-      searchTimer: 100, searchHeading: null, searchDir: 1, eatFx: null, spotFx: null,
+      searchTimer: 100, searchHeading: null, searchDir: 1, searchStep: 0, eatFx: null, spotFx: null,
+      lookAt: null, battlePhase: null, phaseTimer: 0, pouncing: false, windup: false,
       prevHead: null, headSpeed: 0,
       headReady: false, headAngle: 0, moveAngle: null,
       lookOffset: 0, lookTarget: 0, lookSpeed: 0.03, lookHold: 0,
@@ -146,6 +153,12 @@
     this.state.searchTimer = 100;
     this.state.searchHeading = null;
     this.state.searchDir = 1;
+    this.state.searchStep = 0;
+    this.state.lookAt = null;
+    this.state.battlePhase = null;
+    this.state.phaseTimer = 0;
+    this.state.pouncing = false;
+    this.state.windup = false;
     this.state.eatFx = null;
     this.state.spotFx = null;
     this.reset();
@@ -188,7 +201,9 @@
   TeachingRenderer.prototype._addFood = function (clientX, clientY) {
     if (!this.state.food) this.state.food = [];
     var pt = this._toCanvas(clientX, clientY);
-    pt.aware = 0; // 初始未被察觉：需视野锥扫到并停留累积后才会被发现
+    pt.aware = 0;                 // 初始未被察觉：需视野锥扫到并停留累积后才会被发现
+    pt.phase = rand() * Math.PI * 2; // 小虫扭动相位（第11步起渲染为蠕动小虫）
+    pt.dir = rand() * Math.PI * 2;   // 小虫爬行朝向
     this.state.food.push(pt);
   };
 
@@ -249,7 +264,7 @@
     s.time += dt;
     // 视野阶段：管理“光点食物”——锁定视野内的食物并慢速爬过去吃掉
     if (this.features.vision) this._updateFood(dt);
-    if (!s.pointerActive && !s.foodSeeking && !s.searching) {
+    if (!s.pointerActive && !s.foodSeeking && !s.searching && !s.pouncing && !s.windup) {
       s.wanderTimer -= dt;
       if (s.wanderTimer <= 0) {
         s.wanderTimer = 90 + rand() * 120;
@@ -265,8 +280,10 @@
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
       var maxStep = 4.2 * SCALE * (this.features.battle && s.fx ? 1.8 : 1);
       var ease = 0.12;
-      if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 锁定后慢速爬向食物
-      else if (s.searching) { maxStep = 2.4 * SCALE; ease = 0.08; } // 搜索时缓慢踱步、转身张望
+      if (s.pouncing) { maxStep = 9 * SCALE; ease = 0.55; }          // 猛扑：爆发突进
+      else if (s.windup) { maxStep = 0; }                            // 蓄力：原地不动（靠 lookAt 盯住猎物）
+      else if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 锁定后缓慢接近/第10步爬行
+      else if (s.searching) { maxStep = 2.4 * SCALE; ease = 0.08; }   // 搜索时缓慢踱步、转身张望
       if (d > 1) { var step = Math.min(maxStep, d * ease); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率与蛇形波幅）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
@@ -332,7 +349,12 @@
     if (!s.headReady) { s.headAngle = bodyAngle; s.headReady = true; s.lookOffset = 0; s.lookHold = 0; }
     var limit = 85 * Math.PI / 180; // 最大头部转角（相对身体）
     var desired, speed;
-    if (s.headSpeed > 0.8) {
+    if (s.lookAt) {
+      // 锁定猎物：头部直盯目标（参考原代码 _computeAITarget 返回 lookAngle 让头转向目标）
+      desired = Math.atan2(s.lookAt.y - sp[0].y, s.lookAt.x - sp[0].x);
+      s.lookOffset *= 0.9; s.lookHold = 0;
+      speed = 0.42;
+    } else if (s.headSpeed > 0.8) {
       desired = (s.moveAngle != null) ? s.moveAngle : bodyAngle;
       s.lookOffset *= 0.9; s.lookHold = 0;
       speed = 0.34;
@@ -359,7 +381,7 @@
     var s = this.state;
     s.battleTimer -= dt;
     if (s.fx) { s.fx.t -= dt; if (s.fx.t <= 0) s.fx = null; }
-    if (s.battleTimer <= 0 && !s.foodSeeking && !s.searching) {
+    if (s.battleTimer <= 0 && !s.foodTarget && !s.searching) {
       s.battleTimer = 150;
       s.pointerActive = false;
       s.target = { x: this._w * (0.3 + rand() * 0.4), y: this._h * (0.35 + rand() * 0.3) };
@@ -387,6 +409,9 @@
     s.spotFx = this._tickRings(s.spotFx, dt);
     s.foodSeeking = false;
     s.searching = false;
+    s.pouncing = false;
+    s.windup = false;
+    s.lookAt = null;
     if (!sp.length || s.pointerActive) return; // 玩家牵引时优先听从鼠标
 
     var h = sp[0], n = sp[1] || h;
@@ -394,6 +419,24 @@
       ? s.headAngle : Math.atan2(h.y - n.y, h.x - n.x);
     var half = (p.fovAngle * Math.PI / 180) / 2;
     var maxDist = p.fovMaxDist * FOV_CONE_SCALE;
+
+    // 第11步起：食物渲染为“蠕动小虫”，会扭动并缓慢爬行（远慢于蜥蜴）
+    if (this.features.battle) {
+      for (var m = 0; m < s.food.length; m++) {
+        var w = s.food[m];
+        if (w.dir == null) w.dir = rand() * Math.PI * 2;
+        w.phase = (w.phase || 0) + 0.3 * dt;
+        w.dir += (rand() - 0.5) * 0.06 * dt;
+        w.x += Math.cos(w.dir) * WORM_SPEED * dt;
+        w.y += Math.sin(w.dir) * WORM_SPEED * dt;
+        var wm = 18;
+        if (w.x < wm || w.x > this._w - wm || w.y < wm || w.y > this._h - wm) {
+          w.dir = Math.atan2(this._h / 2 - w.y, this._w / 2 - w.x); // 触边折返
+          w.x = Math.max(wm, Math.min(this._w - wm, w.x));
+          w.y = Math.max(wm, Math.min(this._h - wm, w.y));
+        }
+      }
+    }
 
     // 1) 逐个更新“察觉度”：落在视野锥内累积、离开则衰减
     for (var i = 0; i < s.food.length; i++) {
@@ -405,7 +448,7 @@
     }
 
     // 旧目标若已被吃掉/清空则解除锁定
-    if (s.foodTarget && s.food.indexOf(s.foodTarget) === -1) s.foodTarget = null;
+    if (s.foodTarget && s.food.indexOf(s.foodTarget) === -1) { s.foodTarget = null; s.battlePhase = null; }
 
     // 2) 发现：在“察觉度”充满的食物中择最近者锁定（扫视发现 → 行动）
     if (!s.foodTarget) {
@@ -417,16 +460,18 @@
         if (gd < bestD) { bestD = gd; best = g; }
       }
       if (best) {
-        s.foodTarget = best;
+        s.foodTarget = best; s.battlePhase = 'approach';
         if (!s.spotFx) s.spotFx = [];
         s.spotFx.push({ x: best.x, y: best.y, t: 22, dur: 22 }); // “发现！”提示环
       }
     }
 
-    // 3) 追踪/进食；或在尚未发现时进入“搜索”状态
+    // 3) 已锁定：第11步起进入“战斗捕食”（接近→蓄力→猛扑）；否则第10步“慢爬→进食”
     if (s.foodTarget) {
       var tg = s.foodTarget, tdx = tg.x - h.x, tdy = tg.y - h.y, td = Math.hypot(tdx, tdy);
-      if (td <= 9 * SCALE) {
+      if (this.features.battle) {
+        this._battlePursue(tg, h, td, dt);
+      } else if (td <= 9 * SCALE) {
         var idx = s.food.indexOf(tg); if (idx >= 0) s.food.splice(idx, 1);
         if (!s.eatFx) s.eatFx = [];
         s.eatFx.push({ x: tg.x, y: tg.y, t: 20, dur: 20 });
@@ -436,20 +481,57 @@
         s.foodSeeking = true;
       }
     } else if (s.food.length) {
-      // 搜索：缓慢且“连续”地转动张望方向——视野锥平滑扫过四面八方（含身后），
-      // 扫到食物时会停留足够久以累积满察觉度才发现；偶尔反向，形成左右张望/转身的找寻动作。
+      // 搜索：站定，用头部“待机扫视”张望（覆盖前方约 ±115°，参考原代码 aiLook）；
+      // 每隔一会儿迈步转身一次，把视野带到身后——保持原地附近、可靠地扫到猎物。
       s.searching = true;
-      if (s.searchHeading == null) s.searchHeading = headAng;
       s.searchTimer -= dt;
-      if (s.searchTimer <= 0) { s.searchTimer = 160 + rand() * 160; s.searchDir = -s.searchDir; }
-      s.searchHeading += s.searchDir * 0.03 * dt; // 连续平滑扫视：约 3.5s 扫一圈，单次扫过食物可停留足够久
-      var R = 120, mg = 36 * SCALE;
-      var tx = h.x + Math.cos(s.searchHeading) * R, ty = h.y + Math.sin(s.searchHeading) * R;
-      s.target = {
-        x: Math.max(mg, Math.min(this._w - mg, tx)),
-        y: Math.max(mg, Math.min(this._h - mg, ty))
-      };
+      if (s.searchTimer <= 0) {
+        s.searchTimer = 120 + rand() * 110;
+        s.searchHeading = (s.headReady ? s.headAngle : headAng) + (rand() < 0.5 ? 1 : -1) * (1.0 + rand() * 0.8);
+        s.searchStep = 22; // 用约 22 帧迈步转身
+      }
+      var smg = 36 * SCALE;
+      if (s.searchStep > 0) {
+        s.searchStep -= dt; // 转身：朝新方向迈一小步带动身体转向
+        s.target = {
+          x: Math.max(smg, Math.min(this._w - smg, h.x + Math.cos(s.searchHeading) * 120)),
+          y: Math.max(smg, Math.min(this._h - smg, h.y + Math.sin(s.searchHeading) * 120))
+        };
+      } else {
+        s.target = { x: h.x, y: h.y }; // 站定：headSpeed→0，转入头部待机扫视
+      }
     }
+  };
+
+  // 战斗捕食状态机（参考 lizard-renderer.js：alert 先盯住缓慢接近 → 进入近身则突进命中）：
+  //  approach 缓慢接近 → windup 原地蓄力盯住 → pounce 爆发猛扑 → 命中捕获/扑空重来。
+  TeachingRenderer.prototype._battlePursue = function (tg, h, td, dt) {
+    var s = this.state;
+    s.lookAt = { x: tg.x, y: tg.y }; // 进入战斗后头部始终直盯猎物
+    if (s.battlePhase === 'pounce') {
+      s.pouncing = true; s.target = { x: tg.x, y: tg.y };
+      s.phaseTimer -= dt;
+      if (td <= POUNCE_CATCH) this._catchWorm(tg);          // 命中捕获
+      else if (s.phaseTimer <= 0) { s.battlePhase = 'approach'; } // 扑空 → 重新接近
+    } else if (s.battlePhase === 'windup') {
+      s.windup = true; s.target = { x: h.x, y: h.y };        // 原地蓄力（盯住猎物）
+      s.phaseTimer -= dt;
+      if (s.phaseTimer <= 0) { s.battlePhase = 'pounce'; s.phaseTimer = POUNCE_FRAMES; }
+    } else { // approach / 初始
+      if (td > POUNCE_RANGE) { s.battlePhase = 'approach'; s.foodSeeking = true; s.target = { x: tg.x, y: tg.y }; }
+      else { s.battlePhase = 'windup'; s.phaseTimer = POUNCE_WINDUP; s.windup = true; s.target = { x: h.x, y: h.y }; }
+    }
+  };
+
+  // 捕获小虫：移除并迸出命中特效（头部 melee 环 + 落点涟漪，参考 _applyTestEffect）
+  TeachingRenderer.prototype._catchWorm = function (tg) {
+    var s = this.state;
+    var idx = s.food.indexOf(tg); if (idx >= 0) s.food.splice(idx, 1);
+    if (!s.eatFx) s.eatFx = [];
+    s.eatFx.push({ x: tg.x, y: tg.y, t: 22, dur: 22 });
+    s.fx = { t: 22, dur: 22 };
+    s.foodTarget = null; s.battlePhase = null; s.phaseTimer = 0;
+    s.pouncing = false; s.windup = false; s.lookAt = null;
   };
 
   /* ── 腿/脚 IK（参考 lizard-renderer.js 的步态实现，避免快速移动时拖脚） ── */
@@ -749,14 +831,18 @@
     ctx.strokeStyle = 'rgba(100,220,100,0.2)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
 
-    // 玩家右键放置的“光点食物”：未被察觉时偏暗，随“察觉度”增亮，被锁定后高亮加描定环
+    // 右键放置的食物：第10步是“光点”（随察觉度由暗变亮）；第11步起是“蠕动小虫”
     var food = this.state.food;
     if (food && food.length) {
       for (var d = 0; d < food.length; d++) {
         var f = food[d];
+        var locked = (f === this.state.foodTarget);
+        if (this.features.battle) {
+          this._drawWorm(ctx, f, locked);
+          continue;
+        }
         var aware = f.aware || 0;
         var pulse = 1 + Math.sin(this.state.time * 0.2 + d * 1.7) * 0.2;
-        var locked = (f === this.state.foodTarget);
         // 外圈光晕：随察觉度增强
         ctx.fillStyle = 'rgba(255,224,138,' + (0.1 + aware * 0.18).toFixed(3) + ')';
         ctx.beginPath(); ctx.arc(f.x, f.y, (4 + aware * 3) * SCALE * pulse, 0, Math.PI * 2); ctx.fill();
@@ -788,8 +874,38 @@
     // 引导提示（仅未放置食物时）；置于顶部工具条下方，避免被遮挡
     if (!food || !food.length) {
       ctx.fillStyle = 'rgba(255,224,138,0.6)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('右键放置光点食物，蜥蜴扫视发现后会过去吃掉', this._w / 2, 64);
+      var tip = this.features.battle
+        ? '右键放置蠕动的小虫，蜥蜴发现后会潜近并猛扑捕食'
+        : '右键放置光点食物，蜥蜴扫视发现后会过去吃掉';
+      ctx.fillText(tip, this._w / 2, 64);
       ctx.textAlign = 'left';
+    }
+  };
+
+  // 蠕动的小虫（第11步起的“猎物”）：短身沿 dir 拖出，随相位左右扭动，被锁定时加描定环
+  TeachingRenderer.prototype._drawWorm = function (ctx, w, locked) {
+    var t = this.state.time, N = 7, seg = 2.4 * SCALE, amp = 2.0 * SCALE;
+    var dir = (w.dir == null) ? 0 : w.dir;
+    var cos = Math.cos(dir), sin = Math.sin(dir), px = -sin, py = cos;
+    var pts = [];
+    for (var k = 0; k < N; k++) {
+      var along = -k * seg; // 头在 (w.x,w.y)，身体向后拖
+      var u = k / (N - 1);
+      var wob = Math.sin(t * 0.3 + (w.phase || 0) + k * 0.9) * amp * (0.35 + 0.65 * Math.sin((1 - u) * Math.PI * 0.5 + 0.2));
+      pts.push({ x: w.x + cos * along + px * wob, y: w.y + sin * along + py * wob });
+    }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < N; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = '#5a3a22'; ctx.lineWidth = 3.6 * SCALE; ctx.stroke(); // 深色描边
+    ctx.strokeStyle = '#d79a5b'; ctx.lineWidth = 2.4 * SCALE; ctx.stroke(); // 暖色身体
+    ctx.fillStyle = '#e7b074';
+    ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 2.0 * SCALE, 0, Math.PI * 2); ctx.fill(); // 头略大
+    ctx.fillStyle = '#3a2414';
+    ctx.beginPath(); ctx.arc(pts[0].x + cos * 0.6 * SCALE, pts[0].y + sin * 0.6 * SCALE, 0.7 * SCALE, 0, Math.PI * 2); ctx.fill();
+    if (locked) {
+      ctx.strokeStyle = 'rgba(255,225,77,0.8)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(w.x, w.y, 8 * SCALE, 0, Math.PI * 2); ctx.stroke();
     }
   };
 

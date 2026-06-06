@@ -166,11 +166,36 @@ test('切换离开视野阶段会清空已放置的食物', () => {
   assert.equal(r.state.food, null, 'applyStage 应重置食物');
 });
 
-test('切换离开视野阶段会清空已放置的食物', () => {
+test('战斗阶段：小虫带扭动相位/朝向并缓慢爬行', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
-  r.applyStage(findStage('vision'));
-  r._addFood(100, 100);
-  assert.equal(r.state.food.length, 1);
   r.applyStage(findStage('battle'));
-  assert.equal(r.state.food, null, 'applyStage 应重置食物');
+  const head = r.state.spine[0];
+  r._addFood(head.x - 320, head.y); // 远在身后：60 帧内蜥蜴来不及捕获，可观察小虫自身运动
+  const w = r.state.food[0];
+  assert.equal(typeof w.phase, 'number', '小虫应有扭动相位');
+  assert.equal(typeof w.dir, 'number', '小虫应有爬行朝向');
+  const x0 = w.x, y0 = w.y, ph0 = w.phase;
+  for (let i = 0; i < 60; i++) r.tick(1);
+  assert.ok(w.phase > ph0, '相位应推进（扭动）');
+  assert.ok(Math.hypot(w.x - x0, w.y - y0) > 0.5, '应缓慢爬行位移');
+});
+
+test('战斗阶段：发现小虫→潜近→猛扑→捕获并复位', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('battle'));
+  const head = r.state.spine[0];
+  r._addFood(head.x + 150, head.y); // 正前方、视野内
+  let locked = false, lookedAt = false, pounced = false, caught = false;
+  for (let i = 0; i < 4000 && !caught; i++) {
+    r.tick(1);
+    if (r.state.foodTarget) locked = true;
+    if (r.state.lookAt) lookedAt = true;
+    if (r.state.pouncing) pounced = true;
+    if (r.state.food.length === 0) caught = true;
+  }
+  assert.ok(locked, '应发现并锁定小虫');
+  assert.ok(lookedAt, '战斗中头部应盯住猎物(lookAt)');
+  assert.ok(pounced, '应进入猛扑阶段');
+  assert.ok(caught, '最终应捕获小虫');
+  assert.equal(r.state.battlePhase, null, '捕获后状态机复位');
 });
