@@ -42,6 +42,7 @@
       bodyHue: seed.bodyHue != null ? seed.bodyHue : 120,
       bodyLightness: seed.bodyLightness != null ? seed.bodyLightness : 42,
       colorSaturation: rp.colorSaturation || 1.0,
+      patternComplexity: rp.patternComplexity || 2,
       patternType: seed.patternType || 'spots',
       patternHue: seed.patternHue != null ? seed.patternHue : 90
     };
@@ -308,11 +309,30 @@
   };
 
   TeachingRenderer.prototype._drawPattern = function (ctx) {
+    var type = this.params.patternType;
+    if (type === 'none') return;
     var sp = this.state.spine, hw = this._halfWidths();
+    // patternComplexity 越高 → 花纹越密（步进越小，最小 2 节）
+    var step = Math.max(2, 4 - Math.round((this.params.patternComplexity || 1) / 2));
     ctx.fillStyle = this._colors.pattern;
-    for (var i = 2; i < sp.length - 1; i += 2) {
-      var r = Math.max(2, hw[i] * 0.4);
-      ctx.beginPath(); ctx.arc(sp[i].x, sp[i].y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = this._colors.pattern;
+    if (type === 'stripes') {
+      ctx.lineWidth = 3;
+      for (var i = 2; i < sp.length - 1; i += step) {
+        var a = sp[i - 1], b = sp[i + 1];
+        var tx = b.x - a.x, ty = b.y - a.y, tl = Math.hypot(tx, ty) || 1;
+        var nx = -ty / tl, ny = tx / tl, w = hw[i];
+        ctx.beginPath();
+        ctx.moveTo(sp[i].x - nx * w, sp[i].y - ny * w);
+        ctx.lineTo(sp[i].x + nx * w, sp[i].y + ny * w);
+        ctx.stroke();
+      }
+      return;
+    }
+    // 默认 'spots'：斑点
+    for (var j = 2; j < sp.length - 1; j += step) {
+      var r = Math.max(2, hw[j] * 0.4);
+      ctx.beginPath(); ctx.arc(sp[j].x, sp[j].y, r, 0, Math.PI * 2); ctx.fill();
     }
   };
 
