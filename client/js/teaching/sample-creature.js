@@ -21,12 +21,12 @@
       fovAngle: 60,
       fovClearDist: 220,
       fovMaxDist: 360,
-      colorSaturation: 1.0,
+      colorSaturation: 0.4,
       patternComplexity: 2
     },
     body_seed: {
       bodyHue: 120,
-      bodyLightness: 28,
+      bodyLightness: 26,
       patternType: 'spots',
       patternHue: 90
     }

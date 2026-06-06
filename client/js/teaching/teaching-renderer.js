@@ -36,7 +36,7 @@
       bodyScale: rp.bodyScale || 1.0,
       headScale: rp.headScale || 1.0,
       limbThickness: rp.limbThickness || 1.0,
-      serpentineAmp: (rp.serpentineAmp || 1.5) * SCALE,
+      serpentineAmp: (rp.serpentineAmp || 1.5),
       serpentineFreq: rp.serpentineFreq || 0.3,
       serpentineSpeed: rp.serpentineSpeed || 0.2,
       fovAngle: rp.fovAngle || 60,
@@ -283,9 +283,15 @@
 
   /* ── 腿/脚 IK（参考 lizard-renderer.js 的步态实现，避免快速移动时拖脚） ── */
 
+  TeachingRenderer.prototype._legLen = function () {
+    // 第8步（皮肤）起，四肢所有关节段长度加倍
+    var mult = this.features.skin ? 2 : 1;
+    return { L1: this.params.segmentLength * 0.9 * mult, L2: this.params.segmentLength * 0.8 * mult };
+  };
+
   TeachingRenderer.prototype._legReach = function () {
-    var L1 = this.params.segmentLength * 0.9, L2 = this.params.segmentLength * 0.8;
-    return (L1 + L2) * 0.8;
+    var ll = this._legLen();
+    return (ll.L1 + ll.L2) * 0.8;
   };
 
   // 髋部锚点 + 体轴方向（dir 指向头部）+ 侧向法线 perp
@@ -461,8 +467,8 @@
 
   TeachingRenderer.prototype._drawLegs = function (ctx) {
     var p = this.params, legs = this.state.legs;
-    var L1 = p.segmentLength * 0.9, L2 = p.segmentLength * 0.8;
-    var boneColor = this._colored() ? this._colors.outline : '#6f8a99';
+    var ll = this._legLen(), L1 = ll.L1, L2 = ll.L2;
+    var skinned = this.features.skin; // 第8步起：腿覆盖同色皮肤、关节段加倍
     ctx.lineCap = 'round';
     for (var k = 0; k < legs.length; k++) {
       var leg = legs[k]; if (!leg.foot) continue;
@@ -470,11 +476,26 @@
       var drawFoot = this._clampFoot(hip, leg.foot, (L1 + L2) * 0.98);
       var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
       var ik = M.solveIK2Bone(hip, drawFoot, L1, L2, bendDir);
-      ctx.strokeStyle = boneColor;
-      ctx.lineWidth = Math.max(2, 3.2 * SCALE * p.limbThickness);
-      ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.stroke();
-      ctx.lineWidth = Math.max(1.5, 2.3 * SCALE * p.limbThickness);
-      ctx.beginPath(); ctx.moveTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+      if (skinned) {
+        // 覆盖同色皮肤：先描深色轮廓，再以身体色填充，形成有体积的四肢
+        var upper = Math.max(3, 6 * SCALE * p.limbThickness);
+        var lower = Math.max(2.4, 4.4 * SCALE * p.limbThickness);
+        ctx.strokeStyle = this._colors.outline;
+        ctx.lineWidth = upper + 2.6 * SCALE;
+        ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+        ctx.strokeStyle = this._colors.body;
+        ctx.lineWidth = upper;
+        ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.stroke();
+        ctx.lineWidth = lower;
+        ctx.beginPath(); ctx.moveTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+      } else {
+        // 骨架阶段（3–7步）：细线条 IK 骨骼，便于教学观察
+        ctx.strokeStyle = this._colored() ? this._colors.body : '#6f8a99';
+        ctx.lineWidth = Math.max(2, 3.2 * SCALE * p.limbThickness);
+        ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.stroke();
+        ctx.lineWidth = Math.max(1.5, 2.3 * SCALE * p.limbThickness);
+        ctx.beginPath(); ctx.moveTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+      }
       this._drawFoot(ctx, drawFoot, hip, leg);
     }
   };
