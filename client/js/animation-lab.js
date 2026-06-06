@@ -26,6 +26,7 @@
     btnAuto: document.getElementById('btnAuto'),
     selSpeed: document.getElementById('selSpeed'),
     paramPanel: document.getElementById('paramPanel'),
+    serpPanel: document.getElementById('serpPanel'),
     genesis: document.getElementById('genesisText')
   };
 
@@ -49,6 +50,7 @@
       btn.classList.toggle('active', idx === stageIndex);
     });
     el.paramPanel.hidden = !stage.features.params;
+    el.serpPanel.hidden = stage.key !== 'serpentine';
   }
 
   el.btnPrev.addEventListener('click', function () { stopAuto(); goTo(stageIndex - 1); });
@@ -95,6 +97,21 @@
   document.getElementById('pPattern').addEventListener('change', function (e) {
     renderer.setParams({ patternType: e.target.value });
   });
+
+  // 蛇形波调节滑块（第7步）：实时改 serpentineAmp/Freq/Speed 并显示当前值
+  function bindSerp(id, key, valId, digits) {
+    var input = document.getElementById(id);
+    var out = document.getElementById(valId);
+    input.addEventListener('input', function () {
+      var v = parseFloat(input.value);
+      var patch = {}; patch[key] = v;
+      renderer.setParams(patch);
+      out.textContent = v.toFixed(digits);
+    });
+  }
+  bindSerp('pSerpAmp', 'serpentineAmp', 'vSerpAmp', 1);
+  bindSerp('pSerpFreq', 'serpentineFreq', 'vSerpFreq', 2);
+  bindSerp('pSerpSpeed', 'serpentineSpeed', 'vSerpSpeed', 2);
 
   var fallbackGenesis =
     '我想在此玩法基础上设计一套灵活的可供玩家自由拼装、自我AI进化的爬虫生物生成网络游戏系统……\n' +

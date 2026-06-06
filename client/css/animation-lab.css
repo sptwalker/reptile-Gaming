@@ -79,6 +79,8 @@ body {
 .param-panel h3 { margin: 0 0 4px; font-size: 13px; }
 .param-panel label { display: flex; flex-direction: column; font-size: 12px; gap: 3px; }
 .param-panel input[type=range] { width: 100%; }
+.param-panel .pv { color: #7fd1c0; font-variant-numeric: tabular-nums; }
+.param-panel .panel-hint { font-size: 11px; color: #7c93b0; line-height: 1.5; margin-top: 2px; }
 
 @media (max-width: 720px) {
   .stage-card { max-width: 70vw; width: 70vw; }

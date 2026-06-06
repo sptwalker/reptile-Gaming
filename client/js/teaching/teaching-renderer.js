@@ -17,7 +17,7 @@
   var DEFAULT_FEATURES = {
     spine: false, legs: false, head: false, body: false, bodyCurve: false,
     collision: false, serpentine: false, skin: false, spikes: false,
-    vision: false, battle: false, params: false
+    vision: false, battle: false, params: false, headTurn: false
   };
 
   function rand() { return Math.random(); }
@@ -57,6 +57,8 @@
       target: { x: this._w * 0.5, y: this._h * 0.5 },
       pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null, dots: null,
       prevHead: null, headSpeed: 0,
+      headReady: false, headAngle: 0, moveAngle: null,
+      lookOffset: 0, lookTarget: 0, lookSpeed: 0.03, lookHold: 0,
       spine: [], legs: []
     };
     this._buildSpine(this.params.spineNodes);
@@ -128,6 +130,10 @@
     this.state.fx = null;
     this.state.prevHead = null;
     this.state.headSpeed = 0;
+    this.state.headReady = false;
+    this.state.moveAngle = null;
+    this.state.lookOffset = 0;
+    this.state.lookHold = 0;
     this.reset();
     return this;
   };
@@ -220,6 +226,7 @@
       if (d > 1) { var step = Math.min(maxStep, d * 0.12); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率与蛇形波幅）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
+      if (s.headSpeed > 0.5) s.moveAngle = Math.atan2(head.y - py, head.x - px);
 
       // FK：身体跟随头部
       for (var i = 1; i < sp.length; i++) {
@@ -266,7 +273,42 @@
         M.resolveSelfCollision(sp, p.segmentLength * 0.7);
       }
     }
+    if (this.features.headTurn) this._updateHead(dt);
     if (this.features.legs) this._updateLegs(dt);
+  };
+
+  // 头部独立转动（参考 lizard-renderer.js 的 _updateHeadTurn 与停留扫视 aiLook）：
+  //  · 移动时头领先转向运动方向；
+  //  · 停留时在最大转角范围内做随机缓动的左右扫视；
+  //  · 视觉头角始终被钳制在相对身体方向的限定范围内。
+  TeachingRenderer.prototype._updateHead = function (dt) {
+    var s = this.state, sp = s.spine;
+    if (sp.length < 3) { s.headAngle = 0; s.headReady = false; return; }
+    var bodyAngle = Math.atan2(sp[0].y - sp[2].y, sp[0].x - sp[2].x);
+    if (!s.headReady) { s.headAngle = bodyAngle; s.headReady = true; s.lookOffset = 0; s.lookHold = 0; }
+    var limit = 85 * Math.PI / 180; // 最大头部转角（相对身体）
+    var desired, speed;
+    if (s.headSpeed > 0.8) {
+      desired = (s.moveAngle != null) ? s.moveAngle : bodyAngle;
+      s.lookOffset *= 0.9; s.lookHold = 0;
+      speed = 0.34;
+    } else {
+      s.lookHold -= dt;
+      if (s.lookHold <= 0) {
+        var maxLook = Math.min(2.2, limit * 1.6);
+        s.lookTarget = (rand() - 0.5) * maxLook;
+        var rr = rand();
+        s.lookSpeed = rr < 0.6 ? 0.02 + rr * 0.03 : rr < 0.85 ? 0.05 + (rr - 0.6) * 0.25 : 0.12 + (rr - 0.85) * 0.6;
+        s.lookHold = Math.floor(25 + rand() * 80);
+      }
+      s.lookOffset += (s.lookTarget - s.lookOffset) * Math.min(0.5, s.lookSpeed * dt);
+      desired = bodyAngle + s.lookOffset;
+      speed = 0.22;
+    }
+    var off = M.angleDiff(desired, bodyAngle);
+    if (off > limit) desired = bodyAngle + limit;
+    else if (off < -limit) desired = bodyAngle - limit;
+    s.headAngle += M.angleDiff(desired, s.headAngle) * Math.min(1, speed * dt);
   };
 
   TeachingRenderer.prototype._updateBattle = function (dt) {
@@ -454,7 +496,10 @@
 
   TeachingRenderer.prototype._drawHead = function (ctx) {
     var sp = this.state.spine, p = this.params, h = sp[0], n = sp[1] || h;
-    var ang = Math.atan2(h.y - n.y, h.x - n.x), hs = 13 * SCALE * p.headScale * p.bodyScale;
+    var ang = (this.features.headTurn && this.state.headReady)
+      ? this.state.headAngle
+      : Math.atan2(h.y - n.y, h.x - n.x);
+    var hs = 13 * SCALE * p.headScale * p.bodyScale;
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(ang);
     ctx.fillStyle = this._colored() ? this._colors.body : '#46586a';
     ctx.beginPath(); ctx.ellipse(hs * 0.4, 0, hs, hs * 0.72, 0, 0, Math.PI * 2); ctx.fill();
@@ -463,6 +508,30 @@
     ctx.beginPath(); ctx.arc(hs * 0.6, -hs * 0.35, 0.7 * SCALE, 0, Math.PI * 2);
     ctx.arc(hs * 0.6, hs * 0.35, 0.7 * SCALE, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+  };
+
+  // 由细到粗的填充四肢：髋宽 hipW、膝宽 kneeW、脚端 footW，二次曲线圆滑过膝。
+  TeachingRenderer.prototype._drawSkinnedLeg = function (ctx, hip, knee, foot, hipW, kneeW, footW) {
+    var a1 = Math.atan2(knee.y - hip.y, knee.x - hip.x);
+    var a2 = Math.atan2(foot.y - knee.y, foot.x - knee.x);
+    var p1 = a1 + Math.PI / 2, p2 = a2 + Math.PI / 2;
+    var hu = hipW / 2, ku = kneeW / 2, fu = footW / 2;
+    function path() {
+      ctx.beginPath();
+      ctx.moveTo(hip.x + Math.cos(p1) * hu, hip.y + Math.sin(p1) * hu);
+      ctx.quadraticCurveTo(knee.x + Math.cos(p1) * ku, knee.y + Math.sin(p1) * ku,
+        knee.x + Math.cos(p2) * ku, knee.y + Math.sin(p2) * ku);
+      ctx.lineTo(foot.x + Math.cos(p2) * fu, foot.y + Math.sin(p2) * fu);
+      ctx.lineTo(foot.x - Math.cos(p2) * fu, foot.y - Math.sin(p2) * fu);
+      ctx.quadraticCurveTo(knee.x - Math.cos(p2) * ku, knee.y - Math.sin(p2) * ku,
+        knee.x - Math.cos(p1) * ku, knee.y - Math.sin(p1) * ku);
+      ctx.lineTo(hip.x - Math.cos(p1) * hu, hip.y - Math.sin(p1) * hu);
+      ctx.closePath();
+    }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    path();
+    ctx.fillStyle = this._colors.body; ctx.fill();
+    ctx.lineWidth = 1.6 * SCALE; ctx.strokeStyle = this._colors.outline; ctx.stroke();
   };
 
   TeachingRenderer.prototype._drawLegs = function (ctx) {
@@ -477,17 +546,12 @@
       var bendDir = leg.pairId === 0 ? leg.side : -leg.side;
       var ik = M.solveIK2Bone(hip, drawFoot, L1, L2, bendDir);
       if (skinned) {
-        // 覆盖同色皮肤：先描深色轮廓，再以身体色填充，形成有体积的四肢
-        var upper = Math.max(3, 6 * SCALE * p.limbThickness);
-        var lower = Math.max(2.4, 4.4 * SCALE * p.limbThickness);
-        ctx.strokeStyle = this._colors.outline;
-        ctx.lineWidth = upper + 2.6 * SCALE;
-        ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
-        ctx.strokeStyle = this._colors.body;
-        ctx.lineWidth = upper;
-        ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.stroke();
-        ctx.lineWidth = lower;
-        ctx.beginPath(); ctx.moveTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
+        // 覆盖同色皮肤：填充一条由细到粗的四肢——大腿(髋)最粗、脚趾处最细，
+        // 关节用二次曲线圆滑过渡（参考 lizard-renderer.js 的 _drawLegOutline）。
+        var hipW = Math.max(4, 11 * SCALE * p.limbThickness);  // 大腿（最粗）
+        var kneeW = Math.max(3, 7.5 * SCALE * p.limbThickness); // 膝
+        var footW = Math.max(1.6, 3 * SCALE * p.limbThickness); // 脚趾端（最细）
+        this._drawSkinnedLeg(ctx, hip, ik.knee, drawFoot, hipW, kneeW, footW);
       } else {
         // 骨架阶段（3–7步）：细线条 IK 骨骼，便于教学观察
         ctx.strokeStyle = this._colored() ? this._colors.body : '#6f8a99';
@@ -539,14 +603,22 @@
   TeachingRenderer.prototype._drawVision = function (ctx) {
     var sp = this.state.spine; if (!sp.length) return;
     var h = sp[0], n = sp[1] || h, p = this.params;
-    var ang = Math.atan2(h.y - n.y, h.x - n.x), half = (p.fovAngle * Math.PI / 180) / 2;
-    var coneScale = 0.5 * 1.7;
-    ctx.fillStyle = 'rgba(120,200,255,0.07)';
+    var ang = (this.features.headTurn && this.state.headReady)
+      ? this.state.headAngle
+      : Math.atan2(h.y - n.y, h.x - n.x);
+    var half = (p.fovAngle * Math.PI / 180) / 2;
+    var coneScale = 0.5 * 1.7 * 2; // 视线范围加大一倍
+    // 外圈（警觉区）+ 内圈（清晰区），配色与 lizard-renderer.js 一致（绿色）
+    ctx.save();
     ctx.beginPath(); ctx.moveTo(h.x, h.y);
-    ctx.arc(h.x, h.y, p.fovMaxDist * coneScale, ang - half, ang + half); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = 'rgba(120,200,255,0.10)';
+    ctx.arc(h.x, h.y, p.fovMaxDist * coneScale, ang - half, ang + half); ctx.closePath();
+    ctx.fillStyle = 'rgba(30,80,30,0.12)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(30,80,30,0.25)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(h.x, h.y);
-    ctx.arc(h.x, h.y, p.fovClearDist * coneScale, ang - half, ang + half); ctx.closePath(); ctx.fill();
+    ctx.arc(h.x, h.y, p.fovClearDist * coneScale, ang - half, ang + half); ctx.closePath();
+    ctx.fillStyle = 'rgba(100,220,100,0.08)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(100,220,100,0.2)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
     if (!this.state.dots) {
       this.state.dots = [];
       for (var i = 0; i < 6; i++) this.state.dots.push({ x: rand() * this._w, y: rand() * this._h });

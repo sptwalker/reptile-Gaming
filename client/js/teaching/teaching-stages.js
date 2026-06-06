@@ -14,7 +14,7 @@
     var base = {
       spine: false, legs: false, head: false, body: false, bodyCurve: false,
       collision: false, serpentine: false, skin: false, spikes: false,
-      vision: false, battle: false, params: false
+      vision: false, battle: false, params: false, headTurn: false
     };
     (on || []).forEach(function (k) { base[k] = true; });
     return base;
@@ -85,29 +85,29 @@
       codeRef: 'lizard-renderer.js: _generateSkinColors / _drawPattern'
     },
     {
-      key: 'details', title: '9 · 背刺与脚部细节', spineNodes: 20,
-      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes']),
-      prompt: '沿脊背加一排三角背刺(中段最长)，并在每只脚的落点画出脚趾细节，增强生物感。',
-      explanation: '装饰层：背刺沿脊椎法线生成、长度随体段变化；脚部细节强化"落地"的真实感。',
-      codeRef: 'lizard-renderer.js: _drawSpines / _drawFoot'
+      key: 'details', title: '9 · 背刺 · 脚部 · 头部转动', spineNodes: 20,
+      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn']),
+      prompt: '沿脊背加一排三角背刺、画出脚趾细节，并让头部能独立转动：移动时头领先转向行进方向，停下时头部在限定角度内左右扫视。',
+      explanation: '装饰层 + 头部运动：头有独立的视觉朝向，受最大转角约束；移动时朝向运动方向、停留时做随机缓动的扫视，赋予观察感。',
+      codeRef: 'lizard-renderer.js: _drawSpines / _drawFoot / _updateHeadTurn / _getVisualHeadAngle'
     },
     {
       key: 'vision', title: '10 · 视野锥 + 光点', spineNodes: 20,
-      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'vision']),
-      prompt: '在头部前方画一个扇形视野锥(清晰区+警觉区两层)，并在场景里散布若干可被"看到"的光点。',
-      explanation: '感知可视化：把 AI 的视野/感知做成可见的扇形与光点，为后续"看到目标→行动"的战斗逻辑铺垫。',
+      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn', 'vision']),
+      prompt: '在头部前方画一个扇形视野锥(清晰区+警觉区两层)，随头部扫视转动，并在场景里散布若干可被"看到"的光点。',
+      explanation: '感知可视化：把 AI 的视野/感知做成可见的扇形与光点，视野锥跟随头部视觉朝向，为后续"看到目标→行动"的战斗逻辑铺垫。',
       codeRef: 'lizard-renderer.js: _drawVisionCone / _drawLightDots / _findNearestDotInFOV'
     },
     {
       key: 'battle', title: '11 · 战斗动作', spineNodes: 20,
-      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'vision', 'battle']),
+      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn', 'vision', 'battle']),
       prompt: '让蜥蜴周期性地朝一个目标发起一次扑咬/突进，命中瞬间在头部迸发一圈黄色冲击特效。',
       explanation: '动作驱动 + 特效：由外部动作目标驱动一次冲刺位移，配合命中帧的环形特效，串起"战斗表现"。',
       codeRef: 'lizard-renderer.js: setExternalMoveTarget / _applyTestEffect / triggerSkillTest'
     },
     {
       key: 'params', title: '12 · 参数化', spineNodes: 20,
-      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'vision', 'battle', 'params']),
+      features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn', 'vision', 'battle', 'params']),
       prompt: '把外观接到一组滑块：体型、头部大小、肢体粗细、身体色相、花纹类型、脊椎节数——拖动即实时改变这只蜥蜴。',
       explanation: 'render_params → 外观映射：服务端用属性算出这些参数，前端据此渲染千变万化的个体。这里直接用滑块演示该映射。',
       codeRef: 'lizard-renderer.js: applyRenderParams / applyHiddenGene'
