@@ -95,7 +95,7 @@
     var want = cfg.spineNodes || this.params.spineNodes;
     if (!this.state.spine.length || this.state.spine.length !== want) {
       this._buildSpine(want);
-      this._buildLegs();
+      this.params.spineNodes = want;
     }
     this.state.serpentinePhase = 0;
     this.state.gaitPhase = 0;
@@ -116,7 +116,7 @@
     if (!p) return;
     var rebuild = (p.spineNodes != null && (p.spineNodes | 0) !== this.state.spine.length);
     Object.assign(this.params, p);
-    if (rebuild) { this._buildSpine(this.params.spineNodes); this._buildLegs(); this.reset(); }
+    if (rebuild) { this._buildSpine(this.params.spineNodes); this.reset(); }
     this._colors = this._makeColors();
   };
 
