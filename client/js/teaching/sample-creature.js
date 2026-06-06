@@ -26,7 +26,7 @@
     },
     body_seed: {
       bodyHue: 120,
-      bodyLightness: 42,
+      bodyLightness: 28,
       patternType: 'spots',
       patternHue: 90
     }
