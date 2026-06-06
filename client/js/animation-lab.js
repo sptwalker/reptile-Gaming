@@ -10,6 +10,7 @@
   var SAMPLE = window.SAMPLE_CREATURE;
   var canvas = document.getElementById('labCanvas');
   var renderer = new window.TeachingRenderer(canvas, SAMPLE);
+  window.__lab = renderer; // 调试句柄：便于控制台/自动化检视渲染器状态
 
   var stageIndex = 0;
   var autoTimer = null;

@@ -94,7 +94,7 @@
     {
       key: 'vision', title: '10 · 视野锥 + 光点', spineNodes: 20,
       features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn', 'vision']),
-      prompt: '在头部前方画一个扇形视野锥(清晰区+警觉区两层)，随头部扫视转动，并在场景里散布若干可被"看到"的光点。',
+      prompt: '在头部前方画一个扇形视野锥(清晰区+警觉区两层)，随头部扫视转动，使用鼠标右键放置光点食物，蜥蜴看到后会锁定目标并主动过去吃掉。',
       explanation: '感知可视化：把 AI 的视野/感知做成可见的扇形与光点，视野锥跟随头部视觉朝向，为后续"看到目标→行动"的战斗逻辑铺垫。',
       codeRef: 'lizard-renderer.js: _drawVisionCone / _drawLightDots / _findNearestDotInFOV'
     },

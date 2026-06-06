@@ -88,3 +88,45 @@ test('每个阶段都能 applyStage + tick 而不抛错', () => {
   }
   assert.ok(true);
 });
+
+test('_addFood 把屏幕坐标映射为食物点并入队', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r._addFood(300, 200);
+  assert.equal(r.state.food.length, 1);
+  assert.ok(Math.abs(r.state.food[0].x - 300) < 1e-6);
+  assert.ok(Math.abs(r.state.food[0].y - 200) < 1e-6);
+});
+
+test('视野阶段：视野锥内的食物被锁定→慢速靠近→吃掉后移除', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('vision'));
+  const head = r.state.spine[0]; // 复位后头部朝 +x
+  r.state.food = [{ x: head.x + 200, y: head.y }]; // 正前方、视野内
+  r.tick(1);
+  assert.equal(r.state.foodTarget, r.state.food[0], '视野内食物应被锁定');
+  assert.equal(r.state.foodSeeking, true, '锁定后进入觅食状态');
+  let eaten = false;
+  for (let i = 0; i < 400 && !eaten; i++) { r.tick(1); if (r.state.food.length === 0) eaten = true; }
+  assert.ok(eaten, '靠近接触后应吃掉食物');
+  assert.equal(r.state.foodTarget, null, '吃掉后解除锁定');
+  assert.equal(r.state.foodSeeking, false);
+});
+
+test('视野阶段：视野锥外（身后）的食物不会被锁定', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('vision'));
+  const head = r.state.spine[0];
+  r.state.food = [{ x: head.x - 200, y: head.y }]; // 正后方，超出视野角
+  r.tick(1);
+  assert.equal(r.state.foodTarget, null, '身后食物不应被锁定');
+  assert.equal(r.state.foodSeeking, false);
+});
+
+test('切换离开视野阶段会清空已放置的食物', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('vision'));
+  r._addFood(100, 100);
+  assert.equal(r.state.food.length, 1);
+  r.applyStage(findStage('battle'));
+  assert.equal(r.state.food, null, 'applyStage 应重置食物');
+});

@@ -13,6 +13,7 @@
   var M = root.TeachingMath || (typeof require === 'function' ? require('./teaching-math.js') : null);
 
   var SCALE = 3; // 全局动画尺寸放大倍数（节点/间距/腿/体型）
+  var FOV_CONE_SCALE = 0.5 * 1.7 * 2; // 视野锥可视范围放大系数（绘制与感知共用，保持一致）
 
   var DEFAULT_FEATURES = {
     spine: false, legs: false, head: false, body: false, bodyCurve: false,
@@ -55,7 +56,8 @@
     this.state = {
       time: 0, serpentinePhase: 0, gaitPhase: 0,
       target: { x: this._w * 0.5, y: this._h * 0.5 },
-      pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null, dots: null,
+      pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null,
+      food: null, foodTarget: null, foodSeeking: false, eatFx: null,
       prevHead: null, headSpeed: 0,
       headReady: false, headAngle: 0, moveAngle: null,
       lookOffset: 0, lookTarget: 0, lookSpeed: 0.03, lookHold: 0,
@@ -134,6 +136,10 @@
     this.state.moveAngle = null;
     this.state.lookOffset = 0;
     this.state.lookHold = 0;
+    this.state.food = null;
+    this.state.foodTarget = null;
+    this.state.foodSeeking = false;
+    this.state.eatFx = null;
     this.reset();
     return this;
   };
@@ -156,13 +162,24 @@
 
   TeachingRenderer.prototype.setSpeed = function (m) { this.speed = Math.max(0.1, Number(m) || 1); };
 
-  TeachingRenderer.prototype._setPointer = function (clientX, clientY, active) {
+  // 把屏幕(client)坐标换算为画布内部坐标（绘制缓冲已是 CSS 像素，故按矩形等比映射）
+  TeachingRenderer.prototype._toCanvas = function (clientX, clientY) {
     var rect = this.canvas.getBoundingClientRect
       ? this.canvas.getBoundingClientRect()
       : { left: 0, top: 0, width: this._w, height: this._h };
     var sx = this._w / (rect.width || this._w), sy = this._h / (rect.height || this._h);
-    this.state.target = { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
+    return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
+  };
+
+  TeachingRenderer.prototype._setPointer = function (clientX, clientY, active) {
+    this.state.target = this._toCanvas(clientX, clientY);
     this.state.pointerActive = !!active;
+  };
+
+  // 右键放置一个“光点食物”（仅第10步起的视野阶段生效；蜥蜴看到后会过去吃掉）
+  TeachingRenderer.prototype._addFood = function (clientX, clientY) {
+    if (!this.state.food) this.state.food = [];
+    this.state.food.push(this._toCanvas(clientX, clientY));
   };
 
   TeachingRenderer.prototype._bindPointer = function () {
@@ -175,9 +192,16 @@
     this._onDown = function (e) { down = true; var t = pos(e); self._setPointer(t.x, t.y, true); };
     this._onMove = function (e) { if (!down) return; var t = pos(e); self._setPointer(t.x, t.y, true); };
     this._onUp = function () { down = false; self.state.pointerActive = false; };
+    // 右键放置光点食物（只在视野阶段拦截默认菜单并投放食物）
+    this._onContext = function (e) {
+      if (!self.features.vision) return;
+      e.preventDefault();
+      var t = pos(e); self._addFood(t.x, t.y);
+    };
     this.canvas.addEventListener('mousedown', this._onDown);
     window.addEventListener('mousemove', this._onMove);
     window.addEventListener('mouseup', this._onUp);
+    this.canvas.addEventListener('contextmenu', this._onContext);
     this.canvas.addEventListener('touchstart', this._onDown, { passive: true });
     this.canvas.addEventListener('touchmove', this._onMove, { passive: true });
     window.addEventListener('touchend', this._onUp);
@@ -208,7 +232,9 @@
   TeachingRenderer.prototype._update = function (dt) {
     var s = this.state, p = this.params;
     s.time += dt;
-    if (!s.pointerActive) {
+    // 视野阶段：管理“光点食物”——锁定视野内的食物并慢速爬过去吃掉
+    if (this.features.vision) this._updateFood(dt);
+    if (!s.pointerActive && !s.foodSeeking) {
       s.wanderTimer -= dt;
       if (s.wanderTimer <= 0) {
         s.wanderTimer = 90 + rand() * 120;
@@ -223,7 +249,9 @@
       var px = head.x, py = head.y;
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
       var maxStep = 4.2 * SCALE * (this.features.battle && s.fx ? 1.8 : 1);
-      if (d > 1) { var step = Math.min(maxStep, d * 0.12); head.x += dx / d * step; head.y += dy / d * step; }
+      var ease = 0.12;
+      if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 慢速爬向食物
+      if (d > 1) { var step = Math.min(maxStep, d * ease); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率与蛇形波幅）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
       if (s.headSpeed > 0.5) s.moveAngle = Math.atan2(head.y - py, head.x - px);
@@ -315,11 +343,60 @@
     var s = this.state;
     s.battleTimer -= dt;
     if (s.fx) { s.fx.t -= dt; if (s.fx.t <= 0) s.fx = null; }
-    if (s.battleTimer <= 0) {
+    if (s.battleTimer <= 0 && !s.foodSeeking) {
       s.battleTimer = 150;
       s.pointerActive = false;
       s.target = { x: this._w * (0.3 + rand() * 0.4), y: this._h * (0.35 + rand() * 0.3) };
       s.fx = { t: 24, dur: 24 };
+    }
+  };
+
+  // 光点食物的感知与进食（参考 lizard-renderer.js：视野内择最近目标 → 锁定 → 接近 → 命中）：
+  //  · 食物由玩家右键投放；只有落入头部视野锥(角度+距离)内才会被“看到”并锁定；
+  //  · 锁定后即使转头也会持续追踪，慢速爬过去；头部接触即吃掉并迸出涟漪。
+  TeachingRenderer.prototype._updateFood = function (dt) {
+    var s = this.state, sp = s.spine, p = this.params;
+    if (!s.food) s.food = [];
+    // 进食涟漪倒计时
+    if (s.eatFx) {
+      for (var e = s.eatFx.length - 1; e >= 0; e--) {
+        s.eatFx[e].t -= dt; if (s.eatFx[e].t <= 0) s.eatFx.splice(e, 1);
+      }
+      if (!s.eatFx.length) s.eatFx = null;
+    }
+    s.foodSeeking = false;
+    if (!sp.length || s.pointerActive) return; // 玩家牵引时优先听从鼠标
+    var h = sp[0], n = sp[1] || h;
+    var headAng = (this.features.headTurn && s.headReady)
+      ? s.headAngle : Math.atan2(h.y - n.y, h.x - n.x);
+    // 旧目标若已被吃掉/清空则解除锁定
+    if (s.foodTarget && s.food.indexOf(s.foodTarget) === -1) s.foodTarget = null;
+    // 获取：视野锥内最近的食物
+    if (!s.foodTarget) {
+      var half = (p.fovAngle * Math.PI / 180) / 2;
+      var maxDist = p.fovMaxDist * FOV_CONE_SCALE;
+      var best = null, bestD = Infinity;
+      for (var i = 0; i < s.food.length; i++) {
+        var f = s.food[i], fdx = f.x - h.x, fdy = f.y - h.y, fd = Math.hypot(fdx, fdy);
+        if (fd > maxDist) continue;
+        if (Math.abs(M.angleDiff(Math.atan2(fdy, fdx), headAng)) <= half && fd < bestD) {
+          bestD = fd; best = f;
+        }
+      }
+      s.foodTarget = best;
+    }
+    // 追踪/进食
+    if (s.foodTarget) {
+      var tg = s.foodTarget, gdx = tg.x - h.x, gdy = tg.y - h.y, gd = Math.hypot(gdx, gdy);
+      if (gd <= 9 * SCALE) {
+        var idx = s.food.indexOf(tg); if (idx >= 0) s.food.splice(idx, 1);
+        if (!s.eatFx) s.eatFx = [];
+        s.eatFx.push({ x: tg.x, y: tg.y, t: 20, dur: 20 });
+        s.foodTarget = null;
+      } else {
+        s.target = { x: tg.x, y: tg.y };
+        s.foodSeeking = true;
+      }
     }
   };
 
@@ -607,7 +684,7 @@
       ? this.state.headAngle
       : Math.atan2(h.y - n.y, h.x - n.x);
     var half = (p.fovAngle * Math.PI / 180) / 2;
-    var coneScale = 0.5 * 1.7 * 2; // 视线范围加大一倍
+    var coneScale = FOV_CONE_SCALE; // 视线范围加大一倍（与感知逻辑共用）
     // 外圈（警觉区）+ 内圈（清晰区），配色与 lizard-renderer.js 一致（绿色）
     ctx.save();
     ctx.beginPath(); ctx.moveTo(h.x, h.y);
@@ -619,14 +696,37 @@
     ctx.fillStyle = 'rgba(100,220,100,0.08)'; ctx.fill();
     ctx.strokeStyle = 'rgba(100,220,100,0.2)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
-    if (!this.state.dots) {
-      this.state.dots = [];
-      for (var i = 0; i < 6; i++) this.state.dots.push({ x: rand() * this._w, y: rand() * this._h });
+
+    // 玩家右键放置的“光点食物”（取代旧的随机散点）：被锁定时高亮并加描定环
+    var food = this.state.food;
+    if (food && food.length) {
+      for (var d = 0; d < food.length; d++) {
+        var f = food[d];
+        var pulse = 1 + Math.sin(this.state.time * 0.2 + d * 1.7) * 0.2;
+        var locked = (f === this.state.foodTarget);
+        ctx.fillStyle = 'rgba(255,224,138,0.22)';
+        ctx.beginPath(); ctx.arc(f.x, f.y, 6 * SCALE * pulse, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = locked ? '#fff2b0' : '#ffe08a';
+        ctx.beginPath(); ctx.arc(f.x, f.y, 2.6 * SCALE, 0, Math.PI * 2); ctx.fill();
+        if (locked) {
+          ctx.strokeStyle = 'rgba(255,225,77,0.75)'; ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.arc(f.x, f.y, 9 * SCALE * pulse, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
     }
-    ctx.fillStyle = '#ffe08a';
-    for (var d = 0; d < this.state.dots.length; d++) {
-      var dot = this.state.dots[d];
-      ctx.beginPath(); ctx.arc(dot.x, dot.y, 2.4 * SCALE, 0, Math.PI * 2); ctx.fill();
+    // 吃掉瞬间的扩散涟漪
+    if (this.state.eatFx) {
+      for (var ei = 0; ei < this.state.eatFx.length; ei++) {
+        var rp = this.state.eatFx[ei], pr = rp.t / rp.dur;
+        ctx.strokeStyle = 'rgba(255,224,138,' + pr.toFixed(3) + ')'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, (1 - pr) * 14 * SCALE + 3 * SCALE, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // 引导提示（仅未放置食物时）；置于顶部工具条下方，避免被遮挡
+    if (!food || !food.length) {
+      ctx.fillStyle = 'rgba(255,224,138,0.6)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('右键放置光点食物，蜥蜴看到后会过去吃掉', this._w / 2, 64);
+      ctx.textAlign = 'left';
     }
   };
 
@@ -648,6 +748,7 @@
       this.canvas.removeEventListener('mousedown', this._onDown);
       window.removeEventListener('mousemove', this._onMove);
       window.removeEventListener('mouseup', this._onUp);
+      this.canvas.removeEventListener('contextmenu', this._onContext);
       this.canvas.removeEventListener('touchstart', this._onDown);
       this.canvas.removeEventListener('touchmove', this._onMove);
       window.removeEventListener('touchend', this._onUp);
