@@ -22,6 +22,8 @@
   var POUNCE_WINDUP = 10;        // 蓄力帧（原地盯住猎物）
   var POUNCE_FRAMES = 16;        // 猛扑突进帧
   var WORM_SPEED = 0.45;         // 小虫爬行速度（远慢于蜥蜴，扭动着缓慢移动）
+  var BATTLE_FAR_MUL = 1.8;      // 第11步（战斗）起：远视野(警觉区)半径扩大 80%
+  var BATTLE_NEAR_MUL = 1.3;     // 第11步（战斗）起：近视野(清晰区)半径扩大 30%
 
   var DEFAULT_FEATURES = {
     spine: false, legs: false, head: false, body: false, bodyCurve: false,
@@ -396,6 +398,17 @@
     return arr.length ? arr : null;
   };
 
+  // 视野半径（清晰区/警觉区）——第11步（战斗）起分别按近/远倍率扩大；绘制与感知共用，保持一致。
+  TeachingRenderer.prototype._fovRadii = function () {
+    var p = this.params;
+    var farMul = this.features.battle ? BATTLE_FAR_MUL : 1;
+    var nearMul = this.features.battle ? BATTLE_NEAR_MUL : 1;
+    return {
+      clear: p.fovClearDist * FOV_CONE_SCALE * nearMul,
+      max: p.fovMaxDist * FOV_CONE_SCALE * farMul
+    };
+  };
+
   // 光点食物的感知与进食（参考 lizard-renderer.js：扫视发现 → 锁定 → 接近 → 命中）：
   //  · 食物由玩家右键投放，初始“未被察觉”；
   //  · 只有落入头部视野锥(角度+距离)内才会累积“察觉度”，离开则缓慢衰减——
@@ -418,7 +431,7 @@
     var headAng = (this.features.headTurn && s.headReady)
       ? s.headAngle : Math.atan2(h.y - n.y, h.x - n.x);
     var half = (p.fovAngle * Math.PI / 180) / 2;
-    var maxDist = p.fovMaxDist * FOV_CONE_SCALE;
+    var maxDist = this._fovRadii().max;
 
     // 第11步起：食物渲染为“蠕动小虫”，会扭动并缓慢爬行（远慢于蜥蜴）
     if (this.features.battle) {
@@ -818,15 +831,15 @@
       ? this.state.headAngle
       : Math.atan2(h.y - n.y, h.x - n.x);
     var half = (p.fovAngle * Math.PI / 180) / 2;
-    var coneScale = FOV_CONE_SCALE; // 视线范围加大一倍（与感知逻辑共用）
+    var rad = this._fovRadii(); // 第11步起远/近半径已分别扩大（绘制与感知一致）
     // 外圈（警觉区）+ 内圈（清晰区），配色与 lizard-renderer.js 一致（绿色）
     ctx.save();
     ctx.beginPath(); ctx.moveTo(h.x, h.y);
-    ctx.arc(h.x, h.y, p.fovMaxDist * coneScale, ang - half, ang + half); ctx.closePath();
+    ctx.arc(h.x, h.y, rad.max, ang - half, ang + half); ctx.closePath();
     ctx.fillStyle = 'rgba(30,80,30,0.12)'; ctx.fill();
     ctx.strokeStyle = 'rgba(30,80,30,0.25)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(h.x, h.y);
-    ctx.arc(h.x, h.y, p.fovClearDist * coneScale, ang - half, ang + half); ctx.closePath();
+    ctx.arc(h.x, h.y, rad.clear, ang - half, ang + half); ctx.closePath();
     ctx.fillStyle = 'rgba(100,220,100,0.08)'; ctx.fill();
     ctx.strokeStyle = 'rgba(100,220,100,0.2)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();

@@ -199,3 +199,22 @@ test('战斗阶段：发现小虫→潜近→猛扑→捕获并复位', () => {
   assert.ok(caught, '最终应捕获小虫');
   assert.equal(r.state.battlePhase, null, '捕获后状态机复位');
 });
+
+test('战斗阶段：远视野检测半径比第10步更大（扩大约80%）', () => {
+  // 大画布以区分远近；复位后头部朝 +x，猎物正前方
+  const rb = new TeachingRenderer(stubCanvas(2400, 1400), SAMPLE);
+  rb.applyStage(findStage('battle'));
+  const hb = rb.state.spine[0];
+  const visionR = rb.params.fovMaxDist * (0.5 * 1.7 * 2); // 第10步远半径
+  const dMid = visionR * 1.4;                              // 介于 1.0× 与 1.8× 之间
+  rb._addFood(hb.x + dMid, hb.y);
+  rb.tick(1);
+  assert.ok(rb.state.food[0].aware > 0, '战斗阶段应能在更远处（1.4×旧半径）察觉到猎物');
+
+  const rv = new TeachingRenderer(stubCanvas(2400, 1400), SAMPLE);
+  rv.applyStage(findStage('vision'));
+  const hv = rv.state.spine[0];
+  rv._addFood(hv.x + dMid, hv.y);
+  rv.tick(1);
+  assert.equal(rv.state.food[0].aware, 0, '第10步在该距离尚不可察觉（远视野较小）');
+});
