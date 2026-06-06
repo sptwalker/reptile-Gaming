@@ -104,6 +104,11 @@
     .then(function (t) { el.genesis.textContent = t; })
     .catch(function () { el.genesis.textContent = fallbackGenesis; });
 
+  // 全屏自适应：匹配画布绘制缓冲到视口尺寸
+  function fit() { renderer.resize(); }
+  window.addEventListener('resize', fit);
+  fit();
+
   goTo(0);
   renderer.play();
   el.btnPlay.textContent = '⏸ 暂停动画';
