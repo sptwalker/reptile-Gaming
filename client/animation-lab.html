@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>蜥蜴动画教学实验室</title>
+  <link rel="stylesheet" href="css/animation-lab.css">
+</head>
+<body>
+  <header class="lab-header">
+    <h1>🦎 蜥蜴动画教学实验室</h1>
+    <details class="genesis">
+      <summary>本项目的"创世提示词"（点击展开）</summary>
+      <pre id="genesisText">加载中…</pre>
+    </details>
+  </header>
+
+  <main class="lab-main">
+    <section class="stage-view">
+      <canvas id="labCanvas" width="900" height="560"></canvas>
+      <div class="param-panel" id="paramPanel" hidden>
+        <h3>参数化</h3>
+        <label>体型 <input type="range" id="pBodyScale" min="0.6" max="1.6" step="0.05" value="1"></label>
+        <label>头部 <input type="range" id="pHeadScale" min="0.6" max="1.8" step="0.05" value="1"></label>
+        <label>肢体粗细 <input type="range" id="pLimb" min="0.5" max="2" step="0.05" value="1"></label>
+        <label>身体色相 <input type="range" id="pHue" min="0" max="360" step="1" value="120"></label>
+        <label>花纹
+          <select id="pPattern">
+            <option value="spots">斑点</option>
+            <option value="stripes">条纹</option>
+            <option value="none">无</option>
+          </select>
+        </label>
+        <label>脊椎节数 <input type="range" id="pNodes" min="8" max="26" step="1" value="20"></label>
+      </div>
+    </section>
+
+    <aside class="stage-card">
+      <div class="card-title" id="cardTitle">—</div>
+      <div class="card-block">
+        <div class="card-label">① 示范提示词</div>
+        <p class="card-prompt" id="cardPrompt">—</p>
+      </div>
+      <div class="card-block">
+        <div class="card-label">② 技术讲解</div>
+        <p class="card-explain" id="cardExplain">—</p>
+      </div>
+      <div class="card-block">
+        <div class="card-label">③ 对应真实代码</div>
+        <code class="card-coderef" id="cardCodeRef">—</code>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="lab-footer">
+    <div class="timeline" id="timeline"></div>
+    <div class="controls">
+      <button id="btnPrev">⏮ 上一步</button>
+      <button id="btnNext">下一步 ⏭</button>
+      <button id="btnPlay">⏸ 暂停动画</button>
+      <label class="speed">速度
+        <select id="selSpeed">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+        </select>
+      </label>
+      <button id="btnAuto">⏩ 自动演进</button>
+    </div>
+  </footer>
+
+  <script src="js/teaching/teaching-math.js"></script>
+  <script src="js/teaching/sample-creature.js"></script>
+  <script src="js/teaching/teaching-stages.js"></script>
+  <script src="js/teaching/teaching-renderer.js"></script>
+  <script src="js/animation-lab.js"></script>
+</body>
+</html>
