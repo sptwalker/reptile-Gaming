@@ -14,6 +14,8 @@
 
   var SCALE = 3; // 全局动画尺寸放大倍数（节点/间距/腿/体型）
   var FOV_CONE_SCALE = 0.5 * 1.7 * 2; // 视野锥可视范围放大系数（绘制与感知共用，保持一致）
+  var FOOD_AWARE_GAIN = 0.05;  // 食物落在视野锥内时每帧累积的“察觉度”（约 0.3–0.5s 充满）
+  var FOOD_AWARE_DECAY = 0.012; // 食物离开视野时“察觉度”的衰减（远慢于累积，便于扫视中逐步发现）
 
   var DEFAULT_FEATURES = {
     spine: false, legs: false, head: false, body: false, bodyCurve: false,
@@ -57,7 +59,8 @@
       time: 0, serpentinePhase: 0, gaitPhase: 0,
       target: { x: this._w * 0.5, y: this._h * 0.5 },
       pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null,
-      food: null, foodTarget: null, foodSeeking: false, eatFx: null,
+      food: null, foodTarget: null, foodSeeking: false, searching: false,
+      searchTimer: 100, eatFx: null, spotFx: null,
       prevHead: null, headSpeed: 0,
       headReady: false, headAngle: 0, moveAngle: null,
       lookOffset: 0, lookTarget: 0, lookSpeed: 0.03, lookHold: 0,
@@ -139,7 +142,10 @@
     this.state.food = null;
     this.state.foodTarget = null;
     this.state.foodSeeking = false;
+    this.state.searching = false;
+    this.state.searchTimer = 100;
     this.state.eatFx = null;
+    this.state.spotFx = null;
     this.reset();
     return this;
   };
@@ -179,7 +185,9 @@
   // 右键放置一个“光点食物”（仅第10步起的视野阶段生效；蜥蜴看到后会过去吃掉）
   TeachingRenderer.prototype._addFood = function (clientX, clientY) {
     if (!this.state.food) this.state.food = [];
-    this.state.food.push(this._toCanvas(clientX, clientY));
+    var pt = this._toCanvas(clientX, clientY);
+    pt.aware = 0; // 初始未被察觉：需视野锥扫到并停留累积后才会被发现
+    this.state.food.push(pt);
   };
 
   TeachingRenderer.prototype._bindPointer = function () {
@@ -234,7 +242,7 @@
     s.time += dt;
     // 视野阶段：管理“光点食物”——锁定视野内的食物并慢速爬过去吃掉
     if (this.features.vision) this._updateFood(dt);
-    if (!s.pointerActive && !s.foodSeeking) {
+    if (!s.pointerActive && !s.foodSeeking && !s.searching) {
       s.wanderTimer -= dt;
       if (s.wanderTimer <= 0) {
         s.wanderTimer = 90 + rand() * 120;
@@ -351,44 +359,66 @@
     }
   };
 
-  // 光点食物的感知与进食（参考 lizard-renderer.js：视野内择最近目标 → 锁定 → 接近 → 命中）：
-  //  · 食物由玩家右键投放；只有落入头部视野锥(角度+距离)内才会被“看到”并锁定；
-  //  · 锁定后即使转头也会持续追踪，慢速爬过去；头部接触即吃掉并迸出涟漪。
+  // 扩散环（发现提示/进食涟漪）的统一倒计时；返回剩余数组或 null
+  TeachingRenderer.prototype._tickRings = function (arr, dt) {
+    if (!arr) return null;
+    for (var i = arr.length - 1; i >= 0; i--) { arr[i].t -= dt; if (arr[i].t <= 0) arr.splice(i, 1); }
+    return arr.length ? arr : null;
+  };
+
+  // 光点食物的感知与进食（参考 lizard-renderer.js：扫视发现 → 锁定 → 接近 → 命中）：
+  //  · 食物由玩家右键投放，初始“未被察觉”；
+  //  · 只有落入头部视野锥(角度+距离)内才会累积“察觉度”，离开则缓慢衰减——
+  //    因此需要头部扫视/转身把视野扫过食物、停留片刻后才会“发现”，而非一放即追；
+  //  · 发现后锁定并慢速爬过去，途中即使转头也持续追踪；头部接触即吃掉并迸出涟漪；
+  //  · 尚未发现且场上有食物时进入“搜索”状态：停下原地扫视，偶尔转身扫过更多角落。
   TeachingRenderer.prototype._updateFood = function (dt) {
     var s = this.state, sp = s.spine, p = this.params;
     if (!s.food) s.food = [];
-    // 进食涟漪倒计时
-    if (s.eatFx) {
-      for (var e = s.eatFx.length - 1; e >= 0; e--) {
-        s.eatFx[e].t -= dt; if (s.eatFx[e].t <= 0) s.eatFx.splice(e, 1);
-      }
-      if (!s.eatFx.length) s.eatFx = null;
-    }
+    s.eatFx = this._tickRings(s.eatFx, dt);
+    s.spotFx = this._tickRings(s.spotFx, dt);
     s.foodSeeking = false;
+    s.searching = false;
     if (!sp.length || s.pointerActive) return; // 玩家牵引时优先听从鼠标
+
     var h = sp[0], n = sp[1] || h;
     var headAng = (this.features.headTurn && s.headReady)
       ? s.headAngle : Math.atan2(h.y - n.y, h.x - n.x);
+    var half = (p.fovAngle * Math.PI / 180) / 2;
+    var maxDist = p.fovMaxDist * FOV_CONE_SCALE;
+
+    // 1) 逐个更新“察觉度”：落在视野锥内累积、离开则衰减
+    for (var i = 0; i < s.food.length; i++) {
+      var f = s.food[i];
+      if (f.aware == null) f.aware = 0;
+      var fdx = f.x - h.x, fdy = f.y - h.y, fd = Math.hypot(fdx, fdy);
+      var inCone = fd <= maxDist && Math.abs(M.angleDiff(Math.atan2(fdy, fdx), headAng)) <= half;
+      f.aware = Math.max(0, Math.min(1, f.aware + (inCone ? FOOD_AWARE_GAIN : -FOOD_AWARE_DECAY) * dt));
+    }
+
     // 旧目标若已被吃掉/清空则解除锁定
     if (s.foodTarget && s.food.indexOf(s.foodTarget) === -1) s.foodTarget = null;
-    // 获取：视野锥内最近的食物
+
+    // 2) 发现：在“察觉度”充满的食物中择最近者锁定（扫视发现 → 行动）
     if (!s.foodTarget) {
-      var half = (p.fovAngle * Math.PI / 180) / 2;
-      var maxDist = p.fovMaxDist * FOV_CONE_SCALE;
       var best = null, bestD = Infinity;
-      for (var i = 0; i < s.food.length; i++) {
-        var f = s.food[i], fdx = f.x - h.x, fdy = f.y - h.y, fd = Math.hypot(fdx, fdy);
-        if (fd > maxDist) continue;
-        if (Math.abs(M.angleDiff(Math.atan2(fdy, fdx), headAng)) <= half && fd < bestD) {
-          bestD = fd; best = f;
-        }
+      for (var j = 0; j < s.food.length; j++) {
+        var g = s.food[j];
+        if (g.aware < 1) continue;
+        var gd = Math.hypot(g.x - h.x, g.y - h.y);
+        if (gd < bestD) { bestD = gd; best = g; }
       }
-      s.foodTarget = best;
+      if (best) {
+        s.foodTarget = best;
+        if (!s.spotFx) s.spotFx = [];
+        s.spotFx.push({ x: best.x, y: best.y, t: 22, dur: 22 }); // “发现！”提示环
+      }
     }
-    // 追踪/进食
+
+    // 3) 追踪/进食；或在尚未发现时进入“搜索”状态
     if (s.foodTarget) {
-      var tg = s.foodTarget, gdx = tg.x - h.x, gdy = tg.y - h.y, gd = Math.hypot(gdx, gdy);
-      if (gd <= 9 * SCALE) {
+      var tg = s.foodTarget, tdx = tg.x - h.x, tdy = tg.y - h.y, td = Math.hypot(tdx, tdy);
+      if (td <= 9 * SCALE) {
         var idx = s.food.indexOf(tg); if (idx >= 0) s.food.splice(idx, 1);
         if (!s.eatFx) s.eatFx = [];
         s.eatFx.push({ x: tg.x, y: tg.y, t: 20, dur: 20 });
@@ -396,6 +426,15 @@
       } else {
         s.target = { x: tg.x, y: tg.y };
         s.foodSeeking = true;
+      }
+    } else if (s.food.length) {
+      s.searching = true; // 停下扫视（_update 暂停漫游，头部转入待机扫视）
+      if (!this.features.battle) { // 偶尔转身，让视野扫过更多角落（避免身后食物永远看不到）
+        s.searchTimer -= dt;
+        if (s.searchTimer <= 0) {
+          s.searchTimer = 110 + rand() * 120;
+          s.target = { x: this._w * (0.2 + rand() * 0.6), y: this._h * (0.25 + rand() * 0.5) };
+        }
       }
     }
   };
@@ -697,21 +736,32 @@
     ctx.strokeStyle = 'rgba(100,220,100,0.2)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
 
-    // 玩家右键放置的“光点食物”（取代旧的随机散点）：被锁定时高亮并加描定环
+    // 玩家右键放置的“光点食物”：未被察觉时偏暗，随“察觉度”增亮，被锁定后高亮加描定环
     var food = this.state.food;
     if (food && food.length) {
       for (var d = 0; d < food.length; d++) {
         var f = food[d];
+        var aware = f.aware || 0;
         var pulse = 1 + Math.sin(this.state.time * 0.2 + d * 1.7) * 0.2;
         var locked = (f === this.state.foodTarget);
-        ctx.fillStyle = 'rgba(255,224,138,0.22)';
-        ctx.beginPath(); ctx.arc(f.x, f.y, 6 * SCALE * pulse, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = locked ? '#fff2b0' : '#ffe08a';
+        // 外圈光晕：随察觉度增强
+        ctx.fillStyle = 'rgba(255,224,138,' + (0.1 + aware * 0.18).toFixed(3) + ')';
+        ctx.beginPath(); ctx.arc(f.x, f.y, (4 + aware * 3) * SCALE * pulse, 0, Math.PI * 2); ctx.fill();
+        // 核心：未察觉时偏暗，察觉/锁定后变亮
+        ctx.fillStyle = locked ? '#fff2b0' : 'rgba(255,224,138,' + (0.4 + aware * 0.55).toFixed(3) + ')';
         ctx.beginPath(); ctx.arc(f.x, f.y, 2.6 * SCALE, 0, Math.PI * 2); ctx.fill();
         if (locked) {
           ctx.strokeStyle = 'rgba(255,225,77,0.75)'; ctx.lineWidth = 1.2;
           ctx.beginPath(); ctx.arc(f.x, f.y, 9 * SCALE * pulse, 0, Math.PI * 2); ctx.stroke();
         }
+      }
+    }
+    // “发现！”提示环（扫视察觉到食物、锁定瞬间）
+    if (this.state.spotFx) {
+      for (var pi = 0; pi < this.state.spotFx.length; pi++) {
+        var sf = this.state.spotFx[pi], spr = sf.t / sf.dur;
+        ctx.strokeStyle = 'rgba(120,230,140,' + spr.toFixed(3) + ')'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(sf.x, sf.y, (1 - spr) * 16 * SCALE + 4 * SCALE, 0, Math.PI * 2); ctx.stroke();
       }
     }
     // 吃掉瞬间的扩散涟漪
@@ -725,7 +775,7 @@
     // 引导提示（仅未放置食物时）；置于顶部工具条下方，避免被遮挡
     if (!food || !food.length) {
       ctx.fillStyle = 'rgba(255,224,138,0.6)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('右键放置光点食物，蜥蜴看到后会过去吃掉', this._w / 2, 64);
+      ctx.fillText('右键放置光点食物，蜥蜴扫视发现后会过去吃掉', this._w / 2, 64);
       ctx.textAlign = 'left';
     }
   };
