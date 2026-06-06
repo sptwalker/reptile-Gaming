@@ -1,0 +1,63 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #0a0c12; color: #d7dee8;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  display: flex; flex-direction: column; min-height: 100vh;
+}
+.lab-header { padding: 14px 20px; border-bottom: 1px solid #1c2230; }
+.lab-header h1 { margin: 0 0 8px; font-size: 20px; }
+.genesis summary { cursor: pointer; color: #8fb7e0; font-size: 13px; }
+.genesis pre {
+  margin-top: 8px; max-height: 220px; overflow: auto; padding: 12px;
+  background: #11151f; border: 1px solid #1c2230; border-radius: 6px;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap;
+}
+.lab-main { flex: 1; display: flex; gap: 16px; padding: 16px 20px; align-items: flex-start; }
+.stage-view { position: relative; }
+#labCanvas {
+  background: #0d1018; border: 1px solid #1c2230; border-radius: 8px;
+  cursor: grab; display: block;
+}
+#labCanvas:active { cursor: grabbing; }
+.param-panel {
+  position: absolute; top: 12px; right: 12px; width: 200px; padding: 12px;
+  background: rgba(17,21,31,0.92); border: 1px solid #2a3344; border-radius: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.param-panel h3 { margin: 0 0 4px; font-size: 14px; }
+.param-panel label { display: flex; flex-direction: column; font-size: 12px; gap: 3px; }
+.param-panel input[type=range] { width: 100%; }
+.stage-card {
+  flex: 1; min-width: 280px; padding: 16px;
+  background: #11151f; border: 1px solid #1c2230; border-radius: 8px;
+}
+.card-title { font-size: 17px; font-weight: 600; margin-bottom: 14px; color: #eaf2ff; }
+.card-block { margin-bottom: 14px; }
+.card-label { font-size: 12px; color: #7c93b0; margin-bottom: 5px; }
+.card-prompt {
+  margin: 0; padding: 10px 12px; background: #161d2b; border-left: 3px solid #4a90d9;
+  border-radius: 4px; font-size: 14px; line-height: 1.6;
+}
+.card-explain { margin: 0; font-size: 13px; line-height: 1.7; color: #b9c4d4; }
+.card-coderef {
+  display: block; padding: 8px 10px; background: #0e1420; border-radius: 4px;
+  font-size: 12px; color: #7fd1c0; word-break: break-all;
+}
+.lab-footer { padding: 12px 20px; border-top: 1px solid #1c2230; }
+.timeline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.timeline button {
+  padding: 5px 10px; font-size: 12px; background: #161d2b; color: #aab8c8;
+  border: 1px solid #2a3344; border-radius: 14px; cursor: pointer;
+}
+.timeline button.active { background: #2a6cc0; color: #fff; border-color: #3a7cd0; }
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.controls button, .controls select {
+  padding: 7px 14px; font-size: 13px; background: #1a2230; color: #d7dee8;
+  border: 1px solid #2a3344; border-radius: 6px; cursor: pointer;
+}
+.controls button:hover { background: #222c3e; }
+.controls .speed { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+@media (max-width: 920px) {
+  .lab-main { flex-direction: column; }
+  #labCanvas { width: 100%; height: auto; }
+}
