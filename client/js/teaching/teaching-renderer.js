@@ -14,7 +14,7 @@
 
   var SCALE = 3; // 全局动画尺寸放大倍数（节点/间距/腿/体型）
   var FOV_CONE_SCALE = 0.5 * 1.7 * 2; // 视野锥可视范围放大系数（绘制与感知共用，保持一致）
-  var FOOD_AWARE_GAIN = 0.05;  // 食物落在视野锥内时每帧累积的“察觉度”（约 0.3–0.5s 充满）
+  var FOOD_AWARE_GAIN = 0.06;  // 食物落在视野锥内时每帧累积的“察觉度”（约 0.3s 充满）
   var FOOD_AWARE_DECAY = 0.012; // 食物离开视野时“察觉度”的衰减（远慢于累积，便于扫视中逐步发现）
 
   var DEFAULT_FEATURES = {
@@ -199,7 +199,12 @@
       if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
       return { x: e.clientX, y: e.clientY };
     }
-    this._onDown = function (e) { down = true; var t = pos(e); self._setPointer(t.x, t.y, true); };
+    this._onDown = function (e) {
+      // 仅左键(或触摸)牵引蜥蜴；右键/中键不牵引——否则右键放食物时会把蜥蜴“召唤”到食物处，
+      // 让它径直冲向食物而跳过搜索发现。
+      if (e.button != null && e.button !== 0) return;
+      down = true; var t = pos(e); self._setPointer(t.x, t.y, true);
+    };
     this._onMove = function (e) { if (!down) return; var t = pos(e); self._setPointer(t.x, t.y, true); };
     this._onUp = function () { down = false; self.state.pointerActive = false; };
     // 右键放置光点食物（只在视野阶段拦截默认菜单并投放食物）
@@ -431,16 +436,13 @@
         s.foodSeeking = true;
       }
     } else if (s.food.length) {
-      // 搜索：缓慢转身张望——朝当前“张望方向”取一个较近目标点，让蜥蜴慢慢踱步并把
-      // 视野锥扫向四面八方（含身后）；只有视野真正停在食物上、累积满察觉度才会发现。
+      // 搜索：缓慢且“连续”地转动张望方向——视野锥平滑扫过四面八方（含身后），
+      // 扫到食物时会停留足够久以累积满察觉度才发现；偶尔反向，形成左右张望/转身的找寻动作。
       s.searching = true;
       if (s.searchHeading == null) s.searchHeading = headAng;
       s.searchTimer -= dt;
-      if (s.searchTimer <= 0) {
-        s.searchTimer = 55 + rand() * 70;
-        if (rand() < 0.25) s.searchDir = -s.searchDir; // 偶尔反向，避免一直单向打转
-        s.searchHeading += s.searchDir * (0.55 + rand() * 0.55); // 朝同向多转一截 → 形成扫视
-      }
+      if (s.searchTimer <= 0) { s.searchTimer = 160 + rand() * 160; s.searchDir = -s.searchDir; }
+      s.searchHeading += s.searchDir * 0.03 * dt; // 连续平滑扫视：约 3.5s 扫一圈，单次扫过食物可停留足够久
       var R = 120, mg = 36 * SCALE;
       var tx = h.x + Math.cos(s.searchHeading) * R, ty = h.y + Math.sin(s.searchHeading) * R;
       s.target = {
