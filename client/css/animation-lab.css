@@ -24,6 +24,7 @@ body {
   background: rgba(17,21,31,0.92); border: 1px solid #2a3344; border-radius: 8px;
   display: flex; flex-direction: column; gap: 8px;
 }
+.param-panel[hidden] { display: none; }
 .param-panel h3 { margin: 0 0 4px; font-size: 14px; }
 .param-panel label { display: flex; flex-direction: column; font-size: 12px; gap: 3px; }
 .param-panel input[type=range] { width: 100%; }
