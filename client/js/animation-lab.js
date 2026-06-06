@@ -108,7 +108,14 @@
   renderer.play();
   el.btnPlay.textContent = '⏸ 暂停动画';
 
+  var wasPlayingBeforeHidden = false;
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) renderer.pause();
+    if (document.hidden) {
+      wasPlayingBeforeHidden = !!renderer._rafId;
+      renderer.pause();
+    } else if (wasPlayingBeforeHidden) {
+      renderer.play();
+      el.btnPlay.textContent = '⏸ 暂停动画';
+    }
   });
 })();
