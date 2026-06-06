@@ -14,6 +14,7 @@
   function lerp(a, b, t) { return a + (b - a) * t; }
 
   function normalizeAngle(a) {
+    if (!isFinite(a)) return a;
     while (a > Math.PI) a -= Math.PI * 2;
     while (a < -Math.PI) a += Math.PI * 2;
     return a;
@@ -27,7 +28,7 @@
     var dx = target.x - hip.x, dy = target.y - hip.y;
     var d = Math.hypot(dx, dy) || 1e-6;
     var reachable = d < len1 + len2 && d > Math.abs(len1 - len2);
-    var cd = clamp(d, Math.abs(len1 - len2) + 1e-6, len1 + len2 - 1e-6);
+    var clampedDist = clamp(d, Math.abs(len1 - len2) + 1e-6, len1 + len2 - 1e-6);
     var ux = dx / d, uy = dy / d;
     if (!reachable && d >= len1 + len2) {
       return {
@@ -36,12 +37,21 @@
         reachable: false
       };
     }
-    var a = (cd * cd + len1 * len1 - len2 * len2) / (2 * cd);
+    if (!reachable && d <= Math.abs(len1 - len2)) {
+      // 欠伸：目标太近，肢体折叠。膝沿射线伸到 len1，脚回折到距髋 |len1-len2| 处
+      var fold = len1 > len2 ? 1 : -1;
+      return {
+        knee: { x: hip.x + ux * len1, y: hip.y + uy * len1 },
+        foot: { x: hip.x + ux * (len1 - len2 * fold), y: hip.y + uy * (len1 - len2 * fold) },
+        reachable: false
+      };
+    }
+    var a = (clampedDist * clampedDist + len1 * len1 - len2 * len2) / (2 * clampedDist);
     var h = Math.sqrt(Math.max(0, len1 * len1 - a * a));
     var mx = hip.x + ux * a, my = hip.y + uy * a;
     var px = -uy * (bendDir || 1), py = ux * (bendDir || 1);
     var knee = { x: mx + px * h, y: my + py * h };
-    var foot = { x: hip.x + ux * cd, y: hip.y + uy * cd };
+    var foot = { x: hip.x + ux * clampedDist, y: hip.y + uy * clampedDist };
     return { knee: knee, foot: foot, reachable: reachable };
   }
 

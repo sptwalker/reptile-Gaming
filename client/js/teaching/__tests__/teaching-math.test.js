@@ -45,6 +45,23 @@ test('solveIK2Bone 不可达时伸直指向目标', () => {
   assert.ok(Math.abs(r.foot.x - 40) < 1e-6);
 });
 
+test('lerpAngle 插值走最短弧', () => {
+  assert.ok(Math.abs(M.lerpAngle(0, Math.PI / 2, 0.5) - Math.PI / 4) < 1e-9);
+  const r = M.lerpAngle(-Math.PI + 0.1, Math.PI - 0.1, 0.5);
+  assert.ok(Math.abs(Math.abs(r) - Math.PI) < 1e-9, 'wrap case should reach ±PI, got ' + r);
+  assert.ok(Math.abs(M.lerpAngle(0.3, 1.5, 0) - 0.3) < 1e-9);
+  assert.ok(Math.abs(M.lerpAngle(0.3, 1.5, 1) - 1.5) < 1e-9);
+});
+
+test('solveIK2Bone 折叠(欠伸)时仍保持骨长', () => {
+  const hip = { x: 0, y: 0 };
+  const target = { x: 2, y: 0 };
+  const r = M.solveIK2Bone(hip, target, 20, 10, 1);
+  assert.equal(r.reachable, false);
+  assert.ok(Math.abs(Math.hypot(r.knee.x - hip.x, r.knee.y - hip.y) - 20) < 1e-6);
+  assert.ok(Math.abs(Math.hypot(r.foot.x - r.knee.x, r.foot.y - r.knee.y) - 10) < 1e-6);
+});
+
 test('segmentLengthAt 始终为正、首尾短于中段', () => {
   const mid = M.segmentLengthAt(10, 20, 16);
   const head = M.segmentLengthAt(0, 20, 16);
