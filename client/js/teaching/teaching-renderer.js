@@ -56,7 +56,7 @@
       time: 0, serpentinePhase: 0, gaitPhase: 0,
       target: { x: this._w * 0.5, y: this._h * 0.5 },
       pointerActive: false, wanderTimer: 0, battleTimer: 0, fx: null, dots: null,
-      prevHead: null, headSpeed: 0,
+      prevHead: null, headSpeed: 0, serpOffsets: null,
       spine: [], legs: []
     };
     this._buildSpine(this.params.spineNodes);
@@ -132,6 +132,7 @@
     var hx = sp[0] ? sp[0].x : this._w * 0.5, hy = sp[0] ? sp[0].y : this._h * 0.5;
     for (var i = 0; i < sp.length; i++) { sp[i].x = hx - i * seg; sp[i].y = hy; }
     this.state.prevHead = null;
+    this.state.serpOffsets = null;
     this._buildLegs();
   };
 
@@ -208,6 +209,13 @@
 
     var sp = s.spine;
     if (sp.length) {
+      // 先移除上一帧的蛇形可视偏移，回到干净的 FK 基线
+      // （蛇形若直接累积进物理脊椎，会与碰撞/角约束相互叠加放大，导致扭曲与闪动）
+      if (s.serpOffsets && s.serpOffsets.length === sp.length) {
+        for (var u = 0; u < sp.length; u++) { sp[u].x -= s.serpOffsets[u].dx; sp[u].y -= s.serpOffsets[u].dy; }
+      }
+      s.serpOffsets = null;
+
       var head = sp[0];
       var px = head.x, py = head.y;
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
@@ -215,24 +223,33 @@
       if (d > 1) { var step = Math.min(maxStep, d * 0.12); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率，避免拖脚）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
+
       for (var i = 1; i < sp.length; i++) {
         var ax = sp[i].x - sp[i - 1].x, ay = sp[i].y - sp[i - 1].y, al = Math.hypot(ax, ay) || 1;
         var seg = M.segmentLengthAt(i - 1, sp.length, p.segmentLength);
         sp[i].x = sp[i - 1].x + ax / al * seg;
         sp[i].y = sp[i - 1].y + ay / al * seg;
       }
+
+      // 碰撞/角约束作用于干净的 FK 脊椎（稳定的物理层）
+      if (this.features.collision) {
+        M.resolveSelfCollision(sp, p.segmentLength * 0.7);
+        M.enforceAngleConstraint(sp, 0.5);
+      }
+
+      // 蛇形波作为纯可视层最后叠加：方向取自干净脊椎（两遍），记录偏移以便下一帧精确移除
       if (this.features.serpentine) {
         s.serpentinePhase += p.serpentineSpeed * dt;
+        var offs = new Array(sp.length);
+        offs[0] = { dx: 0, dy: 0 };
         for (var j = 1; j < sp.length; j++) {
           var tx = sp[j].x - sp[j - 1].x, ty = sp[j].y - sp[j - 1].y, tl = Math.hypot(tx, ty) || 1;
           var nx = -ty / tl, ny = tx / tl;
           var off = M.serpentineOffset(j, s.serpentinePhase, p.serpentineAmp, p.serpentineFreq);
-          sp[j].x += nx * off; sp[j].y += ny * off;
+          offs[j] = { dx: nx * off, dy: ny * off };
         }
-      }
-      if (this.features.collision) {
-        M.resolveSelfCollision(sp, p.segmentLength * 0.7);
-        M.enforceAngleConstraint(sp, 0.5);
+        for (var j2 = 1; j2 < sp.length; j2++) { sp[j2].x += offs[j2].dx; sp[j2].y += offs[j2].dy; }
+        s.serpOffsets = offs;
       }
     }
     if (this.features.legs) this._updateLegs(dt);
