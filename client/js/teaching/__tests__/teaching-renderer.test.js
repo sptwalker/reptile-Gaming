@@ -160,6 +160,7 @@ test('视野阶段：刚放置的食物不会立即锁定（需扫视累积察�
 test('视野阶段：扫视发现后锁定→慢速靠近→吃掉后移除', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('vision'));
+  r.setAutoWander(false); // 关闭自动漫游，使“发现→追踪→进食”由食物逻辑确定性驱动
   const head = r.state.spine[0];
   r._addFood(head.x + 200, head.y); // 正前方、视野内
   let seekingSeen = false, eaten = false;
@@ -187,6 +188,7 @@ test('视野阶段：视野锥外（正后方）的食物当帧不会被锁定',
 test('视野阶段：身后的食物需先转身搜索发现，且不会瞬间锁定', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('vision'));
+  r.setAutoWander(false); // 仅由搜索/转身逻辑驱动，避免漫游引入随机性
   const head = r.state.spine[0];
   r._addFood(head.x - 220, head.y); // 正后方
   // 起步若干帧内必须仍处于“搜索而未锁定”（不能一放即追）
@@ -230,6 +232,7 @@ test('战斗阶段：小虫带扭动相位/朝向并缓慢爬行', () => {
 test('战斗阶段：发现小虫→潜近→猛扑→捕获并复位', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('battle'));
+  r.setAutoWander(false); // 关闭漫游，使“发现→潜近→猛扑→捕获”确定性驱动
   const head = r.state.spine[0];
   r._addFood(head.x + 150, head.y); // 正前方、视野内
   let locked = false, lookedAt = false, pounced = false, caught = false;

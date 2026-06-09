@@ -80,14 +80,14 @@
     {
       key: 'skin_pattern', title: '8 · 皮肤花纹', short: '四肢&花纹', spineNodes: 20,
       features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin']),
-      prompt: '根据 body_seed 的色相/明度/花纹类型给身体上色，并沿背部画一排花纹斑点，区分腹背配色。',
+      prompt: '在身体上沿背部画一排花纹斑点，描绘四肢的皮肤轮廓，越靠近身体越粗。',
       explanation: '程序化外观：由 body_seed 决定配色与花纹，不依赖贴图。颜色饱和度等来自 render_params。',
       codeRef: 'lizard-renderer.js: _generateSkinColors / _drawPattern'
     },
     {
       key: 'details', title: '9 · 背刺 · 脚部 · 头部转动', short: '头部', spineNodes: 20,
       features: feats(['spine', 'legs', 'head', 'body', 'bodyCurve', 'collision', 'serpentine', 'skin', 'spikes', 'headTurn']),
-      prompt: '沿脊背加一排三角背刺、画出脚趾细节，并让头部能独立转动：移动时头领先转向行进方向，停下时头部在限定角度内左右扫视。',
+      prompt: '让头部能独立转动，移动时头领先转向行进方向，停下时头部在限定角度内左右缓慢扫视。',
       explanation: '装饰层 + 头部运动：头有独立的视觉朝向，受最大转角约束；移动时朝向运动方向、停留时做随机缓动的扫视，赋予观察感。',
       codeRef: 'lizard-renderer.js: _drawSpines / _drawFoot / _updateHeadTurn / _getVisualHeadAngle'
     },
