@@ -100,6 +100,26 @@ test('setAutoWander(true) 时蜥蜴会自动漫游离开初始点', () => {
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 20, '开启自动后蜥蜴应漫游移动');
 });
 
+test('第0步锚点平滑漫游：单帧位移有界(不瞬移)，长期仍移动', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  r.applyStage(findStage('anchor'));
+  r.setAutoWander(true);
+  const start = { x: r.state.spine[0].x, y: r.state.spine[0].y };
+  let maxJump = 0, maxDist = 0;
+  let prev = { x: start.x, y: start.y };
+  for (let i = 0; i < 400; i++) {
+    r.tick(1);
+    const h = r.state.spine[0];
+    maxJump = Math.max(maxJump, Math.hypot(h.x - prev.x, h.y - prev.y));
+    maxDist = Math.max(maxDist, Math.hypot(h.x - start.x, h.y - start.y));
+    prev = { x: h.x, y: h.y };
+  }
+  // 单帧位移不得超过移动步长上限(4.2*SCALE=12.6)，即不会“跳跃闪动”
+  assert.ok(maxJump <= 13, '锚点单帧位移应有界(不瞬移)，实测 ' + maxJump.toFixed(2));
+  // 运行过程中应明显离开初始点(确实在漫游)
+  assert.ok(maxDist > 20, '锚点应随时间漫游，实测最大位移 ' + maxDist.toFixed(2));
+});
+
 test('setParams 改 spineNodes 触发重建', () => {
   const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
   r.applyStage(findStage('params'));

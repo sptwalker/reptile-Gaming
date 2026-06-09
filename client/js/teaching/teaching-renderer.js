@@ -659,7 +659,11 @@
   };
 
   TeachingRenderer.prototype._drawAnchor = function (ctx) {
-    var t = this.state.target, r = (8 + Math.sin(this.state.time * 0.15) * 3) * SCALE;
+    // 画在“平滑跟随的头节点”上而非 state.target —— target 每隔一段会瞬间跳到新随机点，
+    // 直接画 target 会表现为跳跃闪动；头节点缓动追向 target，画它即呈现缓慢漫游。
+    var sp = this.state.spine;
+    var t = (sp && sp[0]) ? sp[0] : this.state.target;
+    var r = (8 + Math.sin(this.state.time * 0.15) * 3) * SCALE;
     ctx.strokeStyle = '#6cf'; ctx.lineWidth = SCALE;
     ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#cfe8ff';
