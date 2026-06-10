@@ -60,12 +60,6 @@ body {
   border-left: 5px solid #4a90d9; border-radius: 8px;
   font-size: 23px; line-height: 1.85; color: #eef4fb;
 }
-.card-hint { margin-top: 22px; font-size: 15px; color: #8fb7e0; text-align: center; }
-.card-hint kbd {
-  display: inline-block; padding: 2px 9px; margin: 0 2px;
-  background: #1a2230; border: 1px solid #3a4658; border-radius: 5px;
-  font-family: inherit; font-size: 14px; color: #cfe0f5;
-}
 
 /* 左上角悬浮参数面板（第7步蛇形 / 第12步参数化）——顶部已空出，避开底部工具条 */
 .param-panel {
