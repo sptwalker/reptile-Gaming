@@ -13,13 +13,13 @@ body {
 }
 #labCanvas:active { cursor: grabbing; }
 
-/* 顶部悬浮工具条 */
+/* 底部悬浮工具条 */
 #topbar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: 8px 14px;
   background: rgba(13,16,24,0.78); backdrop-filter: blur(6px);
-  border-bottom: 1px solid #1c2230;
+  border-top: 1px solid #1c2230;
 }
 .tb-left { display: flex; align-items: center; gap: 12px; }
 .tb-title { font-weight: 600; font-size: 15px; white-space: nowrap; }
@@ -43,30 +43,33 @@ body {
 }
 .tb-controls button:hover { background: #222c3e; }
 
-/* 右下角悬浮讲解卡片 */
+/* 屏幕正中的提示词板（每环节先显示，按空格隐藏后播放动画） */
 .stage-card {
-  position: fixed; right: 16px; bottom: 16px; z-index: 10;
-  width: 340px; max-width: 42vw; max-height: 64vh; overflow: auto;
-  padding: 16px;
-  background: rgba(17,21,31,0.82); backdrop-filter: blur(6px);
-  border: 1px solid #2a3344; border-radius: 10px;
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 40;
+  width: 780px; max-width: 88vw; max-height: 84vh; overflow: auto;
+  padding: 34px 40px;
+  background: rgba(17,21,31,0.93); backdrop-filter: blur(8px);
+  border: 1px solid #2a3344; border-radius: 16px;
+  box-shadow: 0 14px 48px rgba(0,0,0,0.55);
 }
-.card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #eaf2ff; }
-.card-block { margin-bottom: 12px; }
-.card-label { font-size: 12px; color: #7c93b0; margin-bottom: 4px; }
+.stage-card[hidden] { display: none; }
+.card-title { font-size: 28px; font-weight: 700; margin-bottom: 22px; color: #eaf2ff; }
 .card-prompt {
-  margin: 0; padding: 9px 11px; background: rgba(22,29,43,0.9);
-  border-left: 3px solid #4a90d9; border-radius: 4px; font-size: 13px; line-height: 1.6;
+  margin: 0; padding: 20px 24px; background: rgba(22,29,43,0.9);
+  border-left: 5px solid #4a90d9; border-radius: 8px;
+  font-size: 23px; line-height: 1.85; color: #eef4fb;
 }
-.card-explain { margin: 0; font-size: 12px; line-height: 1.65; color: #b9c4d4; }
-.card-coderef {
-  display: block; padding: 7px 9px; background: rgba(14,20,32,0.9);
-  border-radius: 4px; font-size: 11px; color: #7fd1c0; word-break: break-all;
+.card-hint { margin-top: 22px; font-size: 15px; color: #8fb7e0; text-align: center; }
+.card-hint kbd {
+  display: inline-block; padding: 2px 9px; margin: 0 2px;
+  background: #1a2230; border: 1px solid #3a4658; border-radius: 5px;
+  font-family: inherit; font-size: 14px; color: #cfe0f5;
 }
 
-/* 左下角悬浮参数面板（仅第12步） */
+/* 左上角悬浮参数面板（第7步蛇形 / 第12步参数化）——顶部已空出，避开底部工具条 */
 .param-panel {
-  position: fixed; left: 16px; bottom: 16px; z-index: 10;
+  position: fixed; left: 16px; top: 16px; z-index: 20;
   width: 210px; padding: 12px;
   background: rgba(17,21,31,0.85); backdrop-filter: blur(6px);
   border: 1px solid #2a3344; border-radius: 10px;
@@ -80,5 +83,7 @@ body {
 .param-panel .panel-hint { font-size: 11px; color: #7c93b0; line-height: 1.5; margin-top: 2px; }
 
 @media (max-width: 720px) {
-  .stage-card { max-width: 70vw; width: 70vw; }
+  .stage-card { width: 92vw; padding: 22px 20px; }
+  .card-title { font-size: 22px; }
+  .card-prompt { font-size: 18px; }
 }

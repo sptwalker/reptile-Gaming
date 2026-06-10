@@ -10,43 +10,11 @@
   <!-- 全屏演示画布 -->
   <canvas id="labCanvas"></canvas>
 
-  <!-- 顶部悬浮工具条：标题 / 创世提示词 / 时间轴 / 控制 -->
-  <div id="topbar">
-    <div class="tb-left">
-      <span class="tb-title">🦎 蜥蜴动画教学实验室</span>
-    </div>
-    <div class="tb-timeline" id="timeline"></div>
-    <div class="tb-controls">
-      <label class="tb-switch" title="开启后蜥蜴会自动缓慢漫游；关闭则原地待命，仅响应鼠标牵引/放置食物">
-        <input type="checkbox" id="chkAuto" checked> 自动游走
-      </label>
-      <button id="btnPrev" title="上一步">⏮</button>
-      <button id="btnNext" title="下一步">⏭</button>
-      <button id="btnPlay">⏸ 暂停动画</button>
-      <select id="selSpeed" title="速度">
-        <option value="0.5">0.5x</option>
-        <option value="1" selected>1x</option>
-        <option value="2">2x</option>
-      </select>
-      <button id="btnAuto">⏩ 自动演进</button>
-    </div>
-  </div>
-
-  <!-- 右下角悬浮讲解卡片 -->
-  <aside class="stage-card" id="card">
+  <!-- 屏幕正中的提示词板：每环节先显示，按空格后隐藏并播放动画 -->
+  <aside class="stage-card" id="card" hidden>
     <div class="card-title" id="cardTitle">—</div>
-    <div class="card-block">
-      <div class="card-label">① 示范提示词</div>
-      <p class="card-prompt" id="cardPrompt">—</p>
-    </div>
-    <div class="card-block">
-      <div class="card-label">② 技术讲解</div>
-      <p class="card-explain" id="cardExplain">—</p>
-    </div>
-    <div class="card-block">
-      <div class="card-label">③ 对应真实代码</div>
-      <code class="card-coderef" id="cardCodeRef">—</code>
-    </div>
+    <p class="card-prompt" id="cardPrompt">—</p>
+    <div class="card-hint">按 <kbd>空格</kbd> 显示动画</div>
   </aside>
 
   <!-- 左下角悬浮参数面板（仅第12步） -->
@@ -76,6 +44,28 @@
     <label>速度 <span class="pv" id="vSerpSpeed">0.15</span>
       <input type="range" id="pSerpSpeed" min="0.05" max="1.2" step="0.05" value="0.15"></label>
     <div class="panel-hint">拖动滑块调出最佳波动；牵引蜥蜴移动可观察效果</div>
+  </div>
+
+  <!-- 底部悬浮工具条：标题 / 时间轴 / 控制 -->
+  <div id="topbar">
+    <div class="tb-left">
+      <span class="tb-title">🦎 蜥蜴动画教学实验室</span>
+    </div>
+    <div class="tb-timeline" id="timeline"></div>
+    <div class="tb-controls">
+      <label class="tb-switch" title="开启后蜥蜴会自动缓慢漫游；关闭则原地待命，仅响应鼠标牵引/放置食物">
+        <input type="checkbox" id="chkAuto" checked> 自动游走
+      </label>
+      <button id="btnPrev" title="上一步">⏮</button>
+      <button id="btnNext" title="下一步">⏭</button>
+      <button id="btnPlay">⏸ 暂停动画</button>
+      <select id="selSpeed" title="速度">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+      </select>
+      <button id="btnAuto">⏩ 自动演进</button>
+    </div>
   </div>
 
   <script src="js/teaching/teaching-math.js"></script>
