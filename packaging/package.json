@@ -1,0 +1,36 @@
+{
+  "name": "lizard-animation-lab",
+  "productName": "蜥蜴动画教学实验室",
+  "version": "1.0.0",
+  "description": "蜥蜴程序化动画渐进渲染教学演示（独立离线运行）",
+  "author": "Walker",
+  "license": "MIT",
+  "main": "electron-main.js",
+  "scripts": {
+    "standalone": "node build-standalone.js",
+    "start": "npm run standalone && electron .",
+    "dist": "npm run standalone && electron-builder --win",
+    "dist:portable": "npm run standalone && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.walker.lizard-animation-lab",
+    "productName": "蜥蜴动画教学实验室",
+    "directories": { "output": "dist" },
+    "files": ["electron-main.js", "app/**/*"],
+    "win": {
+      "target": ["nsis", "portable"],
+      "artifactName": "蜥蜴动画教学-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "蜥蜴动画教学实验室"
+    }
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
