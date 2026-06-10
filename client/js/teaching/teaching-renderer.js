@@ -17,10 +17,9 @@
   var FOOD_AWARE_GAIN = 0.06;  // 食物落在视野锥内时每帧累积的“察觉度”（约 0.3s 充满）
   var FOOD_AWARE_DECAY = 0.012; // 食物离开视野时“察觉度”的衰减（远慢于累积，便于扫视中逐步发现）
   // 第11步“战斗捕食”参数（参考 lizard-renderer.js 的 alert 接近 + clear 突进 + _applyTestEffect 命中环）
-  var POUNCE_RANGE = 46 * SCALE; // 进入此距离即由“缓慢接近”转“蓄力→猛扑”
-  var POUNCE_CATCH = 13 * SCALE; // 猛扑命中（捕获）距离
-  var POUNCE_WINDUP = 10;        // 蓄力帧（原地盯住猎物）
-  var POUNCE_FRAMES = 16;        // 猛扑突进帧
+  // 猛扑发起距离/命中阈值改为按“身长”动态计算（见 _bodyLen / _battlePursue），不再用固定像素
+  var POUNCE_WINDUP = 6;         // 蓄力帧（短暂下蹲盯住后即冲刺）
+  var POUNCE_FRAMES = 14;        // 单次猛扑最长突进帧（超时则重新接近）
   var WORM_SPEED = 0.45;         // 小虫爬行速度（远慢于蜥蜴，扭动着缓慢移动）
   var BATTLE_FAR_MUL = 1.8;      // 第11步（战斗）起：远视野(警觉区)半径扩大 80%
   var BATTLE_NEAR_MUL = 1.3;     // 第11步（战斗）起：近视野(清晰区)半径扩大 30%
@@ -99,6 +98,11 @@
 
   // 整只生物的尺寸缩放（第11步缩小一倍以展示更大空间）；统一作用于体长/体宽/头/腿/步幅/扑食距离
   TeachingRenderer.prototype._cs = function () { return this.params.creatureScale || 1; };
+
+  // 当前“一倍身长”（随缩放自适应）：用于战斗的猛扑发起距离与命中阈值
+  TeachingRenderer.prototype._bodyLen = function () {
+    return this.params.segmentLength * this._cs() * Math.max(1, this.state.spine.length - 1);
+  };
 
   // 第5步（体型曲线）起即视为已上色：用绿色皮肤而非灰色骨架色
   TeachingRenderer.prototype._colored = function () {
@@ -293,7 +297,7 @@
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
       var maxStep = 4.2 * SCALE * cs * (this.features.battle && s.fx ? 1.8 : 1);
       var ease = 0.12;
-      if (s.pouncing) { maxStep = 9 * SCALE * cs; ease = 0.55; }          // 猛扑：爆发突进
+      if (s.pouncing) { maxStep = this._bodyLen(); ease = 0.6; }      // 猛扑：约一倍身长的瞬间冲刺
       else if (s.windup) { maxStep = 0; }                            // 蓄力：原地不动（靠 lookAt 盯住猎物）
       else if (s.foodSeeking) { maxStep = 1.5 * SCALE * cs; ease = 0.06; } // 锁定后缓慢接近/第10步爬行
       else if (s.searching) { maxStep = 2.4 * SCALE * cs; ease = 0.08; }   // 搜索时缓慢踱步、转身张望
@@ -462,13 +466,14 @@
       }
     }
 
-    // 1) 逐个更新“察觉度”：落在视野锥内累积、离开则衰减
+    // 1) 逐个更新“察觉度”：落在视野锥内累积、离开则衰减；战斗阶段锁定更快（视野内多个目标可同时锁定，连续捕食）
+    var gain = this.features.battle ? 0.2 : FOOD_AWARE_GAIN;
     for (var i = 0; i < s.food.length; i++) {
       var f = s.food[i];
       if (f.aware == null) f.aware = 0;
       var fdx = f.x - h.x, fdy = f.y - h.y, fd = Math.hypot(fdx, fdy);
       var inCone = fd <= maxDist && Math.abs(M.angleDiff(Math.atan2(fdy, fdx), headAng)) <= half;
-      f.aware = Math.max(0, Math.min(1, f.aware + (inCone ? FOOD_AWARE_GAIN : -FOOD_AWARE_DECAY) * dt));
+      f.aware = Math.max(0, Math.min(1, f.aware + (inCone ? gain : -FOOD_AWARE_DECAY) * dt));
     }
 
     // 旧目标若已被吃掉/清空则解除锁定
@@ -530,8 +535,8 @@
   // 战斗捕食状态机（参考 lizard-renderer.js：alert 先盯住缓慢接近 → 进入近身则突进命中）：
   //  approach 缓慢接近 → windup 原地蓄力盯住 → pounce 爆发猛扑 → 命中捕获/扑空重来。
   TeachingRenderer.prototype._battlePursue = function (tg, h, td, dt) {
-    var s = this.state, cs = this._cs();
-    var catchD = POUNCE_CATCH * cs, rangeD = POUNCE_RANGE * cs; // 体型缩小后，扑食距离同步缩短
+    var s = this.state, bodyLen = this._bodyLen();
+    var rangeD = bodyLen, catchD = bodyLen * 0.18; // 一倍身长内即发起猛扑；≈0.18 身长内判定捕获
     s.lookAt = { x: tg.x, y: tg.y }; // 进入战斗后头部始终直盯猎物
     if (s.battlePhase === 'pounce') {
       s.pouncing = true; s.target = { x: tg.x, y: tg.y };
@@ -867,7 +872,7 @@
         var f = food[d];
         var locked = (f === this.state.foodTarget);
         if (this.features.battle) {
-          this._drawWorm(ctx, f, locked);
+          this._drawWorm(ctx, f, locked, f.aware || 0);
           continue;
         }
         var aware = f.aware || 0;
@@ -911,8 +916,9 @@
     }
   };
 
-  // 蠕动的小虫（第11步起的“猎物”）：短身沿 dir 拖出，随相位左右扭动，被锁定时加描定环
-  TeachingRenderer.prototype._drawWorm = function (ctx, w, locked) {
+  // 蠕动的小虫（第11步起的“猎物”）：短身沿 dir 拖出，随相位左右扭动；
+  //   当前猛扑目标=醒目实环；已锁定待捕的其它目标=虚线环（表现“同时锁定多个目标、连续捕食”）
+  TeachingRenderer.prototype._drawWorm = function (ctx, w, locked, aware) {
     var t = this.state.time, N = 7, seg = 2.4 * SCALE, amp = 2.0 * SCALE;
     var dir = (w.dir == null) ? 0 : w.dir;
     var cos = Math.cos(dir), sin = Math.sin(dir), px = -sin, py = cos;
@@ -932,9 +938,14 @@
     ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 2.0 * SCALE, 0, Math.PI * 2); ctx.fill(); // 头略大
     ctx.fillStyle = '#3a2414';
     ctx.beginPath(); ctx.arc(pts[0].x + cos * 0.6 * SCALE, pts[0].y + sin * 0.6 * SCALE, 0.7 * SCALE, 0, Math.PI * 2); ctx.fill();
-    if (locked) {
-      ctx.strokeStyle = 'rgba(255,225,77,0.8)'; ctx.lineWidth = 1.4;
+    if (locked) { // 当前猛扑目标：醒目实心锁定环
+      ctx.strokeStyle = 'rgba(255,225,77,0.85)'; ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.arc(w.x, w.y, 8 * SCALE, 0, Math.PI * 2); ctx.stroke();
+    } else if (aware >= 1) { // 已锁定、排队待捕的其它目标：虚线环
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,210,120,0.5)'; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(w.x, w.y, 7 * SCALE, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
   };
 

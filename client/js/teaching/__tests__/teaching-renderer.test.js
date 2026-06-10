@@ -285,3 +285,26 @@ test('第11步蜥蜴体型缩小一半（其余阶段原尺寸）', () => {
   r.applyStage(findStage('params'));
   assert.equal(r.params.creatureScale, 1, '第12步恢复原尺寸');
 });
+
+test('战斗阶段：一倍身长内瞬间冲刺并连续捕食多只小虫', () => {
+  const r = new TeachingRenderer(stubCanvas(1200, 700), SAMPLE);
+  r.applyStage(findStage('battle'));
+  r.setAutoWander(false); // 仅由战斗逻辑驱动
+  const head = r.state.spine[0];
+  const bodyLen = r._bodyLen();
+  // 正前方排布三只小虫，均处于约一倍身长的冲刺链上
+  r._addFood(head.x + bodyLen * 0.6, head.y);
+  r._addFood(head.x + bodyLen * 1.0, head.y);
+  r._addFood(head.x + bodyLen * 1.4, head.y);
+  assert.equal(r.state.food.length, 3);
+  let pounced = false, multiLock = false;
+  for (let i = 0; i < 20000 && r.state.food.length > 0; i++) {
+    r.tick(1);
+    if (r.state.pouncing) pounced = true;
+    // 同时有 2 只以上达到锁定阈值（aware>=1）→ 多目标锁定
+    if (r.state.food.filter(function (f) { return (f.aware || 0) >= 1; }).length >= 2) multiLock = true;
+  }
+  assert.ok(pounced, '应出现猛扑冲刺');
+  assert.ok(multiLock, '应能同时锁定多个目标');
+  assert.equal(r.state.food.length, 0, '应连续捕食吃光全部小虫');
+});
