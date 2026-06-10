@@ -58,7 +58,8 @@
       colorSaturation: rp.colorSaturation || 1.0,
       patternComplexity: rp.patternComplexity || 2,
       patternType: seed.patternType || 'spots',
-      patternHue: seed.patternHue != null ? seed.patternHue : 90
+      patternHue: seed.patternHue != null ? seed.patternHue : 90,
+      creatureScale: 1.0
     };
     this.features = Object.assign({}, DEFAULT_FEATURES);
     this.speed = 1;
@@ -96,6 +97,9 @@
 
   TeachingRenderer.prototype._lerp = function (a, b, t) { return a + (b - a) * t; };
 
+  // 整只生物的尺寸缩放（第11步缩小一倍以展示更大空间）；统一作用于体长/体宽/头/腿/步幅/扑食距离
+  TeachingRenderer.prototype._cs = function () { return this.params.creatureScale || 1; };
+
   // 第5步（体型曲线）起即视为已上色：用绿色皮肤而非灰色骨架色
   TeachingRenderer.prototype._colored = function () {
     return this.features.skin || this.features.bodyCurve;
@@ -103,7 +107,7 @@
 
   TeachingRenderer.prototype._buildSpine = function (count) {
     count = Math.max(1, count | 0);
-    var spine = [], cx = this._w * 0.5, cy = this._h * 0.5, seg = this.params.segmentLength;
+    var spine = [], cx = this._w * 0.5, cy = this._h * 0.5, seg = this.params.segmentLength * this._cs();
     for (var i = 0; i < count; i++) spine.push({ x: cx - i * seg, y: cy });
     this.state.spine = spine;
   };
@@ -134,6 +138,8 @@
   TeachingRenderer.prototype.applyStage = function (cfg) {
     cfg = cfg || {};
     this.features = Object.assign({}, DEFAULT_FEATURES, cfg.features || {});
+    // 第11步（战斗/捕食）把蜥蜴缩小一倍，露出更大的活动空间；其余阶段保持原尺寸
+    this.params.creatureScale = (cfg.key === 'battle') ? 0.5 : 1.0;
     var want = cfg.spineNodes || this.params.spineNodes;
     if (!this.state.spine.length || this.state.spine.length !== want) {
       this._buildSpine(want);
@@ -169,7 +175,7 @@
   };
 
   TeachingRenderer.prototype.reset = function () {
-    var sp = this.state.spine, seg = this.params.segmentLength;
+    var sp = this.state.spine, seg = this.params.segmentLength * this._cs();
     var hx = sp[0] ? sp[0].x : this._w * 0.5, hy = sp[0] ? sp[0].y : this._h * 0.5;
     for (var i = 0; i < sp.length; i++) { sp[i].x = hx - i * seg; sp[i].y = hy; }
     this.state.prevHead = null;
@@ -281,15 +287,16 @@
 
     var sp = s.spine;
     if (sp.length) {
+      var cs = this._cs(); // 生物缩放（第11步=0.5）：体长/步幅/蛇形幅度等同步缩放
       var head = sp[0];
       var px = head.x, py = head.y;
       var dx = s.target.x - head.x, dy = s.target.y - head.y, d = Math.hypot(dx, dy);
-      var maxStep = 4.2 * SCALE * (this.features.battle && s.fx ? 1.8 : 1);
+      var maxStep = 4.2 * SCALE * cs * (this.features.battle && s.fx ? 1.8 : 1);
       var ease = 0.12;
-      if (s.pouncing) { maxStep = 9 * SCALE; ease = 0.55; }          // 猛扑：爆发突进
+      if (s.pouncing) { maxStep = 9 * SCALE * cs; ease = 0.55; }          // 猛扑：爆发突进
       else if (s.windup) { maxStep = 0; }                            // 蓄力：原地不动（靠 lookAt 盯住猎物）
-      else if (s.foodSeeking) { maxStep = 1.5 * SCALE; ease = 0.06; } // 锁定后缓慢接近/第10步爬行
-      else if (s.searching) { maxStep = 2.4 * SCALE; ease = 0.08; }   // 搜索时缓慢踱步、转身张望
+      else if (s.foodSeeking) { maxStep = 1.5 * SCALE * cs; ease = 0.06; } // 锁定后缓慢接近/第10步爬行
+      else if (s.searching) { maxStep = 2.4 * SCALE * cs; ease = 0.08; }   // 搜索时缓慢踱步、转身张望
       if (d > 1) { var step = Math.min(maxStep, d * ease); head.x += dx / d * step; head.y += dy / d * step; }
       // 头部本帧实际位移 = 运动速度（驱动步态频率与蛇形波幅）
       s.headSpeed = Math.hypot(head.x - px, head.y - py);
@@ -298,7 +305,7 @@
       // FK：身体跟随头部
       for (var i = 1; i < sp.length; i++) {
         var ax = sp[i].x - sp[i - 1].x, ay = sp[i].y - sp[i - 1].y, al = Math.hypot(ax, ay) || 1;
-        var seg = M.segmentLengthAt(i - 1, sp.length, p.segmentLength);
+        var seg = M.segmentLengthAt(i - 1, sp.length, p.segmentLength) * cs;
         sp[i].x = sp[i - 1].x + ax / al * seg;
         sp[i].y = sp[i - 1].y + ay / al * seg;
       }
@@ -309,7 +316,7 @@
       //  · sin(phase·speed − i·freq) 随相位增大令波峰移向尾部 → 正弦波向后传递。
       if (this.features.serpentine) {
         s.serpentinePhase += s.headSpeed * 0.12;
-        var maxHeadSpeed = 4.2 * SCALE;
+        var maxHeadSpeed = 4.2 * SCALE * cs;
         var moveRatio = Math.min(1, s.headSpeed / (maxHeadSpeed * 0.3));
         if (moveRatio > 0.01) {
           for (var w = 3; w < sp.length; w++) {
@@ -319,7 +326,7 @@
             var tt = w / (sp.length - 1);
             var ampRamp = Math.max(0, Math.min(1, (tt - 0.12) / 0.15));
             var tailBoost = 1 + tt * 0.8;
-            var amp = p.serpentineAmp * ampRamp * tailBoost * moveRatio;
+            var amp = p.serpentineAmp * ampRamp * tailBoost * moveRatio * cs;
             var wave = Math.sin(s.serpentinePhase * p.serpentineSpeed - w * p.serpentineFreq);
             cu.x += perpX * wave * amp; cu.y += perpY * wave * amp;
           }
@@ -332,12 +339,12 @@
           M.enforceAngleConstraint(sp, 0.5);
           for (var r = 1; r < sp.length; r++) {
             var rx = sp[r].x - sp[r - 1].x, ry = sp[r].y - sp[r - 1].y, rl = Math.hypot(rx, ry) || 1;
-            var rseg = M.segmentLengthAt(r - 1, sp.length, p.segmentLength);
+            var rseg = M.segmentLengthAt(r - 1, sp.length, p.segmentLength) * cs;
             sp[r].x = sp[r - 1].x + rx / rl * rseg;
             sp[r].y = sp[r - 1].y + ry / rl * rseg;
           }
         }
-        M.resolveSelfCollision(sp, p.segmentLength * 0.7);
+        M.resolveSelfCollision(sp, p.segmentLength * 0.7 * cs);
       }
     }
     if (this.features.headTurn) this._updateHead(dt);
@@ -523,19 +530,20 @@
   // 战斗捕食状态机（参考 lizard-renderer.js：alert 先盯住缓慢接近 → 进入近身则突进命中）：
   //  approach 缓慢接近 → windup 原地蓄力盯住 → pounce 爆发猛扑 → 命中捕获/扑空重来。
   TeachingRenderer.prototype._battlePursue = function (tg, h, td, dt) {
-    var s = this.state;
+    var s = this.state, cs = this._cs();
+    var catchD = POUNCE_CATCH * cs, rangeD = POUNCE_RANGE * cs; // 体型缩小后，扑食距离同步缩短
     s.lookAt = { x: tg.x, y: tg.y }; // 进入战斗后头部始终直盯猎物
     if (s.battlePhase === 'pounce') {
       s.pouncing = true; s.target = { x: tg.x, y: tg.y };
       s.phaseTimer -= dt;
-      if (td <= POUNCE_CATCH) this._catchWorm(tg);          // 命中捕获
+      if (td <= catchD) this._catchWorm(tg);          // 命中捕获
       else if (s.phaseTimer <= 0) { s.battlePhase = 'approach'; } // 扑空 → 重新接近
     } else if (s.battlePhase === 'windup') {
       s.windup = true; s.target = { x: h.x, y: h.y };        // 原地蓄力（盯住猎物）
       s.phaseTimer -= dt;
       if (s.phaseTimer <= 0) { s.battlePhase = 'pounce'; s.phaseTimer = POUNCE_FRAMES; }
     } else { // approach / 初始
-      if (td > POUNCE_RANGE) { s.battlePhase = 'approach'; s.foodSeeking = true; s.target = { x: tg.x, y: tg.y }; }
+      if (td > rangeD) { s.battlePhase = 'approach'; s.foodSeeking = true; s.target = { x: tg.x, y: tg.y }; }
       else { s.battlePhase = 'windup'; s.phaseTimer = POUNCE_WINDUP; s.windup = true; s.target = { x: h.x, y: h.y }; }
     }
   };
@@ -556,7 +564,7 @@
   TeachingRenderer.prototype._legLen = function () {
     // 第8步（皮肤）起，四肢所有关节段长度加倍
     var mult = this.features.skin ? 2 : 1;
-    return { L1: this.params.segmentLength * 0.9 * mult, L2: this.params.segmentLength * 0.8 * mult };
+    return { L1: this.params.segmentLength * 0.9 * mult * this._cs(), L2: this.params.segmentLength * 0.8 * mult * this._cs() };
   };
 
   TeachingRenderer.prototype._legReach = function () {
@@ -573,7 +581,7 @@
     var dir = Math.atan2(prev.y - next.y, prev.x - next.x);
     var perp = dir + Math.PI / 2 * leg.side;
     var t = sp.length > 1 ? i / (sp.length - 1) : 0;
-    var base = 14 * SCALE * this.params.bodyScale;
+    var base = 14 * SCALE * this.params.bodyScale * this._cs();
     var hw = this.features.bodyCurve ? M.bodyHalfWidthAt(t, base) : base * 0.55;
     return { x: node.x + Math.cos(perp) * hw, y: node.y + Math.sin(perp) * hw, dir: dir, perp: perp };
   };
@@ -634,7 +642,7 @@
         var swingT = (phase - stance) / (1 - stance);
         var ease = swingT * swingT * (3 - 2 * swingT);
         var tgt = this._legStride(leg, hip, this._lerp(-1, 1, ease));
-        tgt.y -= Math.sin(swingT * Math.PI) * 7 * SCALE;
+        tgt.y -= Math.sin(swingT * Math.PI) * 7 * SCALE * this._cs();
         leg.stepping = true;
         leg.foot.x += (tgt.x - leg.foot.x) * 0.88;
         leg.foot.y += (tgt.y - leg.foot.y) * 0.88;
@@ -681,7 +689,7 @@
   };
 
   TeachingRenderer.prototype._halfWidths = function () {
-    var sp = this.state.spine, p = this.params, base = 14 * SCALE * p.bodyScale, out = [];
+    var sp = this.state.spine, p = this.params, base = 14 * SCALE * p.bodyScale * this._cs(), out = [];
     for (var i = 0; i < sp.length; i++) {
       var t = sp.length > 1 ? i / (sp.length - 1) : 0;
       out.push(this.features.bodyCurve ? M.bodyHalfWidthAt(t, base) : base * 0.7);
@@ -697,7 +705,7 @@
     for (var j = o.right.length - 1; j >= 0; j--) ctx.lineTo(o.right[j].x, o.right[j].y);
     ctx.closePath();
     ctx.fillStyle = this._colored() ? this._colors.body : '#3a4a55'; ctx.fill();
-    ctx.lineWidth = 1.5 * SCALE; ctx.strokeStyle = this._colored() ? this._colors.outline : '#22303a'; ctx.stroke();
+    ctx.lineWidth = 1.5 * SCALE * this._cs(); ctx.strokeStyle = this._colored() ? this._colors.outline : '#22303a'; ctx.stroke();
   };
 
   TeachingRenderer.prototype._drawPattern = function (ctx) {
@@ -708,7 +716,7 @@
     ctx.fillStyle = this._colors.pattern;
     ctx.strokeStyle = this._colors.pattern;
     if (type === 'stripes') {
-      ctx.lineWidth = 2 * SCALE;
+      ctx.lineWidth = 2 * SCALE * this._cs();
       for (var i = 2; i < sp.length - 1; i += step) {
         var a = sp[i - 1], b = sp[i + 1];
         var tx = b.x - a.x, ty = b.y - a.y, tl = Math.hypot(tx, ty) || 1;
@@ -731,14 +739,14 @@
     var ang = (this.features.headTurn && this.state.headReady)
       ? this.state.headAngle
       : Math.atan2(h.y - n.y, h.x - n.x);
-    var hs = 13 * SCALE * p.headScale * p.bodyScale;
+    var hs = 13 * SCALE * p.headScale * p.bodyScale * this._cs();
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(ang);
     ctx.fillStyle = this._colored() ? this._colors.body : '#46586a';
     ctx.beginPath(); ctx.ellipse(hs * 0.4, 0, hs, hs * 0.72, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.lineWidth = 1.5 * SCALE; ctx.strokeStyle = this._colored() ? this._colors.outline : '#22303a'; ctx.stroke();
+    ctx.lineWidth = 1.5 * SCALE * this._cs(); ctx.strokeStyle = this._colored() ? this._colors.outline : '#22303a'; ctx.stroke();
     ctx.fillStyle = '#10151c';
-    ctx.beginPath(); ctx.arc(hs * 0.6, -hs * 0.35, 0.7 * SCALE, 0, Math.PI * 2);
-    ctx.arc(hs * 0.6, hs * 0.35, 0.7 * SCALE, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hs * 0.6, -hs * 0.35, 0.7 * SCALE * this._cs(), 0, Math.PI * 2);
+    ctx.arc(hs * 0.6, hs * 0.35, 0.7 * SCALE * this._cs(), 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   };
 
@@ -763,11 +771,11 @@
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     path();
     ctx.fillStyle = this._colors.body; ctx.fill();
-    ctx.lineWidth = 1.6 * SCALE; ctx.strokeStyle = this._colors.outline; ctx.stroke();
+    ctx.lineWidth = 1.6 * SCALE * this._cs(); ctx.strokeStyle = this._colors.outline; ctx.stroke();
   };
 
   TeachingRenderer.prototype._drawLegs = function (ctx) {
-    var p = this.params, legs = this.state.legs;
+    var p = this.params, legs = this.state.legs, cs = this._cs();
     var ll = this._legLen(), L1 = ll.L1, L2 = ll.L2;
     var skinned = this.features.skin; // 第8步起：腿覆盖同色皮肤、关节段加倍
     ctx.lineCap = 'round';
@@ -780,16 +788,16 @@
       if (skinned) {
         // 覆盖同色皮肤：填充一条由细到粗的四肢——大腿(髋)最粗、脚趾处最细，
         // 关节用二次曲线圆滑过渡（参考 lizard-renderer.js 的 _drawLegOutline）。
-        var hipW = Math.max(4, 11 * SCALE * p.limbThickness);  // 大腿（最粗）
-        var kneeW = Math.max(3, 7.5 * SCALE * p.limbThickness); // 膝
-        var footW = Math.max(1.6, 3 * SCALE * p.limbThickness); // 脚趾端（最细）
+        var hipW = Math.max(4, 11 * SCALE * p.limbThickness * cs);  // 大腿（最粗）
+        var kneeW = Math.max(3, 7.5 * SCALE * p.limbThickness * cs); // 膝
+        var footW = Math.max(1.6, 3 * SCALE * p.limbThickness * cs); // 脚趾端（最细）
         this._drawSkinnedLeg(ctx, hip, ik.knee, drawFoot, hipW, kneeW, footW);
       } else {
         // 骨架阶段（3–7步）：细线条 IK 骨骼，便于教学观察
         ctx.strokeStyle = this._colored() ? this._colors.body : '#6f8a99';
-        ctx.lineWidth = Math.max(2, 3.2 * SCALE * p.limbThickness);
+        ctx.lineWidth = Math.max(2, 3.2 * SCALE * p.limbThickness * cs);
         ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(ik.knee.x, ik.knee.y); ctx.stroke();
-        ctx.lineWidth = Math.max(1.5, 2.3 * SCALE * p.limbThickness);
+        ctx.lineWidth = Math.max(1.5, 2.3 * SCALE * p.limbThickness * cs);
         ctx.beginPath(); ctx.moveTo(ik.knee.x, ik.knee.y); ctx.lineTo(drawFoot.x, drawFoot.y); ctx.stroke();
       }
       this._drawFoot(ctx, drawFoot, hip, leg);
@@ -798,36 +806,36 @@
 
   // 明亮配色的脚/爪，平滑朝向，行走时清晰可见
   TeachingRenderer.prototype._drawFoot = function (ctx, foot, hip, leg) {
-    var bright = '#ffe14d';
+    var bright = '#ffe14d', cs = this._cs();
     var angle = Math.atan2(foot.y - hip.y, foot.x - hip.x);
     if (leg.footAngle === undefined) leg.footAngle = angle;
     leg.footAngle += M.angleDiff(angle, leg.footAngle) * 0.35;
-    var a = leg.footAngle, toe = 5 * SCALE * this.params.limbThickness;
+    var a = leg.footAngle, toe = 5 * SCALE * this.params.limbThickness * cs;
     ctx.save(); ctx.translate(foot.x, foot.y); ctx.rotate(a);
     ctx.strokeStyle = bright; ctx.lineCap = 'round';
-    ctx.lineWidth = Math.max(1.5, 1.4 * SCALE * this.params.limbThickness);
+    ctx.lineWidth = Math.max(1.5, 1.4 * SCALE * this.params.limbThickness * cs);
     for (var t = -1; t <= 1; t++) {
       var spread = t * 0.5;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(spread) * toe, Math.sin(spread) * toe); ctx.stroke();
     }
     ctx.fillStyle = bright;
-    ctx.beginPath(); ctx.arc(0, 0, Math.max(2, 1.8 * SCALE), 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, Math.max(2, 1.8 * SCALE * cs), 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   };
 
   TeachingRenderer.prototype._drawSpikes = function (ctx) {
-    var sp = this.state.spine;
+    var sp = this.state.spine, cs = this._cs(), base = 2 * SCALE * cs;
     ctx.fillStyle = this._colored() ? this._colors.outline : '#2c3a44';
     for (var i = 1; i < sp.length - 1; i++) {
       var a = sp[i - 1], b = sp[i + 1];
       var tx = b.x - a.x, ty = b.y - a.y, tl = Math.hypot(tx, ty) || 1;
       var nx = -ty / tl, ny = tx / tl;
-      var t = i / (sp.length - 1), len = 7 * SCALE * (1 - Math.abs(0.4 - t));
-      if (len < 1.5 * SCALE) continue;
+      var t = i / (sp.length - 1), len = 7 * SCALE * cs * (1 - Math.abs(0.4 - t));
+      if (len < 1.5 * SCALE * cs) continue;
       ctx.beginPath();
-      ctx.moveTo(sp[i].x - nx * 2 * SCALE, sp[i].y - ny * 2 * SCALE);
+      ctx.moveTo(sp[i].x - nx * base, sp[i].y - ny * base);
       ctx.lineTo(sp[i].x + nx * len, sp[i].y + ny * len);
-      ctx.lineTo(sp[i].x + nx * 2 * SCALE, sp[i].y + ny * 2 * SCALE);
+      ctx.lineTo(sp[i].x + nx * base, sp[i].y + ny * base);
       ctx.closePath(); ctx.fill();
     }
   };

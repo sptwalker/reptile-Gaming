@@ -268,3 +268,20 @@ test('战斗阶段：远视野检测半径比第10步更大（扩大约80%）', 
   rv.tick(1);
   assert.equal(rv.state.food[0].aware, 0, '第10步在该距离尚不可察觉（远视野较小）');
 });
+
+test('第11步蜥蜴体型缩小一半（其余阶段原尺寸）', () => {
+  const r = new TeachingRenderer(stubCanvas(960, 560), SAMPLE);
+  function bodyLen() {
+    var sp = r.state.spine;
+    return Math.hypot(sp[sp.length - 1].x - sp[0].x, sp[sp.length - 1].y - sp[0].y);
+  }
+  r.applyStage(findStage('vision'));
+  assert.equal(r.params.creatureScale, 1, '第10步为原尺寸');
+  var len10 = bodyLen();
+  r.applyStage(findStage('battle'));
+  assert.equal(r.params.creatureScale, 0.5, '第11步缩放为 0.5');
+  var len11 = bodyLen();
+  assert.ok(Math.abs(len11 - len10 * 0.5) < 1, '第11步体长应约为第10步的一半，实测 ' + len11.toFixed(1) + ' vs ' + len10.toFixed(1));
+  r.applyStage(findStage('params'));
+  assert.equal(r.params.creatureScale, 1, '第12步恢复原尺寸');
+});
