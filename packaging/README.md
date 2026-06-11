@@ -13,21 +13,37 @@ node build-standalone.js dist/蜥蜴动画教学.html
 
 产物：`packaging/dist/蜥蜴动画教学.html`。拷到任意电脑（Windows 自带 Edge 即可），双击打开。无需安装、无需联网。
 
-## B. Windows 安装包（自带运行时，无需浏览器/Node）
+## B. Windows 便携版 / 安装包（自带运行时，无需浏览器/Node）
 
-用 Electron 把内置 Chromium 一起打包，生成 Windows 安装程序（NSIS `.exe`）和免安装便携版（portable `.exe`）。
+用 Electron 把内置 Chromium 一起打包。先安装依赖（约 200MB，需联网一次）：
 
 ```bash
 cd packaging
-npm install            # 安装 electron 与 electron-builder（约 200MB，需联网一次）
-npm run dist           # 生成安装包
+npm install
 ```
 
-产物（在 `packaging/dist/`）：
-- `蜥蜴动画教学-1.0.0-x64.exe` —— NSIS 安装程序（可选安装路径、建桌面快捷方式）
-- `蜥蜴动画教学-1.0.0-x64.exe`（portable）—— 免安装，拷过去直接双击运行
+### B1. 便携版（推荐，最稳妥）
 
-把安装程序拷到新电脑，双击安装→开始菜单/桌面启动；或用便携版直接运行。**目标电脑无需安装任何浏览器或 Node 运行时**。
+```bash
+npm run standalone                         # 生成 app/index.html
+npx electron-builder --win dir             # 生成免安装目录 dist/win-unpacked/
+```
+
+把 `dist/win-unpacked/` 整个文件夹拷到任意 Windows 电脑，双击里面的 `蜥蜴动画教学实验室.exe` 即可运行；或压缩成 zip 分发（仓库已提供脚本产物 `dist/蜥蜴动画教学-portable-win-x64.zip`，解压即用）。**目标电脑无需安装任何浏览器或 Node。**
+
+### B2. NSIS 安装程序（生成 setup.exe）
+
+```bash
+npm run dist                               # 生成 NSIS 安装程序 + 便携 exe
+```
+
+产物：`dist/蜥蜴动画教学-1.0.0-x64.exe`（安装程序，可选安装路径、建桌面快捷方式）。
+
+> ⚠️ 注意：electron-builder 打包 NSIS 时会解压 winCodeSign 工具，其中含 macOS 符号链接，**在未开启“开发者模式 / 管理员权限”的 Windows 上会因无权创建符号链接而失败**。若 `npm run dist` 报 “Cannot create symbolic link”，请任选其一后重试：
+> - 设置 → 隐私和安全性 → 开发者选项 → 打开“开发人员模式”；或
+> - 以管理员身份运行终端再执行 `npm run dist`。
+> 便携版（B1）不受此限制。
+
 
 ## 本地预览（开发用）
 
